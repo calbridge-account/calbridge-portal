@@ -1,0 +1,25 @@
+# Secrets & credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Dependency dirs
+node_modules/
+__pycache__/
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+*.pyc
+
+# Editor
+.vscode/
+.idea/
+*.swp
