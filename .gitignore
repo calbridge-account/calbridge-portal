@@ -1,25 +1,22 @@
-# Secrets & credentials
+# Environment
 .env
 .env.*
+
+# Keys
 *.pem
 *.key
-*.p12
-*.pfx
-id_rsa
-id_ed25519
 
-# Dependency dirs
+# Node
 node_modules/
-__pycache__/
-.venv/
-venv/
-
-# Build output
 dist/
 build/
-*.pyc
 
-# Editor
-.vscode/
-.idea/
-*.swp
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# OpenClaw
+.openclaw/
