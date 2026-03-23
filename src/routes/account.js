@@ -194,4 +194,17 @@ router.delete('/team/:memberId', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * POST /account/complete-onboarding
+ * Mark onboarding as completed for the logged-in client
+ */
+router.post('/complete-onboarding', requireAuth, async (req, res, next) => {
+  try {
+    await query(`
+      UPDATE clients SET onboarding_completed = TRUE WHERE client_id = ?
+    `, [req.session.clientId]);
+    res.json({ message: 'Onboarding completed' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

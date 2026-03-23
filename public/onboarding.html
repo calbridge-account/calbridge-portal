@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Getting Started</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    /* ── Onboarding page layout ─────────────────────────────────────────── */
+    body.onboarding-page {
+      background: #d8d0c4;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+
+    .onboarding-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.18);
+      width: 100%;
+      max-width: 560px;
+      overflow: hidden;
+    }
+
+    /* ── Progress header ─────────────────────────────────────────────────── */
+    .onboarding-header {
+      background: var(--brand-dark);
+      padding: 24px 32px 0;
+      color: #fff;
+    }
+    .onboarding-logo {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .onboarding-logo img { height: 40px; }
+
+    .progress-steps {
+      display: flex;
+      gap: 0;
+      position: relative;
+    }
+    .progress-steps::before {
+      content: '';
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      height: 2px;
+      background: rgba(255,255,255,.2);
+      z-index: 0;
+    }
+    .step-indicator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      position: relative;
+      z-index: 1;
+      padding-bottom: 16px;
+      cursor: default;
+    }
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.2);
+      border: 2px solid rgba(255,255,255,.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: rgba(255,255,255,.5);
+      margin-bottom: 6px;
+      transition: all .25s;
+    }
+    .step-indicator.active .step-dot {
+      background: #fff;
+      border-color: #fff;
+      color: var(--brand-dark);
+    }
+    .step-indicator.done .step-dot {
+      background: var(--brand-mid);
+      border-color: var(--brand-mid);
+      color: #fff;
+    }
+    .step-label {
+      font-size: 11px;
+      color: rgba(255,255,255,.4);
+      white-space: nowrap;
+      transition: color .25s;
+    }
+    .step-indicator.active .step-label { color: rgba(255,255,255,.85); font-weight: 600; }
+    .step-indicator.done  .step-label { color: rgba(255,255,255,.6); }
+
+    /* ── Step body ───────────────────────────────────────────────────────── */
+    .onboarding-body {
+      padding: 32px;
+    }
+    .step-view { display: none; }
+    .step-view.active { display: block; }
+
+    .step-heading {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-800);
+      margin-bottom: 6px;
+    }
+    .step-sub {
+      font-size: 14px;
+      color: var(--gray-400);
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    /* ── Connect options ─────────────────────────────────────────────────── */
+    .connect-options {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .connect-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--gray-50);
+    }
+    .connect-option-info h4 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .connect-option-info p  { font-size: 12px; color: var(--gray-400); }
+    .connect-option .badge-connected    { background: var(--success-bg); color: var(--success); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+    .connect-option .badge-disconnected { background: var(--gray-100);   color: var(--gray-400); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+
+    /* ── COGS upload ─────────────────────────────────────────────────────── */
+    .upload-zone {
+      border: 2px dashed var(--gray-200);
+      border-radius: var(--radius);
+      padding: 32px;
+      text-align: center;
+      background: var(--gray-50);
+      margin-bottom: 16px;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    .upload-zone:hover { border-color: var(--brand); }
+    .upload-zone p { font-size: 13px; color: var(--gray-400); margin-top: 8px; }
+
+    /* ── Done step ───────────────────────────────────────────────────────── */
+    .done-icon {
+      width: 64px;
+      height: 64px;
+      background: var(--brand-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 20px;
+    }
+    .done-features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 24px;
+    }
+    .done-features li {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--gray-100);
+      font-size: 13px;
+      color: var(--gray-600);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .done-features li:last-child { border-bottom: none; }
+    .done-features li span { font-size: 16px; }
+
+    /* ── Navigation ──────────────────────────────────────────────────────── */
+    .onboarding-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .btn-back {
+      padding: 10px 20px;
+      background: transparent;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-back:hover { background: var(--gray-100); }
+    .btn-next {
+      padding: 10px 28px;
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-next:hover { background: var(--brand-dark); }
+    .btn-skip {
+      font-size: 13px;
+      color: var(--gray-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 10px 0;
+    }
+    .btn-skip:hover { color: var(--gray-600); }
+  </style>
+</head>
+<body class="onboarding-page">
+  <div class="onboarding-card">
+
+    <!-- Header with progress steps -->
+    <div class="onboarding-header">
+      <div class="onboarding-logo">
+        <img src="/images/calbridge-logo-220.png" alt="CalBridge" />
+      </div>
+      <div class="progress-steps" id="progress-steps">
+        <div class="step-indicator active" data-step="0">
+          <div class="step-dot">1</div>
+          <div class="step-label">Welcome</div>
+        </div>
+        <div class="step-indicator" data-step="1">
+          <div class="step-dot">2</div>
+          <div class="step-label">Amazon</div>
+        </div>
+        <div class="step-indicator" data-step="2">
+          <div class="step-dot">3</div>
+          <div class="step-label">COGS</div>
+        </div>
+        <div class="step-indicator" data-step="3">
+          <div class="step-dot">4</div>
+          <div class="step-label">Done</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step body -->
+    <div class="onboarding-body">
+
+      <!-- Step 1: Welcome & Profile -->
+      <div class="step-view active" id="step-0">
+        <div class="step-heading">Welcome to CalBridge! 👋</div>
+        <div class="step-sub">Let's get your account set up in a few quick steps. First, tell us a bit about you.</div>
+        <form id="profile-form">
+          <div class="form-group">
+            <label for="ob-name">Your Name</label>
+            <input type="text" id="ob-name" placeholder="Jane Smith" required autocomplete="name" />
+          </div>
+          <div class="form-group">
+            <label for="ob-company">Company / Brand Name</label>
+            <input type="text" id="ob-company" placeholder="Acme Brands LLC" autocomplete="organization" />
+          </div>
+        </form>
+        <div class="onboarding-nav">
+          <div></div>
+          <button class="btn-next" onclick="nextStep()">Continue →</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Connect Amazon -->
+      <div class="step-view" id="step-1">
+        <div class="step-heading">Connect your Amazon accounts</div>
+        <div class="step-sub">CalBridge pulls your advertising data, sales, and product info directly from Amazon. Connect at least one account to get started.</div>
+        <div class="connect-options" id="ob-connections">
+          <div class="connect-option">
+            <div class="connect-option-info">
+              <h4>Amazon Ads</h4>
+              <p>Sponsored Products, Brands & Display</p>
+            </div>
+            <span id="badge-ads" class="badge-disconnected">Not connected</span>
+          </div>
+          <div class="connect-option">
+            <div class="connect-option-info">
+              <h4>Amazon DSP</h4>
+              <p>Programmatic display advertising</p>
+            </div>
+            <span id="badge-dsp" class="badge-disconnected">Not connected</span>
+          </div>
+          <div class="connect-option">
+            <div class="connect-option-info">
+              <h4>Seller Central</h4>
+              <p>Sales, inventory & product data</p>
+            </div>
+            <span id="badge-seller" class="badge-disconnected">Not connected</span>
+          </div>
+          <div class="connect-option">
+            <div class="connect-option-info">
+              <h4>Vendor Central</h4>
+              <p>Vendor sales & shipment data</p>
+            </div>
+            <span id="badge-vendor" class="badge-disconnected">Not connected</span>
+          </div>
+        </div>
+        <a href="/account.html#connections" class="btn-next" style="display:inline-block;text-decoration:none;margin-bottom:16px;" id="btn-connect-amazon">Connect Amazon →</a>
+        <div class="onboarding-nav">
+          <button class="btn-back" onclick="prevStep()">← Back</button>
+          <button class="btn-skip" onclick="nextStep()">Skip for now</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Upload COGS -->
+      <div class="step-view" id="step-2">
+        <div class="step-heading">Upload your cost of goods (COGS)</div>
+        <div class="step-sub">COGS data lets CalBridge calculate your true contribution margin per ASIN. You can upload a CSV or enter values manually later.</div>
+        <div class="upload-zone" onclick="document.getElementById('ob-cogs-file').click()">
+          <div style="font-size:36px;">📊</div>
+          <p><strong>Click to upload COGS CSV</strong></p>
+          <p>or drag and drop — .csv files only</p>
+          <input type="file" id="ob-cogs-file" accept=".csv" style="display:none" onchange="handleCogsUpload(this)" />
+        </div>
+        <div id="ob-cogs-status" class="status-msg hidden"></div>
+        <div style="font-size:13px;color:var(--gray-400);margin-bottom:8px;">
+          Expected format: <code>ASIN, COGS</code> — <a href="/account.html#cogs" style="color:var(--brand);">view template</a>
+        </div>
+        <div class="onboarding-nav">
+          <button class="btn-back" onclick="prevStep()">← Back</button>
+          <button class="btn-skip" onclick="nextStep()">Skip for now</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Done -->
+      <div class="step-view" id="step-3">
+        <div style="text-align:center;">
+          <div class="done-icon">🎉</div>
+          <div class="step-heading" style="text-align:center;">You're all set!</div>
+          <div class="step-sub" style="text-align:center;">Your CalBridge portal is ready. Here's what you can do:</div>
+        </div>
+        <ul class="done-features">
+          <li><span>📊</span> View contribution margin across all your ASINs</li>
+          <li><span>📢</span> Analyze advertising performance from Amazon Ads & DSP</li>
+          <li><span>🏆</span> Track sales velocity and product performance</li>
+          <li><span>💡</span> Get AI-powered decision recommendations</li>
+        </ul>
+        <button class="btn-next" style="width:100%;" id="btn-go-dashboard" onclick="completeOnboarding()">
+          Go to Dashboard →
+        </button>
+      </div>
+
+    </div><!-- /.onboarding-body -->
+  </div><!-- /.onboarding-card -->
+
+  <script>
+    let currentStep = 0;
+    const totalSteps = 4;
+
+    // ── Auth check ──────────────────────────────────────────────────────────
+    (async () => {
+      try {
+        const r = await fetch('/auth/me', { credentials: 'include' });
+        if (!r.ok) { window.location.href = '/'; return; }
+        const { client } = await r.json();
+        // Pre-fill name if available
+        const nameInput = document.getElementById('ob-name');
+        if (nameInput && client.name) nameInput.value = client.name;
+      } catch { window.location.href = '/'; }
+    })();
+
+    // ── Load Amazon connection status ───────────────────────────────────────
+    async function loadConnectionStatus() {
+      try {
+        const r = await fetch('/amazon/status', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        for (const [type, info] of Object.entries(data)) {
+          const badge = document.getElementById(`badge-${type}`);
+          if (badge) {
+            badge.textContent = info.connected ? 'Connected ✓' : 'Not connected';
+            badge.className   = info.connected ? 'badge-connected' : 'badge-disconnected';
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // ── Step navigation ─────────────────────────────────────────────────────
+    function updateProgress() {
+      document.querySelectorAll('.step-indicator').forEach((el, i) => {
+        el.classList.remove('active', 'done');
+        if (i === currentStep) el.classList.add('active');
+        if (i < currentStep)  el.classList.add('done');
+      });
+      document.querySelectorAll('.step-view').forEach((el, i) => {
+        el.classList.toggle('active', i === currentStep);
+      });
+    }
+
+    async function nextStep() {
+      // Step 0: save profile if filled
+      if (currentStep === 0) {
+        const name    = document.getElementById('ob-name').value.trim();
+        const company = document.getElementById('ob-company').value.trim();
+        if (name) {
+          await fetch('/account/profile', {
+            method:  'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name, companyName: company || name }),
+            credentials: 'include'
+          }).catch(() => {});
+        }
+      }
+      if (currentStep === 1) {
+        // Refresh connection badges when entering this step
+        loadConnectionStatus();
+      }
+      currentStep = Math.min(currentStep + 1, totalSteps - 1);
+      updateProgress();
+      if (currentStep === 1) loadConnectionStatus();
+    }
+
+    function prevStep() {
+      currentStep = Math.max(currentStep - 1, 0);
+      updateProgress();
+    }
+
+    // ── COGS upload handler ─────────────────────────────────────────────────
+    async function handleCogsUpload(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const statusEl = document.getElementById('ob-cogs-status');
+      statusEl.className = 'status-msg status-info';
+      statusEl.textContent = 'Uploading...';
+      statusEl.classList.remove('hidden');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const r = await fetch('/cogs/upload', {
+          method: 'POST',
+          body:   formData,
+          credentials: 'include'
+        });
+        const data = await r.json();
+        if (r.ok) {
+          statusEl.className = 'status-msg status-success';
+          statusEl.textContent = `✓ ${data.message || 'COGS uploaded successfully'}`;
+        } else {
+          statusEl.className = 'status-msg status-error';
+          statusEl.textContent = data.error || 'Upload failed';
+        }
+      } catch {
+        statusEl.className = 'status-msg status-error';
+        statusEl.textContent = 'Network error — please try again';
+      }
+    }
+
+    // ── Complete onboarding ─────────────────────────────────────────────────
+    async function completeOnboarding() {
+      const btn = document.getElementById('btn-go-dashboard');
+      btn.disabled = true;
+      btn.textContent = 'Setting up...';
+      try {
+        await fetch('/account/complete-onboarding', {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch { /* ignore — redirect anyway */ }
+      window.location.href = '/dashboard.html';
+    }
+  </script>
+</body>
+</html>

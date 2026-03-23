@@ -40,6 +40,22 @@ form.addEventListener('submit', async (e) => {
       errorEl.classList.remove('hidden');
       document.getElementById('signup-form').style.display = 'none';
     } else {
+      // Redirect to onboarding if not completed and no connections exist
+      const onboardingDone = data.client?.onboardingCompleted;
+      if (!onboardingDone) {
+        // Check if the client has any Amazon connections before deciding
+        try {
+          const connRes = await fetch('/amazon/status', { credentials: 'include' });
+          const connData = connRes.ok ? await connRes.json() : {};
+          const hasConnections = Object.values(connData).some(c => c.connected);
+          if (!hasConnections) {
+            window.location.href = '/onboarding.html';
+            return;
+          }
+        } catch {
+          // If connection check fails, fall through to dashboard
+        }
+      }
       window.location.href = '/dashboard.html';
     }
   } catch (err) {
