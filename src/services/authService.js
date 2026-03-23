@@ -51,16 +51,18 @@ async function getById(id) {
     id: row.CLIENT_ID,
     email: row.EMAIL,
     name: row.NAME,
-    connections: row.CONNECTIONS ? JSON.parse(row.CONNECTIONS) : {}
+    connections: row.CONNECTIONS
+      ? (typeof row.CONNECTIONS === 'string' ? JSON.parse(row.CONNECTIONS) : row.CONNECTIONS)
+      : {}
   };
 }
 
 async function updateClient(id, updates) {
   if (updates.connections !== undefined) {
-    await query(
-      `UPDATE clients SET connections = ? WHERE client_id = ?`,
-      [JSON.stringify(updates.connections), id]
-    );
+    const val = typeof updates.connections === 'string'
+      ? updates.connections
+      : JSON.stringify(updates.connections);
+    await query(`UPDATE clients SET connections = PARSE_JSON(?) WHERE client_id = ?`, [val, id]);
   }
   return getById(id);
 }
