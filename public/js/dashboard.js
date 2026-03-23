@@ -26,15 +26,15 @@ async function checkAuth() {
       const logoEl = document.querySelector('.sidebar-logo img');
       if (logoEl) { logoEl.src = profile.logoUrl; logoEl.style.filter = 'none'; }
     }
-    // Conditional nav based on connections
+    // Conditional nav based on connections — hide tabs entirely if not connected
     const connRes = await fetch('/amazon/status', { credentials: 'include' });
     const conn = await connRes.json();
-    const hasAds    = conn.ads?.connected || conn.dsp?.connected;
-    const hasSales  = conn.seller?.connected || conn.vendor?.connected;
-    const hasAny    = hasAds || hasSales;
-    if (!hasAny)   document.querySelector('[data-section="overview"]')?.classList.add('nav-disabled');
-    if (!hasAds)   document.querySelector('a[href="/advertising.html"]')?.classList.add('nav-disabled');
-    if (!hasSales) document.querySelector('[data-section="performance"]')?.classList.add('nav-disabled');
+    const hasAds   = conn.ads?.connected || conn.dsp?.connected;
+    const hasSales = conn.seller?.connected || conn.vendor?.connected;
+    const hasAny   = hasAds || hasSales;
+    if (!hasAny)   document.querySelector('[data-section="overview"]')?.closest('a')?.remove();
+    if (!hasAds)   document.querySelector('a[href="/advertising.html"]')?.remove();
+    if (!hasSales) document.querySelector('[data-section="performance"]')?.closest('a')?.remove();
   } catch { window.location.href = '/'; }
 }
 

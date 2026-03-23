@@ -24,6 +24,16 @@ async function checkAuth() {
       const logoEl = document.querySelector('.sidebar-logo img');
       if (logoEl) { logoEl.src = profile.logoUrl; logoEl.style.filter = 'none'; }
     }
+    // Hide nav items based on connections
+    const connRes = await fetch('/amazon/status', { credentials: 'include' });
+    const conn = await connRes.json();
+    const hasAds   = conn.ads?.connected || conn.dsp?.connected;
+    const hasSales = conn.seller?.connected || conn.vendor?.connected;
+    const hasAny   = hasAds || hasSales;
+    if (!hasAny)   document.querySelector('a[href="/dashboard.html"]')?.remove();
+    if (!hasSales) document.querySelector('a[href="/dashboard.html#performance"]')?.remove();
+    // If no ads connected, redirect away from this page
+    if (!hasAds) { window.location.href = '/account.html'; return; }
   } catch (e) {
     console.error('Auth check failed:', e);
     window.location.href = '/index.html';
