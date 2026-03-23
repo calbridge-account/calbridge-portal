@@ -2,10 +2,12 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
+const { removeBackground } = require('../services/removeBackground');
 
 // Logo upload config
 const storage = multer.diskStorage({
@@ -70,7 +72,29 @@ router.patch('/profile', requireAuth, async (req, res, next) => {
 router.post('/logo', requireAuth, upload.single('logo'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded or invalid type (PNG, JPG, SVG, WebP allowed)' });
-    const logoUrl = `/uploads/logos/${req.file.filename}`;
+
+    const uploadedPath = req.file.path;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let finalPath = uploadedPath;
+    let finalFilename = req.file.filename;
+
+    // Auto-remove background for non-SVG images
+    if (ext !== '.svg') {
+      const pngFilename = `${req.session.clientId}.png`;
+      const pngPath = path.join(path.dirname(uploadedPath), pngFilename);
+      try {
+        await removeBackground(uploadedPath, pngPath);
+        // Clean up original if it was a different format
+        if (uploadedPath !== pngPath) fs.unlinkSync(uploadedPath);
+        finalPath = pngPath;
+        finalFilename = pngFilename;
+      } catch (bgErr) {
+        console.warn('[Logo] Background removal failed, using original:', bgErr.message);
+        // Fall through — use original if bg removal fails
+      }
+    }
+
+    const logoUrl = `/uploads/logos/${finalFilename}`;
     await query(`UPDATE clients SET logo_url = ? WHERE client_id = ?`, [logoUrl, req.session.clientId]);
     res.json({ message: 'Logo uploaded', logoUrl });
   } catch (err) { next(err); }
