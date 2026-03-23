@@ -89,29 +89,31 @@ async function loadAll() {
 // ---- Overview ----
 async function loadOverview() {
   try {
-    const res = await fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' });
-    const { topPerformers, bottomPerformers } = await res.json();
+    const [summaryRes, perfRes] = await Promise.all([
+      fetch(`/dashboard/summary?days=${currentDays}`, { credentials: 'include' }),
+      fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' })
+    ]);
+    const summary = await summaryRes.json();
+    const { topPerformers, bottomPerformers } = await perfRes.json();
 
-    // KPIs
+    // Top-line KPIs from summary endpoint
+    $('kpi-revenue').textContent    = fmt$(summary.totalRetailSales);
+    $('kpi-revenue-sub').textContent = `Seller ${fmt$(summary.sellerRevenue)} · Vendor ${fmt$(summary.vendorRevenue)}`;
+    $('kpi-ad-sales').textContent   = fmt$(summary.totalAdSales);
+    $('kpi-ad-sales-sub').textContent = `${summary.totalAdOrders.toLocaleString()} orders`;
+    $('kpi-spend').textContent      = fmt$(summary.totalAdSpend);
+    $('kpi-spend-sub').textContent  = summary.acos ? `${(summary.acos * 100).toFixed(1)}% ACOS` : '';
+    $('kpi-roas').textContent       = summary.totalRoas ? `${summary.totalRoas.toFixed(2)}x` : '—';
+
+    // CM from performers
     const totals = topPerformers.reduce((acc, r) => {
-      acc.revenue  += Number(r.TOTAL_REVENUE  || 0);
-      acc.spend    += Number(r.TOTAL_AD_SPEND || 0);
-      acc.cm       += Number(r.TOTAL_CM       || 0);
-      acc.fba      += Number(r.TOTAL_FBA_FEES || 0);
+      acc.cm  += Number(r.TOTAL_CM  || 0);
       return acc;
-    }, { revenue: 0, spend: 0, cm: 0, fba: 0 });
-
-    const avgAcos = topPerformers.length
-      ? topPerformers.reduce((s, r) => s + (r.TOTAL_AD_SPEND / (r.TOTAL_REVENUE || 1)), 0) / topPerformers.length
-      : 0;
-    const cmPct = totals.revenue > 0 ? (totals.cm / totals.revenue) * 100 : 0;
-
-    $('kpi-revenue').textContent = fmt$(totals.revenue);
-    $('kpi-spend').textContent   = fmt$(totals.spend);
-    $('kpi-cm').textContent      = fmt$(totals.cm);
-    $('kpi-cm-sub').textContent  = `${cmPct.toFixed(1)}% margin`;
-    $('kpi-acos').textContent    = `${(avgAcos * 100).toFixed(1)}%`;
-    $('kpi-spend-sub').textContent = `${totals.revenue > 0 ? ((totals.spend / totals.revenue) * 100).toFixed(1) : 0}% of revenue`;
+    }, { cm: 0 });
+    const cmPct = summary.totalRetailSales > 0 ? (totals.cm / summary.totalRetailSales) * 100 : 0;
+    $('kpi-cm').textContent     = fmt$(totals.cm);
+    $('kpi-cm-sub').textContent = `${cmPct.toFixed(1)}% of retail sales`;
+    $('kpi-acos').textContent   = summary.acos ? `${(summary.acos * 100).toFixed(1)}%` : '—';
 
     // CM Trend chart (aggregate by ASIN across all performers)
     await loadCmTrend();

@@ -62,11 +62,16 @@
     <!-- Overview Section -->
     <section id="section-overview" class="dashboard-section active">
       <!-- KPI Cards -->
-      <div class="kpi-grid">
+      <div class="kpi-grid kpi-grid-6">
         <div class="kpi-card">
-          <div class="kpi-label">Total Revenue</div>
+          <div class="kpi-label">Total Retail Sales</div>
           <div class="kpi-value" id="kpi-revenue">—</div>
-          <div class="kpi-sub" id="kpi-revenue-sub"></div>
+          <div class="kpi-sub" id="kpi-revenue-sub">Seller + Vendor</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Ad Attributed Sales</div>
+          <div class="kpi-value" id="kpi-ad-sales">—</div>
+          <div class="kpi-sub" id="kpi-ad-sales-sub"></div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Ad Spend</div>
@@ -74,14 +79,19 @@
           <div class="kpi-sub" id="kpi-spend-sub"></div>
         </div>
         <div class="kpi-card highlight">
+          <div class="kpi-label">Total ROAS</div>
+          <div class="kpi-value" id="kpi-roas">—</div>
+          <div class="kpi-sub">Retail Sales / Ad Spend</div>
+        </div>
+        <div class="kpi-card">
           <div class="kpi-label">Contribution Margin</div>
           <div class="kpi-value" id="kpi-cm">—</div>
           <div class="kpi-sub" id="kpi-cm-sub"></div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Avg ACOS</div>
+          <div class="kpi-label">ACOS</div>
           <div class="kpi-value" id="kpi-acos">—</div>
-          <div class="kpi-sub" id="kpi-acos-sub"></div>
+          <div class="kpi-sub">Ad Cost of Sale</div>
         </div>
       </div>
 
