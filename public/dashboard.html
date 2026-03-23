@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-page">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <h2>CalBridge</h2>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#overview" class="nav-item active" data-section="overview">📊 Overview</a>
+      <a href="#performance" class="nav-item" data-section="performance">🏆 Performance</a>
+      <a href="#connections" class="nav-item" data-section="connections">🔗 Connections</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="client-name">Loading...</span>
+      <button class="btn-logout" id="logout-btn">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div>
+        <h1 id="section-title">Overview</h1>
+        <p id="section-sub">Last 30 days</p>
+      </div>
+      <div class="header-actions">
+        <select id="days-filter" class="days-select">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="60">Last 60 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+        <button class="btn-secondary" id="sync-btn">↻ Sync Now</button>
+      </div>
+    </header>
+
+    <!-- Overview Section -->
+    <section id="section-overview" class="dashboard-section active">
+      <!-- KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Revenue</div>
+          <div class="kpi-value" id="kpi-revenue">—</div>
+          <div class="kpi-sub" id="kpi-revenue-sub"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Ad Spend</div>
+          <div class="kpi-value" id="kpi-spend">—</div>
+          <div class="kpi-sub" id="kpi-spend-sub"></div>
+        </div>
+        <div class="kpi-card highlight">
+          <div class="kpi-label">Contribution Margin</div>
+          <div class="kpi-value" id="kpi-cm">—</div>
+          <div class="kpi-sub" id="kpi-cm-sub"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg ACOS</div>
+          <div class="kpi-value" id="kpi-acos">—</div>
+          <div class="kpi-sub" id="kpi-acos-sub"></div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <h3>Contribution Margin Trend</h3>
+          <canvas id="cm-trend-chart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Revenue vs Ad Spend</h3>
+          <canvas id="rev-spend-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Top ASINs Table -->
+      <div class="table-card">
+        <h3>Top ASINs by Contribution Margin</h3>
+        <table class="data-table" id="top-asins-table">
+          <thead>
+            <tr>
+              <th>ASIN</th>
+              <th>Revenue</th>
+              <th>Ad Spend</th>
+              <th>FBA Fees</th>
+              <th>COGS</th>
+              <th>CM $</th>
+              <th>CM %</th>
+            </tr>
+          </thead>
+          <tbody id="top-asins-body">
+            <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Performance Section -->
+    <section id="section-performance" class="dashboard-section hidden">
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <h3>Campaign Performance</h3>
+          <canvas id="campaign-chart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>ACOS by Campaign</h3>
+          <canvas id="acos-chart"></canvas>
+        </div>
+      </div>
+      <div class="table-card">
+        <h3>Bottom ASINs — Needs Attention</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ASIN</th>
+              <th>Revenue</th>
+              <th>Ad Spend</th>
+              <th>CM $</th>
+              <th>CM %</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="bottom-asins-body">
+            <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Connections Section -->
+    <section id="section-connections" class="dashboard-section hidden">
+      <div class="connections-grid" id="connections-grid">
+        <!-- Populated by JS -->
+      </div>
+      <div class="sync-status">
+        <h3>Sync Status</h3>
+        <div id="sync-status-list">Loading...</div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const session = require('express-session');
 
+const path = require('path');
 const authRoutes = require('./routes/auth');
 const amazonRoutes = require('./routes/amazon');
 const dashboardRoutes = require('./routes/dashboard');
@@ -27,6 +28,9 @@ app.use(session({
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   }
 }));
+
+// Serve static frontend
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.use('/auth', authRoutes);
