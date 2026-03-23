@@ -53,7 +53,6 @@ router.get('/', requireAuth, async (req, res, next) => {
         c.connection_type,
         c.status,
         c.budget,
-        c.targeting_type,
         COALESCE(SUM(p.impressions), 0)  AS impressions,
         COALESCE(SUM(p.clicks),      0)  AS clicks,
         COALESCE(SUM(p.spend),       0)  AS spend,
@@ -72,7 +71,7 @@ router.get('/', requireAuth, async (req, res, next) => {
       WHERE c.client_id = ?
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
-        c.connection_type, c.status, c.budget, c.targeting_type
+        c.connection_type, c.status, c.budget
       ORDER BY SUM(p.spend) DESC NULLS LAST
     `, [days, req.session.clientId]);
 
@@ -112,7 +111,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
     const campaignRows = await query(`
       SELECT
         c.campaign_id, c.campaign_name, c.campaign_type,
-        c.connection_type, c.status, c.budget, c.targeting_type,
+        c.connection_type, c.status, c.budget, 
         COALESCE(SUM(p.impressions), 0) AS impressions,
         COALESCE(SUM(p.clicks),      0) AS clicks,
         COALESCE(SUM(p.spend),       0) AS spend,
@@ -130,7 +129,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         AND c.campaign_id = ?
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
-        c.connection_type, c.status, c.budget, c.targeting_type
+        c.connection_type, c.status, c.budget
     `, [days, req.session.clientId, id]);
 
     if (!campaignRows || campaignRows.length === 0) {
