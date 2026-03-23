@@ -12,8 +12,8 @@ form.addEventListener('submit', async (e) => {
   btn.textContent = isSignup ? 'Creating account...' : 'Signing in...';
 
   const body = isSignup
-    ? { name: document.getElementById('name').value, email: document.getElementById('email').value, password: document.getElementById('password').value }
-    : { email: document.getElementById('email').value, password: document.getElementById('password').value };
+    ? { name: document.getElementById('name').value, email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value }
+    : { email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value };
 
   try {
     const res = await fetch(isSignup ? '/auth/signup' : '/auth/login', {

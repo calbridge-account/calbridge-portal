@@ -7,6 +7,7 @@ const { query } = require('./snowflakeService');
  */
 
 async function signup({ email, password, name }) {
+  email = email.toLowerCase().trim();
   // Check existing
   const existing = await query(
     `SELECT client_id FROM clients WHERE email = ?`, [email]
@@ -27,6 +28,7 @@ async function signup({ email, password, name }) {
 }
 
 async function login({ email, password }) {
+  email = email.toLowerCase().trim();
   const rows = await query(
     `SELECT client_id, email, name, password_hash FROM clients WHERE email = ?`, [email]
   );
