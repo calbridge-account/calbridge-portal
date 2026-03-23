@@ -16,6 +16,8 @@ const SP_API_BASE = IS_SANDBOX
   ? 'https://sandbox.sellingpartnerapi-na.amazon.com'
   : 'https://sellingpartnerapi-na.amazon.com';
 
+console.log(`[SP-API] Using ${IS_SANDBOX ? 'SANDBOX' : 'PRODUCTION'} endpoint`);
+
 /**
  * Build authenticated Axios instance for SP-API
  */

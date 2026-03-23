@@ -5,13 +5,19 @@ const authService = require('./authService');
 const LWA_AUTH_URL = 'https://www.amazon.com/ap/oa';
 const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
 
-const {
-  LWA_CLIENT_ID,
-  LWA_CLIENT_SECRET,
-  SPAPI_CLIENT_ID,
-  SPAPI_CLIENT_SECRET,
-  BASE_URL = 'http://localhost:3000'
-} = process.env;
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+const LWA_CLIENT_ID     = process.env.LWA_CLIENT_ID;
+const LWA_CLIENT_SECRET = process.env.LWA_CLIENT_SECRET;
+const BASE_URL          = process.env.BASE_URL || 'http://localhost:3000';
+
+// Use production SP-API credentials when in production, sandbox otherwise
+const SPAPI_CLIENT_ID     = IS_PROD
+  ? process.env.SPAPI_PROD_CLIENT_ID
+  : process.env.SPAPI_CLIENT_ID;
+const SPAPI_CLIENT_SECRET = IS_PROD
+  ? process.env.SPAPI_PROD_CLIENT_SECRET
+  : process.env.SPAPI_CLIENT_SECRET;
 
 // Connection types
 const CONNECTIONS = {
