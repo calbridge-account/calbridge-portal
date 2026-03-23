@@ -3,48 +3,61 @@ const router = express.Router();
 const amazonAuthService = require('../services/amazonAuthService');
 const { requireAuth } = require('../middleware/requireAuth');
 
-// GET /amazon/connect/ads
-// Kicks off LWA OAuth for Amazon Advertising
-router.get('/connect/ads', requireAuth, (req, res) => {
-  const url = amazonAuthService.getAdsAuthUrl(req.session.clientId);
-  res.redirect(url);
-});
+const VALID_TYPES = ['ads', 'dsp', 'seller', 'vendor'];
 
-// GET /amazon/connect/spapi
-// Kicks off LWA OAuth for SP-API (Seller/Vendor Central)
-router.get('/connect/spapi', requireAuth, (req, res) => {
-  const url = amazonAuthService.getSpapiAuthUrl(req.session.clientId);
-  res.redirect(url);
-});
-
-// GET /amazon/callback/ads
-// OAuth callback for Amazon Advertising
-router.get('/callback/ads', requireAuth, async (req, res, next) => {
+/**
+ * GET /amazon/connect/:type
+ * Kicks off LWA OAuth for the given connection type.
+ * type: ads | dsp | seller | vendor
+ */
+router.get('/connect/:type', requireAuth, (req, res, next) => {
   try {
-    const { code, state } = req.query;
-    if (!code) return res.status(400).json({ error: 'Missing auth code' });
-    await amazonAuthService.handleAdsCallback({ clientId: req.session.clientId, code, state });
-    res.redirect('/dashboard?connected=ads');
+    const { type } = req.params;
+    if (!VALID_TYPES.includes(type)) {
+      return res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+    }
+    const url = amazonAuthService.getAuthUrl(type, req.session.clientId);
+    res.redirect(url);
   } catch (err) {
     next(err);
   }
 });
 
-// GET /amazon/callback/spapi
-// OAuth callback for SP-API
-router.get('/callback/spapi', requireAuth, async (req, res, next) => {
+/**
+ * GET /amazon/callback/:type
+ * OAuth callback handler for all 4 connection types.
+ */
+router.get('/callback/:type', requireAuth, async (req, res, next) => {
   try {
+    const { type } = req.params;
+    if (!VALID_TYPES.includes(type)) {
+      return res.status(400).json({ error: 'Invalid callback type' });
+    }
+
     const { code, state, selling_partner_id } = req.query;
-    if (!code) return res.status(400).json({ error: 'Missing auth code' });
-    await amazonAuthService.handleSpapiCallback({ clientId: req.session.clientId, code, state, sellingPartnerId: selling_partner_id });
-    res.redirect('/dashboard?connected=spapi');
+    if (!code) return res.status(400).json({ error: 'Missing authorization code' });
+
+    const extra = {};
+    if (selling_partner_id) extra.sellingPartnerId = selling_partner_id;
+
+    await amazonAuthService.handleCallback({
+      clientId: req.session.clientId,
+      code,
+      state,
+      type,
+      extra
+    });
+
+    res.redirect(`/dashboard?connected=${type}`);
   } catch (err) {
     next(err);
   }
 });
 
-// GET /amazon/status
-// Returns connection status for the logged-in client
+/**
+ * GET /amazon/status
+ * Returns connection status for all 4 types for the logged-in client.
+ */
 router.get('/status', requireAuth, async (req, res, next) => {
   try {
     const status = await amazonAuthService.getConnectionStatus(req.session.clientId);

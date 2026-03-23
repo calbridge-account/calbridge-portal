@@ -21,8 +21,7 @@ async function signup({ email, password, name }) {
     name,
     passwordHash: hash,
     createdAt: new Date().toISOString(),
-    amazonAds: null,   // will hold { profileId, accessToken, refreshToken, expiresAt }
-    spapi: null        // will hold { sellerId, accessToken, refreshToken, expiresAt }
+    connections: {}    // keyed by type: ads | dsp | seller | vendor
   };
   clients.set(client.id, client);
   return client;
