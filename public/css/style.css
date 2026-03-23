@@ -115,6 +115,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 .cm-negative { color: var(--danger); font-weight: 600; }
 .cm-neutral  { color: var(--warning); font-weight: 600; }
 
+/* ---- ADVERTISING PAGE ---- */
+.kpi-grid-6 { grid-template-columns: repeat(6, 1fr); }
+
+.table-header-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-200); }
+.table-header-row h3 { font-size: 14px; font-weight: 600; color: var(--gray-600); margin: 0; }
+
+.channel-tabs { display: flex; gap: 6px; }
+.tab-btn { padding: 5px 12px; border: 1px solid var(--gray-200); border-radius: 20px; background: #fff; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .15s; }
+.tab-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+.badge-ads { background: rgba(26,86,219,.1);  color: var(--brand);   padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-dsp { background: rgba(5,122,85,.1);   color: var(--success); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
 /* ---- CONNECTIONS ---- */
 .connections-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
 .connection-card { background: #fff; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--gray-200); display: flex; align-items: center; justify-content: space-between; }

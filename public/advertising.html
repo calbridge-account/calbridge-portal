@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Advertising</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-page">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><h2>CalBridge</h2></div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="nav-item">📊 Overview</a>
+      <a href="/advertising.html" class="nav-item active">📢 Advertising</a>
+      <a href="/dashboard.html#performance" class="nav-item">🏆 Performance</a>
+      <a href="/dashboard.html#connections" class="nav-item">🔗 Connections</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="client-name">Loading...</span>
+      <button class="btn-logout" id="logout-btn">Sign Out</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="dashboard-header">
+      <div>
+        <h1>Advertising</h1>
+        <p>Amazon Ads + DSP — unified view</p>
+      </div>
+      <div class="header-actions">
+        <select id="days-filter" class="days-select">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="60">Last 60 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="dashboard-section">
+
+      <!-- KPI Row -->
+      <div class="kpi-grid kpi-grid-6">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Spend</div>
+          <div class="kpi-value" id="kpi-spend">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Sales</div>
+          <div class="kpi-value" id="kpi-sales">—</div>
+        </div>
+        <div class="kpi-card highlight">
+          <div class="kpi-label">ACOS</div>
+          <div class="kpi-value" id="kpi-acos">—</div>
+          <div class="kpi-sub">Ad Cost of Sale</div>
+        </div>
+        <div class="kpi-card highlight">
+          <div class="kpi-label">ROAS</div>
+          <div class="kpi-value" id="kpi-roas">—</div>
+          <div class="kpi-sub">Return on Ad Spend</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Impressions</div>
+          <div class="kpi-value" id="kpi-impressions">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Clicks / CTR</div>
+          <div class="kpi-value" id="kpi-clicks">—</div>
+          <div class="kpi-sub" id="kpi-ctr"></div>
+        </div>
+      </div>
+
+      <!-- Channel split + Trend -->
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <h3>Daily Spend vs Sales Trend</h3>
+          <canvas id="trend-chart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Spend by Channel</h3>
+          <canvas id="channel-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Campaign type breakdown + ACOS trend -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <h3>Spend by Campaign Type</h3>
+          <canvas id="type-chart"></canvas>
+        </div>
+        <div class="chart-card wide">
+          <h3>Daily ACOS Trend</h3>
+          <canvas id="acos-trend-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Campaign table -->
+      <div class="table-card">
+        <div class="table-header-row">
+          <h3>Campaign Performance</h3>
+          <div class="channel-tabs">
+            <button class="tab-btn active" data-channel="all">All</button>
+            <button class="tab-btn" data-channel="ads">Amazon Ads</button>
+            <button class="tab-btn" data-channel="dsp">DSP</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>Type</th>
+              <th>Channel</th>
+              <th>Spend</th>
+              <th>Sales</th>
+              <th>Orders</th>
+              <th>ACOS</th>
+              <th>ROAS</th>
+              <th>CTR</th>
+              <th>CPC</th>
+            </tr>
+          </thead>
+          <tbody id="campaigns-body">
+            <tr><td colspan="10" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/js/advertising.js"></script>
+</body>
+</html>
