@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Campaigns</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-page">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><img id="sidebar-logo" src="/images/calbridge-logo.png" alt="Calbridge" /></div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="nav-item">📊 Overview</a>
+      <a href="/advertising.html" class="nav-item">📢 Advertising</a>
+      <a href="/campaigns.html" class="nav-item active">📣 Campaigns</a>
+      <a href="/dashboard.html#performance" class="nav-item">🏆 Performance</a>
+      <a href="/account.html" class="nav-item">⚙️ Account</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="client-name">Loading...</span>
+      <button class="btn-logout" id="logout-btn">Sign Out</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="dashboard-header">
+      <div>
+        <h1>Campaign Management</h1>
+        <p>View campaigns and queue write actions for when API write permissions are active</p>
+      </div>
+      <div class="header-actions">
+        <select id="days-filter" class="days-select">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="60">Last 60 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="dashboard-section">
+
+      <!-- Filter + search row -->
+      <div class="campaigns-toolbar">
+        <div class="channel-tabs" id="status-tabs">
+          <button class="tab-btn active" data-status="all">All</button>
+          <button class="tab-btn" data-status="enabled">Active</button>
+          <button class="tab-btn" data-status="paused">Paused</button>
+          <button class="tab-btn" data-status="archived">Archived</button>
+        </div>
+        <div class="campaigns-search-wrap">
+          <input type="text" id="campaign-search" class="campaign-search" placeholder="🔍 Search campaigns…" />
+        </div>
+      </div>
+
+      <!-- Pending actions banner -->
+      <div id="pending-actions-banner" class="hidden pending-actions-banner">
+        <strong>⏳ Queued Actions:</strong> <span id="pending-count">0</span> action(s) pending execution when write permissions are active.
+      </div>
+
+      <!-- Campaign table -->
+      <div class="table-card">
+        <div class="table-header-row">
+          <h3>Campaigns</h3>
+          <span id="campaigns-count" class="kpi-sub"></span>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="campaigns-table">
+            <thead>
+              <tr>
+                <th style="width:32px"></th>
+                <th>Campaign</th>
+                <th>Type</th>
+                <th>Channel</th>
+                <th>Status</th>
+                <th>Budget</th>
+                <th>Spend</th>
+                <th>Sales</th>
+                <th>ACOS</th>
+                <th>ROAS</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="campaigns-body">
+              <tr><td colspan="11" class="loading-cell">Loading campaigns…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/js/dateUtils.js"></script>
+  <script src="/js/campaigns.js"></script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>
