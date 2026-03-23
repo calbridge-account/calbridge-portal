@@ -15,10 +15,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function checkAuth() {
   try {
     const res = await fetch('/auth/me', { credentials: 'include' });
-    if (!res.ok) { window.location.href = '/'; return; }
+    if (!res.ok) { window.location.href = '/index.html'; return; }
     const { client } = await res.json();
     $('client-name').textContent = client.name || client.email;
-  } catch { window.location.href = '/'; }
+  } catch (e) {
+    console.error('Auth check failed:', e);
+    window.location.href = '/index.html';
+  }
 }
 
 function setupControls() {
@@ -43,18 +46,27 @@ function setupControls() {
 }
 
 async function loadAll() {
-  await Promise.all([
-    loadSummary(),
-    loadTrend(),
-    loadChannelSplit(),
-    loadCampaignTypes(),
-    loadCampaigns()
-  ]);
+  try {
+    await Promise.all([
+      loadSummary(),
+      loadTrend(),
+      loadChannelSplit(),
+      loadCampaignTypes(),
+      loadCampaigns()
+    ]);
+  } catch (err) {
+    console.error('loadAll error:', err);
+    document.querySelector('.dashboard-section').insertAdjacentHTML('afterbegin',
+      `<div class="error-banner" style="margin-bottom:16px">Error loading data: ${err.message}</div>`
+    );
+  }
 }
 
 async function loadSummary() {
   const res = await fetch(`/advertising/summary?days=${currentDays}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Summary API ${res.status}`);
   const d = await res.json();
+  console.log('Summary data:', d);
 
   $('kpi-spend').textContent       = fmt$(d.TOTAL_SPEND);
   $('kpi-sales').textContent       = fmt$(d.TOTAL_SALES);
