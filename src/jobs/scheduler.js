@@ -68,6 +68,16 @@ async function runFullSync() {
         const clientId = row.CLIENT_ID;
         const { getConnectionStatus } = require('../services/amazonAuthService');
         const connections = await getConnectionStatus(clientId);
+
+        // Skip clients with demo/fake tokens
+        const hasRealTokens = Object.values(connections).some(c =>
+          c.connected && c.accessToken && !c.accessToken.startsWith('demo-')
+        );
+        if (!hasRealTokens) {
+          console.log(`[Scheduler] Skipping ${clientId} — no real Amazon connections`);
+          continue;
+        }
+
         await syncClient(clientId, connections);
       } catch (err) {
         console.error(`[Scheduler] Client ${row.CLIENT_ID} sync failed:`, err.message);
