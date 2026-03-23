@@ -104,6 +104,7 @@ async function loadOverview() {
     $('kpi-spend').textContent      = fmt$(summary.totalAdSpend);
     $('kpi-spend-sub').textContent  = summary.acos ? `${(summary.acos * 100).toFixed(1)}% ACOS` : '';
     $('kpi-roas').textContent       = summary.totalRoas ? `${summary.totalRoas.toFixed(2)}x` : '—';
+    $('kpi-ad-roas').textContent    = summary.adRoas    ? `${summary.adRoas.toFixed(2)}x`    : '—';
 
     // CM from performers
     const totals = topPerformers.reduce((acc, r) => {
