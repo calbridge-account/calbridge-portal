@@ -107,6 +107,30 @@
           </div>
         </div>
 
+        <!-- COGS Upload -->
+        <div class="settings-card settings-card-wide">
+          <h3>💰 Cost of Goods (COGS)</h3>
+          <p class="settings-desc">Upload your production and landed costs per SKU. This is used to calculate your true contribution margin.</p>
+          <div class="cogs-notice">
+            <strong>⚠️ Important:</strong> Enter your <strong>production/landed cost only</strong> — the actual cost to manufacture and ship product to Amazon's warehouse. Do <strong>not</strong> include any Amazon-specific expenses such as FBA fulfillment fees, referral fees, storage fees, or shipping from Amazon's warehouse to customers. These are already deducted separately by the system.
+          </div>
+          <div class="cogs-actions">
+            <a href="/cogs/template" class="btn-upload" download>⬇ Download Template</a>
+            <label class="btn-secondary" for="cogs-input" style="cursor:pointer;padding:8px 14px">Upload CSV</label>
+            <input type="file" id="cogs-input" accept=".csv" style="display:none" />
+          </div>
+          <div id="cogs-status" class="status-msg hidden"></div>
+
+          <table class="data-table" style="margin-top:16px" id="cogs-table">
+            <thead>
+              <tr><th>ASIN</th><th>SKU</th><th>Title</th><th>COGS</th><th>FBA Fees</th><th>Price</th></tr>
+            </thead>
+            <tbody id="cogs-table-body">
+              <tr><td colspan="6" class="loading-cell">No COGS data yet — download the template and upload your costs</td></tr>
+            </tbody>
+          </table>
+        </div>
+
         <!-- Team Members -->
         <div class="settings-card settings-card-wide">
           <h3>👥 Team Members</h3>

@@ -10,6 +10,8 @@ const amazonRoutes = require('./routes/amazon');
 const dashboardRoutes = require('./routes/dashboard');
 const advertisingRoutes = require('./routes/advertising');
 const accountRoutes = require('./routes/account');
+const decisionsRoutes = require('./routes/decisions');
+const cogsRoutes = require('./routes/cogs');
 
 const app = express();
 
@@ -40,6 +42,8 @@ app.use('/amazon', amazonRoutes);
 app.use('/dashboard', dashboardRoutes);
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
+app.use('/decisions', decisionsRoutes);
+app.use('/cogs', cogsRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

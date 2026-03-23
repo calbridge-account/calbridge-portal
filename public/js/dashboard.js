@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupNav();
   setupFilters();
   await loadAll();
+  await loadDecisions();
 });
 
 async function checkAuth() {
@@ -25,6 +26,15 @@ async function checkAuth() {
       const logoEl = document.querySelector('.sidebar-logo img');
       if (logoEl) { logoEl.src = profile.logoUrl; logoEl.style.filter = 'none'; }
     }
+    // Conditional nav based on connections
+    const connRes = await fetch('/amazon/status', { credentials: 'include' });
+    const conn = await connRes.json();
+    const hasAds    = conn.ads?.connected || conn.dsp?.connected;
+    const hasSales  = conn.seller?.connected || conn.vendor?.connected;
+    const hasAny    = hasAds || hasSales;
+    if (!hasAny)   document.querySelector('[data-section="overview"]')?.classList.add('nav-disabled');
+    if (!hasAds)   document.querySelector('a[href="/advertising.html"]')?.classList.add('nav-disabled');
+    if (!hasSales) document.querySelector('[data-section="performance"]')?.classList.add('nav-disabled');
   } catch { window.location.href = '/'; }
 }
 
@@ -289,6 +299,61 @@ async function loadConnections() {
       </div>
     `).join('');
   } catch (err) { console.error('Connections error:', err); }
+}
+
+// ---- Decisions Banner ----
+async function loadDecisions() {
+  try {
+    const res = await fetch(`/decisions?days=${currentDays}`, { credentials: 'include' });
+    const { summary, insights } = await res.json();
+    const banner = $('decisions-banner');
+    if (!insights || !insights.length) { banner.classList.add('hidden'); return; }
+
+    const dangers  = insights.filter(i => i.type === 'danger');
+    const warnings = insights.filter(i => i.type === 'warning');
+    const opps     = insights.filter(i => i.type === 'opportunity');
+
+    let html = `<div class="decisions-header">
+      <span class="decisions-title">📊 Insights & Recommendations</span>
+      <span class="decisions-counts">
+        ${dangers.length  ? `<span class="insight-count count-danger">${dangers.length} critical</span>` : ''}
+        ${warnings.length ? `<span class="insight-count count-warning">${warnings.length} warnings</span>` : ''}
+        ${opps.length     ? `<span class="insight-count count-opp">${opps.length} opportunities</span>` : ''}
+      </span>
+    </div>
+    <div class="decisions-list">`;
+
+    insights.slice(0, 6).forEach(i => {
+      html += `<div class="decision-item decision-${i.type}">
+        <div class="decision-content">
+          <div class="decision-title">${i.title}</div>
+          <div class="decision-msg">${i.message}</div>
+        </div>
+        ${i.action ? `<button class="decision-action" onclick="handleDecisionAction('${i.action.type}', ${JSON.stringify(i.action).replace(/"/g, '&quot;')})">${i.action.label}</button>` : ''}
+      </div>`;
+    });
+
+    html += '</div>';
+    if (insights.length > 6) {
+      html += `<div class="decisions-more">${insights.length - 6} more insights — full analysis coming soon</div>`;
+    }
+
+    banner.innerHTML = html;
+    banner.classList.remove('hidden');
+  } catch (err) { console.error('Decisions error:', err); }
+}
+
+function handleDecisionAction(type, action) {
+  // Placeholder — will connect to Advertising API in Phase 5
+  const messages = {
+    pause_campaign:  `Pausing campaign ${action.campaignId} — one-click ad actions coming soon!`,
+    reduce_budget:   `Reducing budget for ${action.asin} — one-click ad actions coming soon!`,
+    increase_budget: `Increasing budget for ${action.asin} — one-click ad actions coming soon!`,
+    reduce_bids:     `Optimizing bids for ${action.asin} — one-click ad actions coming soon!`,
+    review:          null
+  };
+  if (action.link) { window.location.href = action.link; return; }
+  if (messages[type]) alert(messages[type]);
 }
 
 // ---- Helpers ----

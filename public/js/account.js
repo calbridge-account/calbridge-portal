@@ -5,7 +5,7 @@ let profile = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
-  await Promise.all([loadProfile(), loadConnections(), loadTeam()]);
+  await Promise.all([loadProfile(), loadConnections(), loadTeam(), loadCogs()]);
   setupForms();
 });
 
@@ -185,6 +185,47 @@ async function removeMember(id) {
   await fetch(`/account/team/${id}`, { method: 'DELETE', credentials: 'include' });
   await loadTeam();
 }
+
+// ---- COGS ----
+async function loadCogs() {
+  const res = await fetch('/cogs/current', { credentials: 'include' });
+  const rows = await res.json();
+  const tbody = $('cogs-table-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No COGS data yet — download the template and upload your costs</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td>${r.ASIN || '—'}</td>
+    <td>${r.SKU  || '—'}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.TITLE || '—'}</td>
+    <td>${r.COGS != null ? '$' + Number(r.COGS).toFixed(2) : '—'}</td>
+    <td>${r.FBA_FEES != null ? '$' + Number(r.FBA_FEES).toFixed(2) : '—'}</td>
+    <td>${r.PRICE != null ? '$' + Number(r.PRICE).toFixed(2) : '—'}</td>
+  </tr>`).join('');
+}
+
+// COGS file upload
+document.addEventListener('DOMContentLoaded', () => {
+  const cogsInput = $('cogs-input');
+  if (!cogsInput) return;
+  cogsInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('cogs', file);
+    showStatus('cogs-status', 'Uploading...', 'info');
+    try {
+      const res = await fetch('/cogs/upload', { method: 'POST', body: formData, credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      let msg = `✅ ${data.updated} SKUs updated. ${data.note}`;
+      if (data.errors?.length) msg += ` (${data.errors.length} rows skipped)`;
+      showStatus('cogs-status', msg, 'success');
+      await loadCogs();
+    } catch (err) { showStatus('cogs-status', `❌ ${err.message}`, 'error'); }
+  });
+});
 
 // ---- Helpers ----
 function showStatus(elId, msg, type) {
