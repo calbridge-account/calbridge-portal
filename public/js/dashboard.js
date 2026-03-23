@@ -124,7 +124,10 @@ async function loadCmTrend() {
     const trendRes = await fetch(`/dashboard/asin/${topPerformers[0].ASIN}?days=${currentDays}`, { credentials: 'include' });
     const { trend } = await trendRes.json();
 
-    const labels = trend.map(r => r.CALC_DATE?.value || r.CALC_DATE);
+    const labels = trend.map(r => {
+      const d = r.CALC_DATE?.value || r.CALC_DATE;
+      return typeof d === 'string' ? d.substring(0, 10) : new Date(d).toISOString().substring(0, 10);
+    });
     const cmData = trend.map(r => parseFloat(r.CONTRIBUTION_MARGIN || 0).toFixed(2));
     const revData = trend.map(r => parseFloat(r.REVENUE || 0).toFixed(2));
 
@@ -163,7 +166,45 @@ function renderRevSpend(rows) {
 }
 
 async function loadCampaignData() {
-  // Placeholder — will pull from /dashboard/campaigns when route is added
+  try {
+    const res = await fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' });
+    const { topPerformers } = await res.json();
+    if (!topPerformers.length) return;
+
+    const labels = topPerformers.slice(0, 8).map(r => r.ASIN);
+    const cm     = topPerformers.slice(0, 8).map(r => parseFloat(r.TOTAL_CM || 0).toFixed(2));
+    const spend  = topPerformers.slice(0, 8).map(r => parseFloat(r.TOTAL_AD_SPEND || 0).toFixed(2));
+
+    if (campaignChart) campaignChart.destroy();
+    campaignChart = new Chart($('campaign-chart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Contribution Margin', data: cm,    backgroundColor: 'rgba(5,122,85,.7)' },
+          { label: 'Ad Spend',            data: spend, backgroundColor: 'rgba(200,30,30,.7)' }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => '$' + v } } } }
+    });
+
+    // ACOS chart
+    const acosData = topPerformers.slice(0, 8).map(r => {
+      const rev = parseFloat(r.TOTAL_REVENUE || 0);
+      const sp  = parseFloat(r.TOTAL_AD_SPEND || 0);
+      return rev > 0 ? parseFloat(((sp / rev) * 100).toFixed(1)) : 0;
+    });
+
+    if (acosChart) acosChart.destroy();
+    acosChart = new Chart($('acos-chart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'ACOS %', data: acosData, backgroundColor: 'rgba(26,86,219,.7)' }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => v + '%' } } } }
+    });
+  } catch (err) { console.error('Campaign chart error:', err); }
 }
 
 function renderTopAsins(rows) {

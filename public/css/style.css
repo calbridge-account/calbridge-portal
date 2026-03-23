@@ -99,7 +99,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 .chart-card { background: #fff; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--gray-200); }
 .chart-card.wide { grid-column: span 1; }
 .chart-card h3 { font-size: 14px; font-weight: 600; color: var(--gray-600); margin-bottom: 16px; }
-.chart-card canvas { max-height: 220px; }
+.chart-card canvas { max-height: 220px; min-height: 180px; width: 100% !important; }
 
 /* ---- TABLES ---- */
 .table-card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--gray-200); overflow: hidden; margin-bottom: 24px; }
