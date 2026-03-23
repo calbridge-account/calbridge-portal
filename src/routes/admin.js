@@ -114,4 +114,21 @@ router.post('/invite', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * GET /admin/logs
+ * Recent ingestion logs across all clients
+ */
+router.get('/logs', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT log_id, client_id, connection_type, job_type, status,
+             records_written, error_message, started_at, completed_at
+      FROM ingestion_log
+      ORDER BY started_at DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calbridge — Admin</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .admin-login { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#1a2e18; }
+    .admin-wrap { max-width:1100px; margin:0 auto; padding:24px 28px; }
+    .admin-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; padding-bottom:16px; border-bottom:1px solid var(--gray-200); }
+    .admin-header h1 { font-size:22px; font-weight:700; color:var(--gray-800); }
+    .admin-header p { font-size:13px; color:var(--gray-400); margin-top:2px; }
+    .admin-tabs { display:flex; gap:8px; margin-bottom:24px; }
+    .admin-tab { padding:8px 18px; border:1px solid var(--gray-200); border-radius:var(--radius); background:#fff; font-size:13px; font-weight:500; cursor:pointer; color:var(--gray-600); }
+    .admin-tab.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+    .admin-section { display:none; }
+    .admin-section.active { display:block; }
+    .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+    .invite-form { background:#fff; border:1px solid var(--gray-200); border-radius:var(--radius); padding:20px; margin-bottom:24px; }
+    .invite-form h3 { font-size:14px; font-weight:600; margin-bottom:14px; }
+    .invite-row { display:flex; gap:10px; flex-wrap:wrap; }
+    .invite-row input { flex:1; min-width:160px; padding:9px 12px; border:1px solid var(--gray-200); border-radius:var(--radius); font-size:13px; }
+    .status-pill { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; }
+    .pill-active   { background:var(--success-bg); color:var(--success); }
+    .pill-pending  { background:var(--warning-bg); color:var(--warning); }
+    .pill-invited  { background:var(--brand-light); color:var(--brand); }
+    .pill-suspended{ background:var(--danger-bg);  color:var(--danger); }
+    .action-btn { padding:5px 10px; border-radius:var(--radius); font-size:12px; font-weight:600; cursor:pointer; border:none; margin-right:4px; }
+    .btn-approve  { background:var(--success-bg); color:var(--success); }
+    .btn-suspend  { background:var(--danger-bg);  color:var(--danger); }
+    .btn-unsuspend{ background:var(--brand-light); color:var(--brand); }
+    .sync-log { font-family:monospace; font-size:12px; background:var(--gray-800); color:#a5f3a5; padding:16px; border-radius:var(--radius); max-height:300px; overflow-y:auto; white-space:pre-wrap; }
+  </style>
+</head>
+<body style="background:var(--gray-50)">
+
+  <!-- Login Gate -->
+  <div id="admin-login" class="admin-login">
+    <div class="auth-card" style="max-width:360px">
+      <div class="logo" style="text-align:center;margin-bottom:20px">
+        <img src="/images/calbridge-logo.png" style="height:60px" alt="Calbridge"/>
+        <p style="color:var(--gray-400);font-size:13px;margin-top:6px">Admin Panel</p>
+      </div>
+      <div id="admin-login-error" class="error-banner hidden"></div>
+      <div class="form-group">
+        <label>Admin Secret</label>
+        <input type="password" id="admin-secret-input" placeholder="Enter admin secret" />
+      </div>
+      <button class="btn-primary" id="admin-login-btn">Access Admin Panel</button>
+    </div>
+  </div>
+
+  <!-- Admin Panel -->
+  <div id="admin-panel" style="display:none">
+    <div style="background:var(--brand-dark);padding:12px 28px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:12px">
+        <img src="/images/calbridge-logo.png" style="height:32px;filter:brightness(0) invert(1)" alt=""/>
+        <span style="color:rgba(255,255,255,.7);font-size:13px">Admin Panel</span>
+      </div>
+      <button class="btn-logout" style="width:auto;padding:6px 14px" id="admin-logout-btn">Sign Out</button>
+    </div>
+
+    <div class="admin-wrap">
+      <div class="admin-header">
+        <div>
+          <h1>Calbridge Admin</h1>
+          <p id="admin-subtitle">Loading...</p>
+        </div>
+        <button class="btn-secondary" id="refresh-btn">↻ Refresh</button>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="kpi-card"><div class="kpi-label">Total Clients</div><div class="kpi-value" id="stat-total">—</div></div>
+        <div class="kpi-card highlight"><div class="kpi-label">Pending Approval</div><div class="kpi-value" id="stat-pending">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Active</div><div class="kpi-value" id="stat-active">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Suspended</div><div class="kpi-value" id="stat-suspended">—</div></div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-tab="clients">👥 Clients</button>
+        <button class="admin-tab" data-tab="invite">✉️ Invite Client</button>
+        <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
+      </div>
+
+      <!-- Clients Tab -->
+      <div id="tab-clients" class="admin-section active">
+        <div class="table-card">
+          <div class="table-header-row">
+            <h3>All Clients</h3>
+            <input type="text" id="client-search" placeholder="Search by name or email..." style="padding:7px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;width:240px" />
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Company</th>
+                <th>Status</th>
+                <th>Signed Up</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="clients-table-body">
+              <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Invite Tab -->
+      <div id="tab-invite" class="admin-section">
+        <div class="invite-form">
+          <h3>✉️ Invite a New Client</h3>
+          <p class="settings-desc">They'll receive an email with a link to create their password. Their account will be pre-approved.</p>
+          <div class="invite-row">
+            <input type="text"  id="inv-name"    placeholder="Contact Name" />
+            <input type="text"  id="inv-company" placeholder="Company Name" />
+            <input type="email" id="inv-email"   placeholder="Email Address" />
+            <button class="btn-primary" id="send-invite-btn" style="width:auto;padding:9px 20px">Send Invite</button>
+          </div>
+          <div id="invite-result" class="status-msg hidden" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <!-- Logs Tab -->
+      <div id="tab-logs" class="admin-section">
+        <div class="table-card">
+          <div class="table-header-row"><h3>Recent Sync Activity</h3></div>
+          <table class="data-table">
+            <thead>
+              <tr><th>Client</th><th>Connection</th><th>Job</th><th>Status</th><th>Records</th><th>Started</th><th>Error</th></tr>
+            </thead>
+            <tbody id="logs-table-body">
+              <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>
