@@ -3,11 +3,15 @@
    ============================================= */
 
 :root {
-  --brand:       #1a56db;
-  --brand-dark:  #1e429f;
-  --brand-light: #ebf5ff;
-  --success:     #057a55;
-  --success-bg:  #def7ec;
+  /* Calbridge Brand */
+  --brand:       #2d5a27;
+  --brand-dark:  #1e3a1a;
+  --brand-mid:   #3d7a35;
+  --brand-light: #edf5ec;
+  --brand-hsl:   109, 37%, 25%;
+
+  --success:     #2d5a27;
+  --success-bg:  #edf5ec;
   --danger:      #c81e1e;
   --danger-bg:   #fde8e8;
   --warning:     #b45309;
@@ -17,7 +21,7 @@
   --gray-200:    #e5e7eb;
   --gray-400:    #9ca3af;
   --gray-600:    #4b5563;
-  --gray-800:    #1f2937;
+  --gray-800:    #1a2e18;
   --sidebar-w:   240px;
   --radius:      8px;
   --shadow:      0 1px 3px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
@@ -29,12 +33,14 @@
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: var(--gray-800); background: var(--gray-50); }
 
 /* ---- AUTH ---- */
-.auth-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #1a56db 0%, #1e429f 100%); }
+.auth-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #2d5a27 0%, #1a2e18 100%); }
 
 .auth-card { background: #fff; border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
 
-.logo h1 { font-size: 28px; font-weight: 700; color: var(--brand); margin-bottom: 4px; }
-.logo p  { color: var(--gray-400); margin-bottom: 28px; }
+.logo { text-align: center; margin-bottom: 28px; }
+.logo img { height: 52px; width: auto; margin-bottom: 8px; }
+.logo h1 { font-size: 28px; font-weight: 700; color: var(--brand); margin-bottom: 4px; display: none; }
+.logo p  { color: var(--gray-400); font-size: 13px; }
 
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-weight: 500; margin-bottom: 6px; color: var(--gray-600); }
@@ -54,14 +60,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 /* ---- DASHBOARD LAYOUT ---- */
 .dashboard-page { display: flex; min-height: 100vh; }
 
-.sidebar { width: var(--sidebar-w); background: var(--gray-800); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; position: fixed; top: 0; left: 0; height: 100vh; }
+.sidebar { width: var(--sidebar-w); background: var(--brand-dark); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; position: fixed; top: 0; left: 0; height: 100vh; }
 
-.sidebar-logo { padding: 24px 20px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
-.sidebar-logo h2 { font-size: 20px; font-weight: 700; color: #fff; }
+.sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; align-items: center; }
+.sidebar-logo img { height: 36px; width: auto; filter: brightness(0) invert(1); }
+.sidebar-logo h2 { font-size: 18px; font-weight: 700; color: #fff; display: none; }
 
 .sidebar-nav { flex: 1; padding: 16px 0; }
 .nav-item { display: block; padding: 10px 20px; color: rgba(255,255,255,.65); text-decoration: none; border-radius: 0; transition: all .15s; font-size: 14px; }
-.nav-item:hover, .nav-item.active { background: rgba(255,255,255,.08); color: #fff; }
+.nav-item:hover, .nav-item.active { background: rgba(255,255,255,.10); color: #fff; border-left: 3px solid rgba(255,255,255,.5); }
 
 .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.08); }
 .sidebar-footer #client-name { display: block; font-size: 12px; color: rgba(255,255,255,.5); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -88,7 +95,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 /* ---- KPI CARDS ---- */
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
 .kpi-card { background: #fff; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--gray-200); }
-.kpi-card.highlight { border-color: var(--brand); background: var(--brand-light); }
+.kpi-card.highlight { border-color: var(--brand); background: var(--brand-light); border-left: 3px solid var(--brand); }
 .kpi-label { font-size: 12px; font-weight: 600; color: var(--gray-400); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
 .kpi-value { font-size: 28px; font-weight: 700; color: var(--gray-800); line-height: 1; }
 .kpi-card.highlight .kpi-value { color: var(--brand); }
@@ -124,6 +131,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 .channel-tabs { display: flex; gap: 6px; }
 .tab-btn { padding: 5px 12px; border: 1px solid var(--gray-200); border-radius: 20px; background: #fff; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .15s; }
 .tab-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+.badge-ads { background: rgba(45,90,39,.1);  color: var(--brand);      padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-dsp { background: rgba(61,122,53,.1); color: var(--brand-mid);  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 
 .badge-ads { background: rgba(26,86,219,.1);  color: var(--brand);   padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .badge-dsp { background: rgba(5,122,85,.1);   color: var(--success); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
