@@ -25,8 +25,9 @@ async function checkAuth() {
 function setupNav() {
   document.querySelectorAll('.nav-item').forEach(link => {
     link.addEventListener('click', e => {
-      e.preventDefault();
       const section = link.dataset.section;
+      if (!section) return; // let normal navigation happen (e.g. /advertising.html)
+      e.preventDefault();
       document.querySelectorAll('.nav-item').forEach(l => l.classList.remove('active'));
       document.querySelectorAll('.dashboard-section').forEach(s => s.classList.add('hidden'));
       link.classList.add('active');
