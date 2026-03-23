@@ -1,56 +1,66 @@
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { query } = require('./snowflakeService');
 
 /**
- * In-memory store for development/sandbox.
- * Replace with Postgres queries when DB is wired up.
+ * Auth service — Snowflake-backed client accounts
  */
-const clients = new Map();
 
 async function signup({ email, password, name }) {
-  const existing = [...clients.values()].find(c => c.email === email);
-  if (existing) {
-    const err = new Error('EMAIL_TAKEN');
-    err.status = 409;
-    throw err;
+  // Check existing
+  const existing = await query(
+    `SELECT client_id FROM clients WHERE email = ?`, [email]
+  );
+  if (existing.length) {
+    const err = new Error('EMAIL_TAKEN'); err.status = 409; throw err;
   }
+
+  const id = uuidv4();
   const hash = await bcrypt.hash(password, 12);
-  const client = {
-    id: uuidv4(),
-    email,
-    name,
-    passwordHash: hash,
-    createdAt: new Date().toISOString(),
-    connections: {}    // keyed by type: ads | dsp | seller | vendor
-  };
-  clients.set(client.id, client);
-  return client;
+
+  await query(`
+    INSERT INTO clients (client_id, email, name, password_hash, created_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `, [id, email, name, hash]);
+
+  return { id, email, name };
 }
 
 async function login({ email, password }) {
-  const client = [...clients.values()].find(c => c.email === email);
-  if (!client) throw new Error('INVALID_CREDENTIALS');
-  const valid = await bcrypt.compare(password, client.passwordHash);
+  const rows = await query(
+    `SELECT client_id, email, name, password_hash FROM clients WHERE email = ?`, [email]
+  );
+  if (!rows.length) throw new Error('INVALID_CREDENTIALS');
+  const row = rows[0];
+  const valid = await bcrypt.compare(password, row.PASSWORD_HASH);
   if (!valid) throw new Error('INVALID_CREDENTIALS');
-  return client;
+  return { id: row.CLIENT_ID, email: row.EMAIL, name: row.NAME };
 }
 
 async function getById(id) {
-  const client = clients.get(id);
-  if (!client) {
-    const err = new Error('Client not found');
-    err.status = 404;
-    throw err;
+  const rows = await query(
+    `SELECT client_id, email, name, connections FROM clients WHERE client_id = ?`, [id]
+  );
+  if (!rows.length) {
+    const err = new Error('Client not found'); err.status = 404; throw err;
   }
-  return client;
+  const row = rows[0];
+  return {
+    id: row.CLIENT_ID,
+    email: row.EMAIL,
+    name: row.NAME,
+    connections: row.CONNECTIONS ? JSON.parse(row.CONNECTIONS) : {}
+  };
 }
 
 async function updateClient(id, updates) {
-  const client = clients.get(id);
-  if (!client) throw new Error('Client not found');
-  Object.assign(client, updates);
-  clients.set(id, client);
-  return client;
+  if (updates.connections !== undefined) {
+    await query(
+      `UPDATE clients SET connections = ? WHERE client_id = ?`,
+      [JSON.stringify(updates.connections), id]
+    );
+  }
+  return getById(id);
 }
 
 module.exports = { signup, login, getById, updateClient };
