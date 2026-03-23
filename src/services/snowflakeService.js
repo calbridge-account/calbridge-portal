@@ -32,7 +32,8 @@ async function getConnection() {
 }
 
 /**
- * Execute a SQL query with optional binds
+ * Execute a SQL query with optional binds.
+ * Catches invalid column errors and logs them clearly for debugging.
  */
 async function query(sqlText, binds = []) {
   const conn = await getConnection();
@@ -41,7 +42,16 @@ async function query(sqlText, binds = []) {
       sqlText,
       binds,
       complete: (err, stmt, rows) => {
-        if (err) return reject(err);
+        if (err) {
+          // Surface schema errors clearly
+          if (err.message && err.message.includes('invalid identifier')) {
+            const match = err.message.match(/invalid identifier '([^']+)'/i);
+            const col = match ? match[1] : 'unknown';
+            console.error(`[Snowflake] ❌ Schema error — unknown column: ${col}`);
+            console.error(`[Snowflake] SQL: ${sqlText.substring(0, 200).replace(/\s+/g, ' ')}`);
+          }
+          return reject(err);
+        }
         resolve(rows);
       }
     });

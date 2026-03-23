@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "validate-schema": "node src/utils/schemaValidator.js"
   },
   "keywords": [],
   "author": "",
@@ -31,5 +32,8 @@
     "snowflake-sdk": "^2.3.5",
     "stripe": "^20.4.1",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "glob": "^13.0.6"
   }
 }
