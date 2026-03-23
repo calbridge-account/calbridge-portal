@@ -33,7 +33,7 @@
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: var(--gray-800); background: var(--gray-50); }
 
 /* ---- AUTH ---- */
-.auth-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #2d5a27 0%, #1a2e18 100%); }
+.auth-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #d8d0c4; }
 
 .auth-card { background: #fff; border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
 
