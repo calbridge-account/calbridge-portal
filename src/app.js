@@ -13,6 +13,7 @@ const accountRoutes = require('./routes/account');
 const decisionsRoutes = require('./routes/decisions');
 const cogsRoutes = require('./routes/cogs');
 const adminRoutes = require('./routes/admin');
+const billingRoutes = require('./routes/billing');
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);
 app.use('/cogs', cogsRoutes);
 app.use('/admin', adminRoutes);
+app.use('/billing', billingRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

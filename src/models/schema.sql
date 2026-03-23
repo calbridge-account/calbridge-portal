@@ -6,10 +6,33 @@
 -- CLIENTS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS clients (
-  client_id       VARCHAR(36)   NOT NULL PRIMARY KEY,
-  email           VARCHAR(255)  NOT NULL UNIQUE,
-  name            VARCHAR(255)  NOT NULL,
-  created_at      TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  client_id               VARCHAR(36)   NOT NULL PRIMARY KEY,
+  email                   VARCHAR(255)  NOT NULL UNIQUE,
+  name                    VARCHAR(255)  NOT NULL,
+  created_at              TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  -- Auth & account
+  password_hash           VARCHAR(255),
+  status                  VARCHAR(20)   DEFAULT 'pending',    -- pending | active | suspended
+  company_name            VARCHAR(255),
+  logo_url                VARCHAR(500),
+  connections             VARIANT,                            -- JSON: { ads, dsp, seller, vendor }
+  team_members            VARIANT,                           -- JSON: [{ id, email, name, role, status }]
+
+  -- Stripe billing
+  stripe_customer_id      VARCHAR(50),
+  stripe_subscription_id  VARCHAR(50),
+  subscription_plan       VARCHAR(20),                       -- starter | growth | pro
+  subscription_status     VARCHAR(20),                       -- active | past_due | cancelled | trialing
+  trial_ends_at           TIMESTAMP_NTZ,
+  subscription_ends_at    TIMESTAMP_NTZ,
+
+  -- Password reset
+  password_reset_token    VARCHAR(255),                      -- SHA-256 hashed token
+  password_reset_expires  TIMESTAMP_NTZ,
+
+  -- Onboarding
+  onboarding_completed    BOOLEAN       DEFAULT FALSE
 );
 
 -- ============================================================
