@@ -1,9 +1,10 @@
 # USER.md - About Your Human
 
-- **Name:** Abe
+- **Name:** Abraham Curry
 - **What to call them:** Abe
 - **Pronouns:** _(unknown)_
 - **Timezone:** _(unknown — UTC observed so far)_
+- **Email:** abe@teamcalbridge.com
 - **Notes:** First contact Sun 2026-03-22
 
 ## Context
