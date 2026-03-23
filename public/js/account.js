@@ -15,6 +15,12 @@ async function checkAuth() {
     if (!res.ok) { window.location.href = '/'; return; }
     const { client } = await res.json();
     $('client-name').textContent = client.name || client.email;
+
+    // Hide ads nav items if no ads connected
+    const connRes = await fetch('/amazon/status', { credentials: 'include' });
+    const conn = await connRes.json();
+    const hasAds = conn.ads?.connected || conn.dsp?.connected;
+    if (!hasAds) document.querySelectorAll('.nav-item-ads').forEach(el => el.remove());
   } catch { window.location.href = '/'; }
   $('logout-btn').addEventListener('click', async () => {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' });

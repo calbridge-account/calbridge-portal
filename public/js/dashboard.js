@@ -33,7 +33,7 @@ async function checkAuth() {
     const hasSales = conn.seller?.connected || conn.vendor?.connected;
     const hasAny   = hasAds || hasSales;
     if (!hasAny)   document.querySelector('[data-section="overview"]')?.closest('a')?.remove();
-    if (!hasAds)   document.querySelector('a[href="/advertising.html"]')?.remove();
+    if (!hasAds)   document.querySelectorAll('.nav-item-ads').forEach(el => el.remove());
     if (!hasSales) document.querySelector('[data-section="performance"]')?.closest('a')?.remove();
   } catch { window.location.href = '/'; }
 }

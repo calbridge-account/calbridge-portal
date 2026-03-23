@@ -14,6 +14,9 @@ const decisionsRoutes = require('./routes/decisions');
 const cogsRoutes = require('./routes/cogs');
 const adminRoutes = require('./routes/admin');
 const billingRoutes = require('./routes/billing');
+const chatRoutes = require('./routes/chat');
+const campaignsRoutes = require('./routes/campaigns');
+const { ensureCampaignActionsTable } = require('./routes/campaigns');
 
 const app = express();
 
@@ -50,6 +53,13 @@ app.use('/decisions', decisionsRoutes);
 app.use('/cogs', cogsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/billing', billingRoutes);
+app.use('/chat', chatRoutes);
+app.use('/campaigns', campaignsRoutes);
+
+// Ensure campaign_actions table exists (non-blocking)
+ensureCampaignActionsTable().catch(err =>
+  console.warn('[Campaigns] Could not create campaign_actions table:', err.message)
+);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
