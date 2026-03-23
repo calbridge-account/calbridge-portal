@@ -1,0 +1,196 @@
+// CalBridge — Account Settings Page
+
+const $ = id => document.getElementById(id);
+let profile = {};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await checkAuth();
+  await Promise.all([loadProfile(), loadConnections(), loadTeam()]);
+  setupForms();
+});
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/auth/me', { credentials: 'include' });
+    if (!res.ok) { window.location.href = '/'; return; }
+    const { client } = await res.json();
+    $('client-name').textContent = client.name || client.email;
+  } catch { window.location.href = '/'; }
+  $('logout-btn').addEventListener('click', async () => {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+    window.location.href = '/';
+  });
+}
+
+// ---- Profile ----
+async function loadProfile() {
+  const res = await fetch('/account/profile', { credentials: 'include' });
+  profile = await res.json();
+
+  $('company-name').value  = profile.companyName || '';
+  $('contact-name').value  = profile.name || '';
+  $('profile-email').value = profile.email || '';
+
+  // Logo
+  if (profile.logoUrl) {
+    $('logo-preview-img').src = profile.logoUrl;
+    $('logo-preview-img').style.display = 'block';
+    $('logo-placeholder').style.display = 'none';
+    $('remove-logo-btn').style.display = 'inline-block';
+    $('sidebar-logo').src = profile.logoUrl;
+    $('sidebar-logo').style.filter = 'none';
+  }
+}
+
+// ---- Logo Upload ----
+function setupForms() {
+  // Logo file picker
+  $('logo-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('logo', file);
+    showStatus('logo-status', 'Uploading...', 'info');
+    try {
+      const res = await fetch('/account/logo', { method: 'POST', body: formData, credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      $('logo-preview-img').src = data.logoUrl + '?t=' + Date.now();
+      $('logo-preview-img').style.display = 'block';
+      $('logo-placeholder').style.display = 'none';
+      $('remove-logo-btn').style.display = 'inline-block';
+      $('sidebar-logo').src = data.logoUrl + '?t=' + Date.now();
+      $('sidebar-logo').style.filter = 'none';
+      showStatus('logo-status', '✅ Logo updated', 'success');
+    } catch (err) { showStatus('logo-status', `❌ ${err.message}`, 'error'); }
+  });
+
+  // Remove logo
+  $('remove-logo-btn').addEventListener('click', async () => {
+    await fetch('/account/logo', { method: 'DELETE', credentials: 'include' });
+    $('logo-preview-img').style.display = 'none';
+    $('logo-placeholder').style.display = 'block';
+    $('remove-logo-btn').style.display = 'none';
+    $('sidebar-logo').src = '/images/calbridge-logo.png';
+    $('sidebar-logo').style.filter = '';
+    showStatus('logo-status', 'Logo removed', 'info');
+  });
+
+  // Profile form
+  $('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/account/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: $('contact-name').value, companyName: $('company-name').value })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      $('client-name').textContent = $('contact-name').value;
+      showStatus('profile-status', '✅ Profile saved', 'success');
+    } catch (err) { showStatus('profile-status', `❌ ${err.message}`, 'error'); }
+  });
+
+  // Password form
+  $('password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if ($('new-password').value !== $('confirm-password').value) {
+      showStatus('password-status', '❌ Passwords do not match', 'error'); return;
+    }
+    try {
+      const res = await fetch('/account/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword: $('current-password').value, newPassword: $('new-password').value })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      $('password-form').reset();
+      showStatus('password-status', '✅ Password changed', 'success');
+    } catch (err) { showStatus('password-status', `❌ ${err.message}`, 'error'); }
+  });
+
+  // Team invite
+  $('invite-btn').addEventListener('click', async () => {
+    const name  = $('invite-name').value.trim();
+    const email = $('invite-email').value.trim();
+    const role  = $('invite-role').value;
+    if (!name || !email) { showStatus('invite-status', '❌ Name and email required', 'error'); return; }
+    try {
+      const res = await fetch('/account/team', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, email, role })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      $('invite-name').value = '';
+      $('invite-email').value = '';
+      showStatus('invite-status', `✅ Invite sent to ${email}`, 'success');
+      await loadTeam();
+    } catch (err) { showStatus('invite-status', `❌ ${err.message}`, 'error'); }
+  });
+}
+
+// ---- Connections ----
+async function loadConnections() {
+  const res = await fetch('/amazon/status', { credentials: 'include' });
+  const status = await res.json();
+  const grid = $('connections-grid');
+  const icons = { ads: '📢', dsp: '🎯', seller: '🛒', vendor: '🏭' };
+
+  grid.innerHTML = Object.entries(status).map(([type, info]) => `
+    <div class="connection-card ${info.connected ? 'connected' : ''}">
+      <div class="connection-info">
+        <h4>${icons[type]} ${info.label}</h4>
+        <p>${info.connected ? `Connected · expires ${new Date(info.expiresAt).toLocaleDateString()}` : 'Not connected'}</p>
+      </div>
+      ${info.connected
+        ? `<span class="connection-badge badge-connected">Connected</span>`
+        : `<a href="/amazon/connect/${type}" class="btn-connect">Connect</a>`
+      }
+    </div>
+  `).join('');
+}
+
+// ---- Team ----
+async function loadTeam() {
+  const res = await fetch('/account/team', { credentials: 'include' });
+  const members = await res.json();
+  const tbody = $('team-table-body');
+
+  if (!members.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No team members yet — invite someone above</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = members.map(m => `
+    <tr>
+      <td>${m.name}</td>
+      <td>${m.email}</td>
+      <td><span class="role-badge role-${m.role}">${m.role}</span></td>
+      <td><span class="status-badge status-${m.status}">${m.status}</span></td>
+      <td>${new Date(m.invitedAt).toLocaleDateString()}</td>
+      <td><button class="btn-remove" onclick="removeMember('${m.id}')">Remove</button></td>
+    </tr>
+  `).join('');
+}
+
+async function removeMember(id) {
+  if (!confirm('Remove this team member?')) return;
+  await fetch(`/account/team/${id}`, { method: 'DELETE', credentials: 'include' });
+  await loadTeam();
+}
+
+// ---- Helpers ----
+function showStatus(elId, msg, type) {
+  const el = $(elId);
+  el.textContent = msg;
+  el.className = `status-msg status-${type}`;
+  el.classList.remove('hidden');
+  if (type === 'success') setTimeout(() => el.classList.add('hidden'), 4000);
+}

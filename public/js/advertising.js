@@ -18,6 +18,12 @@ async function checkAuth() {
     if (!res.ok) { window.location.href = '/index.html'; return; }
     const { client } = await res.json();
     $('client-name').textContent = client.name || client.email;
+    const profileRes = await fetch('/account/profile', { credentials: 'include' });
+    const profile = await profileRes.json();
+    if (profile.logoUrl) {
+      const logoEl = document.querySelector('.sidebar-logo img');
+      if (logoEl) { logoEl.src = profile.logoUrl; logoEl.style.filter = 'none'; }
+    }
   } catch (e) {
     console.error('Auth check failed:', e);
     window.location.href = '/index.html';

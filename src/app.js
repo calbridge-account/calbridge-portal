@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const amazonRoutes = require('./routes/amazon');
 const dashboardRoutes = require('./routes/dashboard');
 const advertisingRoutes = require('./routes/advertising');
+const accountRoutes = require('./routes/account');
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
 app.use('/dashboard', dashboardRoutes);
 app.use('/advertising', advertisingRoutes);
+app.use('/account', accountRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
