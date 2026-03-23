@@ -37,17 +37,21 @@
 
   <!-- Login Gate -->
   <div id="admin-login" class="admin-login">
-    <div class="auth-card" style="max-width:360px">
+    <div class="auth-card" style="max-width:380px">
       <div class="logo" style="text-align:center;margin-bottom:20px">
-        <img src="/images/calbridge-logo.png" style="height:60px" alt="Calbridge"/>
+        <img src="/images/calbridge-logo.png" style="height:70px" alt="Calbridge"/>
         <p style="color:var(--gray-400);font-size:13px;margin-top:6px">Admin Panel</p>
       </div>
       <div id="admin-login-error" class="error-banner hidden"></div>
       <div class="form-group">
-        <label>Admin Secret</label>
-        <input type="password" id="admin-secret-input" placeholder="Enter admin secret" />
+        <label>Email</label>
+        <input type="email" id="admin-email-input" placeholder="abe@teamcalbridge.com" />
       </div>
-      <button class="btn-primary" id="admin-login-btn">Access Admin Panel</button>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="admin-password-input" placeholder="••••••••" />
+      </div>
+      <button class="btn-primary" id="admin-login-btn">Sign In to Admin</button>
     </div>
   </div>
 
@@ -56,7 +60,7 @@
     <div style="background:var(--brand-dark);padding:12px 28px;display:flex;align-items:center;justify-content:space-between">
       <div style="display:flex;align-items:center;gap:12px">
         <img src="/images/calbridge-logo.png" style="height:32px;filter:brightness(0) invert(1)" alt=""/>
-        <span style="color:rgba(255,255,255,.7);font-size:13px">Admin Panel</span>
+        <span style="color:rgba(255,255,255,.7);font-size:13px">Admin Panel — <span id="admin-name-display"></span></span>
       </div>
       <button class="btn-logout" style="width:auto;padding:6px 14px" id="admin-logout-btn">Sign Out</button>
     </div>
@@ -83,6 +87,7 @@
         <button class="admin-tab active" data-tab="clients">👥 Clients</button>
         <button class="admin-tab" data-tab="invite">✉️ Invite Client</button>
         <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
+        <button class="admin-tab" data-tab="admins" id="admins-tab" style="display:none">🔐 Admin Users</button>
       </div>
 
       <!-- Clients Tab -->
@@ -142,6 +147,32 @@
 
     </div>
   </div>
+
+      <!-- Admin Users Tab -->
+      <div id="tab-admins" class="admin-section">
+        <div class="invite-form">
+          <h3>➕ Add Admin User</h3>
+          <p class="settings-desc">Admin users can log into this panel. Superadmins can manage other admin accounts.</p>
+          <div class="invite-row">
+            <input type="text"     id="adm-name"     placeholder="Full Name" />
+            <input type="email"    id="adm-email"    placeholder="Email" />
+            <input type="password" id="adm-password" placeholder="Password" />
+            <select id="adm-role" class="days-select">
+              <option value="admin">Admin</option>
+              <option value="superadmin">Superadmin</option>
+            </select>
+            <button class="btn-primary" id="add-admin-btn" style="width:auto;padding:9px 18px">Add</button>
+          </div>
+          <div id="adm-result" class="status-msg hidden" style="margin-top:12px"></div>
+        </div>
+        <div class="table-card">
+          <div class="table-header-row"><h3>Admin Users</h3></div>
+          <table class="data-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last Login</th><th></th></tr></thead>
+            <tbody id="admins-table-body"><tr><td colspan="5" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
 
   <script src="/js/admin.js"></script>
 </body>
