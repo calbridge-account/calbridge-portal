@@ -20,23 +20,41 @@ async function signup({ email, password, name }) {
   const hash = await bcrypt.hash(password, 12);
 
   await query(`
-    INSERT INTO clients (client_id, email, name, password_hash, created_at)
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO clients (client_id, email, name, password_hash, status, created_at)
+    VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
   `, [id, email, name, hash]);
 
-  return { id, email, name };
+  // Notify Abe
+  await sendApprovalEmail({ id, email, name }).catch(err =>
+    console.warn('[Auth] Approval email failed:', err.message)
+  );
+
+  return { id, email, name, status: 'pending' };
+}
+
+async function sendApprovalEmail({ id, email, name }) {
+  const { Resend } = require('resend');
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  await resend.emails.send({
+    from: `Calbridge Portal <${process.env.EMAIL_FROM}>`,
+    to: [process.env.EMAIL_CC],
+    subject: `New signup pending approval: ${name}`,
+    text: `A new client has signed up and is awaiting your approval.\n\nName: ${name}\nEmail: ${email}\nClient ID: ${id}\n\nTo approve:\nPOST https://app.teamcalbridge.com/admin/approve/${id}\n\nOr log into your admin panel to manage pending accounts.`
+  });
 }
 
 async function login({ email, password }) {
   email = email.toLowerCase().trim();
   const rows = await query(
-    `SELECT client_id, email, name, password_hash FROM clients WHERE email = ?`, [email]
+    `SELECT client_id, email, name, password_hash, status FROM clients WHERE email = ?`, [email]
   );
   if (!rows.length) throw new Error('INVALID_CREDENTIALS');
   const row = rows[0];
   const valid = await bcrypt.compare(password, row.PASSWORD_HASH);
   if (!valid) throw new Error('INVALID_CREDENTIALS');
-  return { id: row.CLIENT_ID, email: row.EMAIL, name: row.NAME };
+  if (row.STATUS === 'pending') throw new Error('PENDING_APPROVAL');
+  if (row.STATUS === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
+  return { id: row.CLIENT_ID, email: row.EMAIL, name: row.NAME, status: row.STATUS };
 }
 
 async function getById(id) {

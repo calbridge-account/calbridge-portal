@@ -30,6 +30,12 @@ router.post('/login', async (req, res, next) => {
     if (err.message === 'INVALID_CREDENTIALS') {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    if (err.message === 'PENDING_APPROVAL') {
+      return res.status(403).json({ error: 'PENDING_APPROVAL', message: 'Your account is pending approval. You will receive an email once approved.' });
+    }
+    if (err.message === 'ACCOUNT_SUSPENDED') {
+      return res.status(403).json({ error: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended. Please contact support.' });
+    }
     next(err);
   }
 });

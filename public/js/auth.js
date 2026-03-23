@@ -23,8 +23,25 @@ form.addEventListener('submit', async (e) => {
       credentials: 'include'
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Something went wrong');
-    window.location.href = '/dashboard.html';
+    if (!res.ok) {
+      if (data.error === 'PENDING_APPROVAL') {
+        errorEl.innerHTML = 'Your account is pending approval.<br>You will receive an email once approved.';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = isSignup ? 'Create Account' : 'Sign In';
+        return;
+      }
+      throw new Error(data.message || data.error || 'Something went wrong');
+    }
+    if (isSignup) {
+      errorEl.style.background = 'var(--success-bg)';
+      errorEl.style.color = 'var(--success)';
+      errorEl.innerHTML = 'Account created! Your access is pending approval.<br>You will receive an email once approved.';
+      errorEl.classList.remove('hidden');
+      document.getElementById('signup-form').style.display = 'none';
+    } else {
+      window.location.href = '/dashboard.html';
+    }
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.classList.remove('hidden');
