@@ -35,7 +35,16 @@
           <option value="30" selected>Last 30 days</option>
           <option value="60">Last 60 days</option>
           <option value="90">Last 90 days</option>
+          <option value="mtd">Month to Date</option>
+          <option value="ytd">Year to Date</option>
+          <option value="custom">Custom Range</option>
         </select>
+        <div id="custom-range" class="custom-range hidden">
+          <input type="date" id="date-from" class="date-input" />
+          <span style="color:var(--gray-400);font-size:13px">→</span>
+          <input type="date" id="date-to" class="date-input" />
+          <button class="btn-secondary" id="apply-custom">Apply</button>
+        </div>
       </div>
     </header>
 
@@ -130,6 +139,7 @@
     </div>
   </main>
 
+  <script src="/js/dateUtils.js"></script>
   <script src="/js/advertising.js"></script>
 </body>
 </html>

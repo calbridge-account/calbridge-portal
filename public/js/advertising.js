@@ -41,8 +41,8 @@ async function checkAuth() {
 }
 
 function setupControls() {
-  $('days-filter').addEventListener('change', async e => {
-    currentDays = Number(e.target.value);
+  setupDateFilter('days-filter', async (days, label) => {
+    currentDays = days;
     await loadAll();
   });
 

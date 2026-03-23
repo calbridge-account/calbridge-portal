@@ -60,9 +60,9 @@ function setupNav() {
 }
 
 function setupFilters() {
-  $('days-filter').addEventListener('change', async (e) => {
-    currentDays = Number(e.target.value);
-    $('section-sub').textContent = `Last ${currentDays} days`;
+  setupDateFilter('days-filter', async (days, label) => {
+    currentDays = days;
+    $('section-sub').textContent = label;
     await loadAll();
   });
 
