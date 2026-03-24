@@ -9,6 +9,7 @@ const { query } = require('../services/snowflakeService');
 const { Resend } = require('resend');
 const { sendWeeklyReportsToAll } = require('../jobs/weeklyEmailScheduler');
 const { generateAndSend } = require('../services/weeklyReport');
+const { getAllHealthScores } = require('../services/healthScore');
 
 // Admin auth middleware
 function requireAdmin(req, res, next) {
@@ -250,6 +251,17 @@ router.post('/test-weekly-report/:clientId', requireAdmin, async (req, res, next
     }
 
     res.json({ message: `Test report sent to abe@teamcalbridge.com for client ${rows[0].EMAIL}` });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /admin/health-scores
+ * Health score (0-100) for all active clients
+ */
+router.get('/health-scores', requireAdmin, async (req, res, next) => {
+  try {
+    const scores = await getAllHealthScores();
+    res.json(scores);
   } catch (err) { next(err); }
 });
 

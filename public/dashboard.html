@@ -112,6 +112,14 @@
         </div>
       </div>
 
+      <!-- CM Waterfall Breakdown -->
+      <div class="table-card" id="cm-waterfall-card" style="display:none">
+        <h3>💰 Contribution Margin Waterfall</h3>
+        <div id="cm-waterfall-body" style="padding:4px 0">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
       <!-- Top ASINs Table -->
       <div class="table-card">
         <h3>Top ASINs by Contribution Margin</h3>
@@ -138,13 +146,46 @@
 
     <!-- Performance Section -->
     <section id="section-performance" class="dashboard-section hidden">
+      <!-- Top ASINs by Revenue -->
+      <div class="table-card">
+        <div class="table-header-row">
+          <h3>🏆 Top 10 ASINs by Revenue</h3>
+        </div>
+        <table class="data-table" id="sales-top-asins-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>ASIN</th>
+              <th>Units</th>
+              <th>Revenue</th>
+            </tr>
+          </thead>
+          <tbody id="sales-top-asins-body">
+            <tr><td colspan="4" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Sales Trend + Channel Split -->
       <div class="charts-row">
         <div class="chart-card wide">
-          <h3>Campaign Performance</h3>
+          <h3>Daily Revenue Trend</h3>
+          <canvas id="sales-trend-chart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Sales by Channel</h3>
+          <canvas id="channel-split-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- CM Performance (existing bottom ASINs) -->
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <h3>Campaign Performance (CM)</h3>
           <canvas id="campaign-chart"></canvas>
         </div>
         <div class="chart-card">
-          <h3>ACOS by Campaign</h3>
+          <h3>ACOS by ASIN</h3>
           <canvas id="acos-chart"></canvas>
         </div>
       </div>

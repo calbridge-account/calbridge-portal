@@ -132,6 +132,12 @@ async function analyze(clientId, days = 30) {
     }
   });
 
+  // ---- BUDGET PACING ALERTS ----
+  try {
+    const pacingAlerts = await getBudgetPacingAlerts(clientId);
+    pacingAlerts.forEach(a => alerts.push(a));
+  } catch { /* no budget data */ }
+
   // ---- TREND ALERTS: sudden ACOS spikes ----
   trendData.forEach(t => {
     if (t.SPIKE_DETECTED) {
@@ -226,6 +232,71 @@ async function getTrendAlerts(clientId) {
       CASE WHEN b.avg_acos > 0 AND r.recent_acos / b.avg_acos > 1.2 THEN TRUE ELSE FALSE END AS spike_detected
     FROM recent r, baseline b
   `, [clientId]);
+}
+
+/**
+ * Budget Pacing Alerts
+ * Compares projected month-end spend vs monthly budget cap.
+ * Budget cap is stored in a `client_settings` table as `monthly_ad_budget`.
+ */
+async function getBudgetPacingAlerts(clientId) {
+  const alerts = [];
+
+  // Get monthly budget cap from client settings
+  const settingRows = await query(`
+    SELECT setting_value FROM client_settings
+    WHERE client_id = ? AND setting_key = 'monthly_ad_budget'
+  `, [clientId]);
+
+  if (!settingRows.length) return alerts;
+
+  const monthlyBudget = Number(settingRows[0].SETTING_VALUE || 0);
+  if (monthlyBudget <= 0) return alerts;
+
+  // Get current month-to-date ad spend + calculate daily rate
+  const today = new Date();
+  const dayOfMonth = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysRemaining = daysInMonth - dayOfMonth;
+
+  const spendRows = await query(`
+    SELECT COALESCE(SUM(spend), 0) AS mtd_spend
+    FROM ad_performance
+    WHERE client_id = ?
+      AND YEAR(report_date) = YEAR(CURRENT_DATE)
+      AND MONTH(report_date) = MONTH(CURRENT_DATE)
+  `, [clientId]);
+
+  const mtdSpend = Number(spendRows[0]?.MTD_SPEND || 0);
+  if (mtdSpend <= 0 || dayOfMonth <= 1) return alerts;
+
+  const dailyRate        = mtdSpend / dayOfMonth;
+  const projectedSpend   = mtdSpend + (dailyRate * daysRemaining);
+  const projectedPct     = projectedSpend / monthlyBudget;
+
+  if (projectedPct > 1.1) {
+    const overPct = ((projectedPct - 1) * 100).toFixed(1);
+    alerts.push({
+      type:     'warning',
+      category: 'budget_overpacing',
+      title:    'Budget Over-Pacing',
+      message:  `Over-pacing: projected to overspend by ${overPct}% (${fmt$(projectedSpend)} vs ${fmt$(monthlyBudget)} budget).`,
+      metric:   { projectedSpend, monthlyBudget, projectedPct, dailyRate },
+      action:   { label: 'Review Campaigns', type: 'review', link: '/advertising.html' }
+    });
+  } else if (projectedPct < 0.7) {
+    const usedPct = (projectedPct * 100).toFixed(1);
+    alerts.push({
+      type:     'warning',
+      category: 'budget_underpacing',
+      title:    'Budget Under-Pacing',
+      message:  `Under-pacing: only ${usedPct}% of budget on track to be used this month (${fmt$(projectedSpend)} of ${fmt$(monthlyBudget)}).`,
+      metric:   { projectedSpend, monthlyBudget, projectedPct, dailyRate },
+      action:   { label: 'Review Campaigns', type: 'review', link: '/advertising.html' }
+    });
+  }
+
+  return alerts;
 }
 
 function fmt$(n) { return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }

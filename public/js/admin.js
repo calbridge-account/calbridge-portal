@@ -2,6 +2,7 @@
 
 let currentAdmin = null;
 let allClients = [];
+let healthScores = {}; // clientId -> { score, breakdown }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAdminAuth();
@@ -96,9 +97,19 @@ async function loadAll() {
 }
 
 async function loadClients() {
-  const res = await adminFetch('/admin/clients');
-  if (!res.ok) return;
-  allClients = await res.json();
+  const [clientsRes, scoresRes] = await Promise.all([
+    adminFetch('/admin/clients'),
+    adminFetch('/admin/health-scores')
+  ]);
+  if (!clientsRes.ok) return;
+  allClients = await clientsRes.json();
+
+  if (scoresRes.ok) {
+    const scores = await scoresRes.json();
+    healthScores = {};
+    scores.forEach(s => { healthScores[s.clientId] = s; });
+  }
+
   renderClients('');
   updateStats();
   document.getElementById('admin-subtitle').textContent = `${allClients.length} total clients · Updated ${new Date().toLocaleTimeString()}`;
@@ -111,13 +122,24 @@ function updateStats() {
   document.getElementById('stat-suspended').textContent = allClients.filter(c => c.status === 'suspended').length;
 }
 
+function healthBadge(clientId) {
+  const hs = healthScores[clientId];
+  if (!hs) return '<span class="health-badge" style="background:var(--gray-100);color:var(--gray-400)">—</span>';
+  const score = hs.score;
+  let cls, label;
+  if (score >= 80) { cls = 'health-healthy'; label = '✅ Healthy'; }
+  else if (score >= 50) { cls = 'health-fair'; label = '⚠️ Fair'; }
+  else { cls = 'health-at-risk'; label = '🔴 At Risk'; }
+  return `<span class="health-badge ${cls}" title="Score: ${score}\nCM Trend: ${hs.breakdown.cmTrend}\nACOS: ${hs.breakdown.acosVsBreakEven}\nFreshness: ${hs.breakdown.dataFreshness}\nConnections: ${hs.breakdown.amazonConnections}\nLogin: ${hs.breakdown.loginRecency}">${label} ${score}</span>`;
+}
+
 function renderClients(search) {
   const tbody = document.getElementById('clients-table-body');
   const filtered = search
     ? allClients.filter(c => c.name?.toLowerCase().includes(search) || c.email?.toLowerCase().includes(search) || c.companyName?.toLowerCase().includes(search))
     : allClients;
 
-  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No clients found</td></tr>'; return; }
+  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No clients found</td></tr>'; return; }
 
   tbody.innerHTML = filtered.map(c => `
     <tr>
@@ -125,6 +147,7 @@ function renderClients(search) {
       <td>${c.email}</td>
       <td>${c.companyName || '—'}</td>
       <td><span class="status-pill pill-${c.status || 'active'}">${c.status || 'active'}</span></td>
+      <td>${healthBadge(c.id)}</td>
       <td>${c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
       <td>
         ${['pending','invited'].includes(c.status) ? `<button class="action-btn btn-approve" onclick="approveClient('${c.id}','${c.email}')">Approve</button>` : ''}

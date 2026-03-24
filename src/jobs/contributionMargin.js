@@ -19,29 +19,31 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
   return runJob(clientId, 'all', 'contribution_margin', async () => {
     const rows = await query(`
       WITH sales_data AS (
+        -- Daily revenue + units per ASIN
         SELECT
           client_id,
           asin,
           order_date AS calc_date,
           SUM(ordered_revenue) AS revenue,
-          SUM(units_ordered) AS units
+          SUM(units_ordered)   AS units
         FROM sales
         WHERE client_id = ?
           AND order_date >= DATEADD(day, -?, CURRENT_DATE)
         GROUP BY client_id, asin, order_date
       ),
-      ad_data AS (
-        SELECT
-          p.client_id,
-          -- Join ad spend to ASIN via campaign (best effort — campaigns may cover multiple ASINs)
-          -- Using total daily spend distributed here; will refine when keyword-level data is available
-          ap.report_date AS calc_date,
-          SUM(ap.spend) AS total_ad_spend
-        FROM ad_performance ap
-        JOIN ad_campaigns p ON ap.client_id = p.client_id AND ap.campaign_id = p.campaign_id
-        WHERE ap.client_id = ?
-          AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-        GROUP BY p.client_id, ap.report_date
+      daily_total_revenue AS (
+        -- Total revenue per day (for proportional ad spend attribution)
+        SELECT client_id, calc_date, SUM(revenue) AS day_revenue
+        FROM sales_data
+        GROUP BY client_id, calc_date
+      ),
+      daily_ad_spend AS (
+        -- Total ad spend per day
+        SELECT client_id, report_date AS calc_date, SUM(spend) AS total_spend
+        FROM ad_performance
+        WHERE client_id = ?
+          AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+        GROUP BY client_id, report_date
       ),
       product_costs AS (
         SELECT client_id, asin, fba_fees, cogs
@@ -54,51 +56,73 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
         s.calc_date,
         s.revenue,
         s.units,
-        COALESCE(a.total_ad_spend, 0) AS ad_spend,
+        -- Attribute ad spend proportionally: ASIN revenue / total day revenue * total day spend
+        CASE
+          WHEN dtr.day_revenue > 0
+          THEN COALESCE(das.total_spend, 0) * (s.revenue / dtr.day_revenue)
+          ELSE 0
+        END AS ad_spend,
         COALESCE(p.fba_fees, 0) AS fba_fees,
-        COALESCE(p.cogs, 0) AS cogs
+        COALESCE(p.cogs, 0)     AS cogs
       FROM sales_data s
-      LEFT JOIN ad_data a ON s.client_id = a.client_id AND s.calc_date = a.calc_date
-      LEFT JOIN product_costs p ON s.client_id = p.client_id AND s.asin = p.asin
+      LEFT JOIN daily_total_revenue dtr
+        ON s.client_id = dtr.client_id AND s.calc_date = dtr.calc_date
+      LEFT JOIN daily_ad_spend das
+        ON s.client_id = das.client_id AND s.calc_date = das.calc_date
+      LEFT JOIN product_costs p
+        ON s.client_id = p.client_id AND s.asin = p.asin
     `, [clientId, daysBack, clientId, daysBack, clientId]);
 
     if (!rows.length) return { recordsWritten: 0 };
 
-    let written = 0;
-    for (const row of rows) {
-      const revenue = Number(row.REVENUE || 0);
-      const adSpend = Number(row.AD_SPEND || 0);
-      const fbaFees = Number(row.FBA_FEES || 0);
-      const cogs    = Number(row.COGS    || 0);
-      const units   = Number(row.UNITS   || 0);
-      const cm      = revenue - adSpend - fbaFees - cogs;
-      const cmPercent = revenue > 0 ? (cm / revenue) * 100 : null;
-      // Unit-level CM: CM divided by units sold
-      const unitCm        = units > 0 ? cm / units : null;
-      const unitCmPercent = units > 0 && revenue > 0 ? (cm / units) / (revenue / units) * 100 : null;
+    // Build all computed values in JS, then do a single bulk MERGE
+    const computed = rows.map(row => {
+      const revenue   = Number(row.REVENUE   || 0);
+      const adSpend   = Number(row.AD_SPEND  || 0);
+      const fbaFees   = Number(row.FBA_FEES  || 0);
+      const cogs      = Number(row.COGS      || 0);
+      const units     = Number(row.UNITS     || 0);
+      const cm        = revenue - adSpend - fbaFees - cogs;
+      const cmPct     = revenue > 0 ? (cm / revenue) * 100 : 0;
+      const unitCm    = units > 0 ? cm / units : 0;
+      const unitCmPct = units > 0 && revenue > 0 ? (cm / units) / (revenue / units) * 100 : 0;
+      const cid  = String(row.CLIENT_ID).replace(/'/g, "''");
+      const asin = String(row.ASIN).replace(/'/g, "''");
+      // CALC_DATE may come back as a JS Date object — convert to YYYY-MM-DD safely
+      const rawDate = row.CALC_DATE?.value || row.CALC_DATE;
+      const date = rawDate instanceof Date
+        ? rawDate.toISOString().substring(0, 10)
+        : String(rawDate).substring(0, 10);
+      return `('${cid}','${asin}','${date}',${revenue.toFixed(4)},${adSpend.toFixed(4)},${fbaFees.toFixed(4)},${cogs.toFixed(4)},${cm.toFixed(4)},${cmPct.toFixed(4)},${units},${unitCm.toFixed(4)},${unitCmPct.toFixed(4)})`;
+    });
 
+    // Batch MERGE in chunks of 200
+    const CHUNK = 200;
+    let written = 0;
+    for (let i = 0; i < computed.length; i += CHUNK) {
+      const vals = computed.slice(i, i + CHUNK).join(',');
       await query(`
         MERGE INTO contribution_margin t
-        USING (SELECT ? AS client_id, ? AS asin, ? AS calc_date) s
-        ON t.client_id = s.client_id AND t.asin = s.asin AND t.calc_date = s.calc_date
+        USING (
+          SELECT v.col1 AS client_id, v.col2 AS asin, v.col3::DATE AS calc_date,
+                 v.col4 AS revenue, v.col5 AS ad_spend, v.col6 AS fba_fees, v.col7 AS cogs,
+                 v.col8 AS contribution_margin, v.col9 AS cm_percent,
+                 v.col10 AS units, v.col11 AS unit_cm, v.col12 AS unit_cm_percent
+          FROM VALUES ${vals}
+            AS v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12)
+        ) s ON t.client_id = s.client_id AND t.asin = s.asin AND t.calc_date = s.calc_date
         WHEN MATCHED THEN UPDATE SET
-          revenue = ?, ad_spend = ?, fba_fees = ?, cogs = ?,
-          contribution_margin = ?, cm_percent = ?,
-          units = ?, unit_cm = ?, unit_cm_percent = ?,
-          calculated_at = CURRENT_TIMESTAMP
+          revenue=s.revenue, ad_spend=s.ad_spend, fba_fees=s.fba_fees, cogs=s.cogs,
+          contribution_margin=s.contribution_margin, cm_percent=s.cm_percent,
+          units=s.units, unit_cm=s.unit_cm, unit_cm_percent=s.unit_cm_percent,
+          calculated_at=CURRENT_TIMESTAMP
         WHEN NOT MATCHED THEN INSERT
-          (client_id, asin, calc_date, revenue, ad_spend, fba_fees, cogs,
-           contribution_margin, cm_percent, units, unit_cm, unit_cm_percent, calculated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `, [
-        row.CLIENT_ID, row.ASIN, row.CALC_DATE,
-        revenue, adSpend, fbaFees, cogs, cm, cmPercent,
-        units, unitCm, unitCmPercent,
-        row.CLIENT_ID, row.ASIN, row.CALC_DATE,
-        revenue, adSpend, fbaFees, cogs, cm, cmPercent,
-        units, unitCm, unitCmPercent
-      ]);
-      written++;
+          (client_id,asin,calc_date,revenue,ad_spend,fba_fees,cogs,
+           contribution_margin,cm_percent,units,unit_cm,unit_cm_percent,calculated_at)
+          VALUES (s.client_id,s.asin,s.calc_date,s.revenue,s.ad_spend,s.fba_fees,s.cogs,
+           s.contribution_margin,s.cm_percent,s.units,s.unit_cm,s.unit_cm_percent,CURRENT_TIMESTAMP)
+      `);
+      written += computed.slice(i, i + CHUNK).length;
     }
 
     return { recordsWritten: written };

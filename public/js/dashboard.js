@@ -1,7 +1,7 @@
 // CalBridge Dashboard — client-side JS
 
 const $ = id => document.getElementById(id);
-let cmTrendChart, revSpendChart, campaignChart, acosChart;
+let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart;
 let currentDays = 30;
 
 // ---- Init ----
@@ -51,6 +51,8 @@ function setupNav() {
       link.classList.add('active');
       $(`section-${section}`).classList.remove('hidden');
       $('section-title').textContent = link.textContent.replace(/^./, '').trim();
+      // Lazy-load performance tab
+      if (section === 'performance') loadPerformance();
     });
   });
 
@@ -87,6 +89,64 @@ async function loadAll() {
   ]);
 }
 
+// ---- Performance Tab ----
+let performanceLoaded = false;
+
+async function loadPerformance() {
+  if (performanceLoaded) return;
+  performanceLoaded = true;
+  try {
+    const res = await fetch(`/dashboard/sales-performance?days=${currentDays}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Top ASINs table
+    const tbody = $('sales-top-asins-body');
+    if (data.topAsins?.length) {
+      tbody.innerHTML = data.topAsins.map((r, i) => `
+        <tr>
+          <td><strong>#${i+1}</strong> ${r.productName !== r.asin ? `<span style="font-size:12px">${r.productName.substring(0,60)}</span>` : '—'}</td>
+          <td style="font-size:11px;color:var(--gray-400)">${r.asin}</td>
+          <td>${Number(r.units).toLocaleString()}</td>
+          <td><strong>${fmt$(r.revenue)}</strong></td>
+        </tr>
+      `).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="4" class="loading-cell">No sales data yet</td></tr>';
+    }
+
+    // Sales trend chart
+    if (data.dailyTrend?.length) {
+      const labels = data.dailyTrend.map(r => r.date);
+      const revs   = data.dailyTrend.map(r => r.revenue);
+      if (salesTrendChart) salesTrendChart.destroy();
+      salesTrendChart = new Chart($('sales-trend-chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{ label: 'Daily Revenue', data: revs, borderColor: '#1a56db', backgroundColor: 'rgba(26,86,219,.08)', tension: .4, fill: true }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + Number(v).toFixed(0) } } } }
+      });
+    }
+
+    // Channel split pie
+    if (data.channelSplit?.length) {
+      const labels = data.channelSplit.map(r => r.channel === 'seller' ? 'Seller Central' : r.channel === 'vendor' ? 'Vendor Central' : r.channel);
+      const vals   = data.channelSplit.map(r => r.revenue);
+      if (channelSplitChart) channelSplitChart.destroy();
+      channelSplitChart = new Chart($('channel-split-chart'), {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{ data: vals, backgroundColor: ['#1a56db', '#057a55', '#0694a2', '#e02424'] }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+    }
+  } catch (err) { console.error('Performance load error:', err); }
+}
+
 // ---- Overview ----
 async function loadOverview() {
   try {
@@ -116,6 +176,9 @@ async function loadOverview() {
     $('kpi-cm').textContent     = fmt$(totals.cm);
     $('kpi-cm-sub').textContent = `${cmPct.toFixed(1)}% of retail sales`;
     $('kpi-acos').textContent   = summary.acos ? `${(summary.acos * 100).toFixed(1)}%` : '—';
+
+    // CM Waterfall
+    if (summary.cmBreakdown) renderCmWaterfall(summary.cmBreakdown);
 
     // CM Trend chart (aggregate by ASIN across all performers)
     await loadCmTrend();
@@ -378,6 +441,43 @@ function renderInsights() {
 function handleInsightAction(type, action) {
   if (action.link) { window.location.href = action.link; return; }
   alert(`${action.label} — one-click ad actions coming soon!`);
+}
+
+// ---- CM Waterfall ----
+function renderCmWaterfall(cm) {
+  const card = $('cm-waterfall-card');
+  const body = $('cm-waterfall-body');
+  if (!card || !body) return;
+  if (!cm || cm.revenue <= 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const rev = cm.revenue;
+  function bar(value, cls) {
+    const pct = rev > 0 ? Math.max(0, Math.min(100, (value / rev) * 100)) : 0;
+    const isNeg = value < 0;
+    return `<div class="cm-waterfall-bar-wrap"><div class="cm-waterfall-bar ${isNeg ? 'bar-negative' : cls}" style="width:${pct}%"></div></div>`;
+  }
+  function pctStr(v) {
+    return rev > 0 ? `<span class="cm-wf-pct">${((v/rev)*100).toFixed(1)}%</span>` : '';
+  }
+
+  const rows = [
+    { label: 'Revenue',                    value: cm.revenue,  cls: 'bar-revenue', style: '' },
+    { label: '− COGS',                     value: -cm.cogs,    cls: 'bar-negative', style: 'color:var(--danger)' },
+    { label: '= CM1 (Gross Margin)',        value: cm.cm1,      cls: 'bar-cm1', style: 'font-weight:700' },
+    { label: '− FBA &amp; Referral Fees',  value: -cm.fbaFees, cls: 'bar-negative', style: 'color:var(--danger)' },
+    { label: '= CM2 (After Amazon Fees)',   value: cm.cm2,      cls: 'bar-cm2', style: 'font-weight:700' },
+    { label: '− Ad Spend',                 value: -cm.adSpend, cls: 'bar-negative', style: 'color:var(--danger)' },
+    { label: '= CM3 (True Profit)',         value: cm.cm3,      cls: 'bar-cm3', style: 'font-weight:700;font-size:14px' },
+  ];
+
+  body.innerHTML = `<div class="cm-waterfall">` + rows.map(r => `
+    <div class="cm-waterfall-row">
+      <div class="cm-waterfall-label" style="${r.style}">${r.label}</div>
+      ${bar(Math.abs(r.value), r.cls)}
+      <div class="cm-waterfall-value" style="${r.style}">${fmt$(r.value)}${r.value !== cm.revenue && r.value >= 0 ? pctStr(r.value) : ''}</div>
+    </div>
+  `).join('') + `</div>`;
 }
 
 // ---- Helpers ----
