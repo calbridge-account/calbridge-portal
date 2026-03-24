@@ -1,0 +1,35 @@
+name: Deploy Docs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy docs-site/ to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs-site
+          publish_branch: gh-pages
+          commit_message: "docs: deploy from main@${{ github.sha }}"
+          force_orphan: false

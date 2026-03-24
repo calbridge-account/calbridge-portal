@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Setup Guide</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="shared.css"/>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="index.html" class="topnav-brand"><span>📊 CalBridge</span></a>
+    <div class="topnav-links">
+      <a href="index.html">Overview</a>
+      <a href="api.html">API Reference</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="setup.html" class="active">Setup Guide</a>
+      <a href="roadmap.html">Roadmap</a>
+    </div>
+    <a href="https://app.teamcalbridge.com" class="topnav-cta">Open Portal →</a>
+  </nav>
+
+  <div class="page-layout">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Setup</div>
+        <a href="#prerequisites" class="sidebar-link">Prerequisites</a>
+        <a href="#clone" class="sidebar-link">Clone &amp; Install</a>
+        <a href="#env" class="sidebar-link">Environment Variables</a>
+        <a href="#snowflake" class="sidebar-link">Snowflake Setup</a>
+        <a href="#amazon" class="sidebar-link">Amazon OAuth Setup</a>
+        <a href="#run" class="sidebar-link">Run Locally</a>
+        <a href="#prod" class="sidebar-link">Production Deploy</a>
+        <a href="#pm2" class="sidebar-link">PM2 Setup</a>
+        <a href="#nginx" class="sidebar-link">Nginx Config</a>
+        <a href="#checklist" class="sidebar-link">Deploy Checklist</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Setup Guide</h1>
+      <p class="lead">Get CalBridge running locally in 10 minutes. Production deployment on an Azure Ubuntu VM takes ~30 minutes.</p>
+
+      <section id="prerequisites">
+        <h2>Prerequisites</h2>
+        <ul>
+          <li>Node.js v22+ (<a href="https://nodejs.org">nodejs.org</a>)</li>
+          <li>npm v10+</li>
+          <li>A Snowflake account (free trial available)</li>
+          <li>Amazon Developer account (for LWA/SP-API credentials)</li>
+          <li>Resend account (for emails)</li>
+          <li>Stripe account (for billing)</li>
+        </ul>
+      </section>
+
+      <section id="clone">
+        <h2>Clone &amp; Install</h2>
+        <div class="code-block"><code>git clone https://github.com/calbridge-account/calbridge-portal.git
+cd calbridge-portal
+npm install
+cp .env.example .env   # then fill in your values</code></div>
+      </section>
+
+      <section id="env">
+        <h2>Environment Variables</h2>
+        <p>Create a <code>.env</code> file in the project root. All variables marked <strong>required</strong> must be set.</p>
+        <table class="doc-table">
+          <thead><tr><th>Variable</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>SESSION_SECRET</code></td><td>✅</td><td>Signs session cookies. Generate with: <code>node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"</code></td></tr>
+            <tr><td><code>NODE_ENV</code></td><td>✅</td><td><code>production</code> or <code>development</code></td></tr>
+            <tr><td><code>BASE_URL</code></td><td>✅</td><td>Your domain, e.g. <code>https://app.teamcalbridge.com</code></td></tr>
+            <tr><td><code>SNOWFLAKE_ACCOUNT</code></td><td>✅</td><td>e.g. <code>xyz12345.us-east-1</code></td></tr>
+            <tr><td><code>SNOWFLAKE_USER</code></td><td>✅</td><td>Snowflake username</td></tr>
+            <tr><td><code>SNOWFLAKE_PASSWORD</code></td><td>✅</td><td>Snowflake password</td></tr>
+            <tr><td><code>SNOWFLAKE_DATABASE</code></td><td>✅</td><td>e.g. <code>CALBRIDGE</code></td></tr>
+            <tr><td><code>SNOWFLAKE_SCHEMA</code></td><td>✅</td><td>e.g. <code>PROD</code> or <code>SANDBOX</code></td></tr>
+            <tr><td><code>SNOWFLAKE_WAREHOUSE</code></td><td>✅</td><td>e.g. <code>CALBRIDGE_WH</code></td></tr>
+            <tr><td><code>LWA_CLIENT_ID</code></td><td>✅</td><td>Amazon Advertising OAuth client ID</td></tr>
+            <tr><td><code>LWA_CLIENT_SECRET</code></td><td>✅</td><td>Amazon Advertising OAuth client secret</td></tr>
+            <tr><td><code>SPAPI_PROD_CLIENT_ID</code></td><td>✅</td><td>SP-API production client ID</td></tr>
+            <tr><td><code>SPAPI_PROD_CLIENT_SECRET</code></td><td>✅</td><td>SP-API production client secret</td></tr>
+            <tr><td><code>RESEND_API_KEY</code></td><td>✅</td><td>Resend API key for email</td></tr>
+            <tr><td><code>EMAIL_FROM</code></td><td>✅</td><td>Sender email, e.g. <code>ash@teamcalbridge.com</code></td></tr>
+            <tr><td><code>EMAIL_CC</code></td><td>✅</td><td>Admin alert recipient</td></tr>
+            <tr><td><code>STRIPE_SECRET_KEY</code></td><td>✅</td><td>Stripe secret key</td></tr>
+            <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td></td><td>Stripe webhook signing secret</td></tr>
+            <tr><td><code>OPENAI_API_KEY</code></td><td></td><td>For AI chat assistant</td></tr>
+            <tr><td><code>GITHUB_TOKEN</code></td><td></td><td>GitHub token for CI/docs deployment</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="snowflake">
+        <h2>Snowflake Setup</h2>
+        <p>Create the required tables. Run these in a Snowflake worksheet:</p>
+        <div class="code-block"><code>-- Core tables (simplified)
+CREATE TABLE clients (
+  client_id VARCHAR, email VARCHAR, name VARCHAR, company_name VARCHAR,
+  status VARCHAR, password_hash VARCHAR, created_at TIMESTAMP,
+  approved_at TIMESTAMP, last_login TIMESTAMP,
+  weekly_report_enabled BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE amazon_connections (
+  client_id VARCHAR, connection_type VARCHAR, access_token VARCHAR,
+  refresh_token VARCHAR, expires_at TIMESTAMP, connected_at TIMESTAMP,
+  selling_partner_id VARCHAR
+);
+
+CREATE TABLE sales (
+  client_id VARCHAR, asin VARCHAR, connection_type VARCHAR,
+  order_date DATE, ordered_revenue NUMBER, shipped_revenue NUMBER,
+  units_ordered NUMBER, created_at TIMESTAMP
+);
+
+CREATE TABLE ad_performance (
+  client_id VARCHAR, campaign_id VARCHAR, connection_type VARCHAR,
+  report_date DATE, spend NUMBER, sales NUMBER, orders NUMBER,
+  impressions NUMBER, clicks NUMBER, created_at TIMESTAMP
+);
+
+CREATE TABLE products (
+  client_id VARCHAR, asin VARCHAR, title VARCHAR, sku VARCHAR,
+  fba_fees NUMBER, cogs NUMBER, updated_at TIMESTAMP
+);
+
+CREATE TABLE contribution_margin (
+  client_id VARCHAR, asin VARCHAR, calc_date DATE,
+  revenue NUMBER, ad_spend NUMBER, fba_fees NUMBER, cogs NUMBER,
+  contribution_margin NUMBER, cm_percent NUMBER,
+  units NUMBER, unit_cm NUMBER, unit_cm_percent NUMBER,
+  calculated_at TIMESTAMP
+);
+
+CREATE TABLE ingestion_log (
+  log_id VARCHAR, client_id VARCHAR, connection_type VARCHAR,
+  job_type VARCHAR, status VARCHAR, records_written NUMBER,
+  error_message VARCHAR, started_at TIMESTAMP, completed_at TIMESTAMP
+);
+
+CREATE TABLE admin_users (
+  admin_id VARCHAR, email VARCHAR, name VARCHAR, password_hash VARCHAR,
+  role VARCHAR, created_at TIMESTAMP, last_login TIMESTAMP
+);</code></div>
+      </section>
+
+      <section id="amazon">
+        <h2>Amazon OAuth Setup</h2>
+        <p>Two separate OAuth apps are required:</p>
+        <ol>
+          <li><strong>Amazon Advertising OAuth (LWA)</strong> — for Ads and DSP connections. Register at <a href="https://advertising.amazon.com/API/docs">Amazon Advertising Console</a>.</li>
+          <li><strong>SP-API OAuth</strong> — for Seller/Vendor Central. Register at <a href="https://sellercentral.amazon.com/apps/manage">Seller Central App Management</a>.</li>
+        </ol>
+        <p>Both require a redirect URI of <code>https://app.teamcalbridge.com/amazon/callback/:type</code>.</p>
+      </section>
+
+      <section id="run">
+        <h2>Run Locally</h2>
+        <div class="code-block"><code>npm run dev    # starts with nodemon hot-reload
+
+# Validate SQL schema (run before commits)
+npm run validate-schema
+
+# Test CM recalculation
+node -e "
+require('dotenv').config();
+const { calculateContributionMargin } = require('./src/jobs/contributionMargin');
+calculateContributionMargin('your-client-id', 30).then(r => {
+  console.log('Records written:', r.recordsWritten);
+});"</code></div>
+      </section>
+
+      <section id="prod">
+        <h2>Production Deploy</h2>
+        <div class="code-block"><code># SSH into your server
+ssh azureuser@your-server-ip
+
+# Pull latest code
+cd /home/azureuser/.openclaw/workspace
+git pull origin main
+
+# Install any new dependencies
+npm install --production
+
+# Restart PM2 with updated env vars
+pm2 restart calbridge-portal --update-env
+pm2 save</code></div>
+      </section>
+
+      <section id="pm2">
+        <h2>PM2 Setup</h2>
+        <div class="code-block"><code># Install PM2 globally
+npm install -g pm2
+
+# Start the app
+pm2 start index.js --name calbridge-portal
+
+# Set up startup script (auto-start on server reboot)
+pm2 startup
+pm2 save
+
+# Common commands
+pm2 status                          # check process status
+pm2 logs calbridge-portal           # tail logs
+pm2 restart calbridge-portal --update-env  # restart with new .env</code></div>
+      </section>
+
+      <section id="nginx">
+        <h2>Nginx Config</h2>
+        <div class="code-block"><code>server {
+    listen 443 ssl;
+    server_name app.teamcalbridge.com;
+
+    ssl_certificate /etc/letsencrypt/live/app.teamcalbridge.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.teamcalbridge.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+    listen 80;
+    server_name app.teamcalbridge.com;
+    return 301 https://$host$request_uri;
+}</code></div>
+      </section>
+
+      <section id="checklist">
+        <h2>Deploy Checklist</h2>
+        <ul>
+          <li>✅ All required env vars set in <code>.env</code></li>
+          <li>✅ <code>NODE_ENV=production</code></li>
+          <li>✅ <code>BASE_URL</code> matches Amazon OAuth redirect URI</li>
+          <li>✅ Snowflake tables created</li>
+          <li>✅ PM2 process running: <code>pm2 status</code></li>
+          <li>✅ Nginx config valid: <code>sudo nginx -t</code></li>
+          <li>✅ SSL certificate active: <code>sudo certbot certificates</code></li>
+          <li>✅ Health check: <code>curl https://app.teamcalbridge.com/health</code></li>
+          <li>✅ Create first admin user in Snowflake <code>admin_users</code> table</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <p>CalBridge Client Portal · <a href="https://teamcalbridge.com">teamcalbridge.com</a> · <a href="index.html">Docs Home</a></p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — API Reference</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="shared.css"/>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="index.html" class="topnav-brand"><span>📊 CalBridge</span></a>
+    <div class="topnav-links">
+      <a href="index.html">Overview</a>
+      <a href="api.html" class="active">API Reference</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="setup.html">Setup Guide</a>
+      <a href="roadmap.html">Roadmap</a>
+    </div>
+    <a href="https://app.teamcalbridge.com" class="topnav-cta">Open Portal →</a>
+  </nav>
+
+  <div class="page-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Auth</div>
+        <a href="#auth" class="sidebar-link">Overview</a>
+        <a href="#auth-signup" class="sidebar-link">POST /auth/signup</a>
+        <a href="#auth-login" class="sidebar-link">POST /auth/login</a>
+        <a href="#auth-me" class="sidebar-link">GET /auth/me</a>
+        <a href="#auth-forgot" class="sidebar-link">POST /auth/forgot-password</a>
+        <a href="#auth-reset" class="sidebar-link">POST /auth/reset-password</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Amazon</div>
+        <a href="#amazon" class="sidebar-link">GET /amazon/connect/:type</a>
+        <a href="#amazon-status" class="sidebar-link">GET /amazon/status</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Dashboard</div>
+        <a href="#dashboard" class="sidebar-link">GET /dashboard/summary</a>
+        <a href="#dashboard-performance" class="sidebar-link">GET /dashboard/performance</a>
+        <a href="#dashboard-sales" class="sidebar-link">GET /dashboard/sales-performance</a>
+        <a href="#dashboard-asin" class="sidebar-link">GET /dashboard/asin/:asin</a>
+        <a href="#dashboard-sync" class="sidebar-link">POST /dashboard/sync</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Decisions</div>
+        <a href="#decisions" class="sidebar-link">GET /decisions</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Advertising</div>
+        <a href="#advertising" class="sidebar-link">GET /advertising/overview</a>
+        <a href="#advertising-campaigns" class="sidebar-link">GET /advertising/campaigns</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Campaigns</div>
+        <a href="#campaigns" class="sidebar-link">GET /campaigns</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Account</div>
+        <a href="#account" class="sidebar-link">GET /account/profile</a>
+        <a href="#account-cogs" class="sidebar-link">COGS Upload</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Billing</div>
+        <a href="#billing" class="sidebar-link">GET /billing/plans</a>
+        <a href="#billing-subscribe" class="sidebar-link">POST /billing/subscribe</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Admin</div>
+        <a href="#admin" class="sidebar-link">GET /admin/clients</a>
+        <a href="#admin-health" class="sidebar-link">GET /admin/health-scores</a>
+        <a href="#admin-invite" class="sidebar-link">POST /admin/invite</a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Chat</div>
+        <a href="#chat" class="sidebar-link">POST /chat</a>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <h1>API Reference</h1>
+      <p class="lead">Base URL: <code>https://app.teamcalbridge.com</code> · All endpoints require <code>credentials: 'include'</code> for session cookies.</p>
+
+      <!-- AUTH -->
+      <section id="auth">
+        <h2>Authentication</h2>
+        <p>Session-based auth. All authenticated routes require an active session (set via <code>/auth/login</code> or <code>/auth/signup</code>).</p>
+
+        <div id="auth-signup" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/auth/signup</span>
+          </div>
+          <p>Create a new client account. Creates session on success.</p>
+          <div class="params">
+            <div class="param-title">Body</div>
+            <div class="param-row"><span class="param-name">name</span><span class="param-type">string</span><span class="param-req">required</span></div>
+            <div class="param-row"><span class="param-name">email</span><span class="param-type">string</span><span class="param-req">required</span></div>
+            <div class="param-row"><span class="param-name">password</span><span class="param-type">string</span><span class="param-req">required, min 8 chars</span></div>
+          </div>
+          <div class="code-block"><code>POST /auth/signup
+{ "name": "Acme Corp", "email": "acme@example.com", "password": "secret123" }
+
+→ 201 { "message": "Account created", "client": { "id": "...", "email": "...", "name": "..." } }</code></div>
+        </div>
+
+        <div id="auth-login" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/auth/login</span>
+          </div>
+          <p>Log in with email and password.</p>
+          <div class="code-block"><code>POST /auth/login
+{ "email": "acme@example.com", "password": "secret123" }
+
+→ 200 { "message": "Logged in", "client": { "id": "...", "email": "...", "name": "..." } }
+→ 401 { "error": "Invalid credentials" }</code></div>
+        </div>
+
+        <div id="auth-me" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/auth/me</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Get the currently logged-in client.</p>
+          <div class="code-block"><code>GET /auth/me
+
+→ 200 { "client": { "id": "...", "email": "...", "name": "..." } }
+→ 401 { "error": "Authentication required" }</code></div>
+        </div>
+
+        <div id="auth-forgot" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/auth/forgot-password</span>
+          </div>
+          <p>Request a password reset email. Always returns 200 (doesn't reveal if email exists).</p>
+        </div>
+
+        <div id="auth-reset" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/auth/reset-password</span>
+          </div>
+          <p>Set a new password using a valid reset token. Token valid for 1 hour.</p>
+          <div class="params">
+            <div class="param-row"><span class="param-name">token</span><span class="param-type">string</span><span class="param-req">required</span></div>
+            <div class="param-row"><span class="param-name">password</span><span class="param-type">string</span><span class="param-req">required, min 8 chars</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AMAZON -->
+      <section id="amazon">
+        <h2>Amazon Connections</h2>
+        <p>OAuth flows for all 4 Amazon integrations. Tokens are auto-refreshed on expiry.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/amazon/connect/:type</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Redirect to Amazon OAuth consent screen. <code>type</code>: <code>ads</code> | <code>dsp</code> | <code>seller</code> | <code>vendor</code></p>
+        </div>
+
+        <div id="amazon-status" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/amazon/status</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Get connection status for all 4 Amazon integrations.</p>
+          <div class="code-block"><code>GET /amazon/status
+
+→ 200 {
+  "ads":    { "connected": true,  "label": "Amazon Ads", "connectedAt": "...", "expiresAt": "..." },
+  "dsp":    { "connected": false, "label": "Amazon DSP" },
+  "seller": { "connected": true,  "label": "Amazon Seller Central", "sellingPartnerId": "..." },
+  "vendor": { "connected": false, "label": "Amazon Vendor Central" }
+}</code></div>
+        </div>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section id="dashboard">
+        <h2>Dashboard</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/dashboard/summary</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Overview KPIs: retail sales, ad attributed sales, ad spend, ROAS, ACOS, and CM waterfall breakdown.</p>
+          <div class="params">
+            <div class="param-row"><span class="param-name">days</span><span class="param-type">number</span><span class="param-req">default 30</span></div>
+          </div>
+          <div class="code-block"><code>GET /dashboard/summary?days=30
+
+→ 200 {
+  "totalRetailSales": 42500.00,
+  "sellerRevenue": 35000.00,
+  "vendorRevenue": 7500.00,
+  "totalUnits": 840,
+  "totalAdSales": 18200.00,
+  "totalAdSpend": 4200.00,
+  "totalAdOrders": 320,
+  "adRoas": 4.33,
+  "acos": 0.231,
+  "totalRoas": 10.12,
+  "cmBreakdown": {
+    "revenue": 42500, "cogs": 8500, "fbaFees": 6375,
+    "adSpend": 4200,
+    "cm1": 34000,   // Revenue - COGS
+    "cm2": 27625,   // CM1 - FBA Fees
+    "cm3": 23425    // CM2 - Ad Spend
+  },
+  "days": 30
+}</code></div>
+        </div>
+
+        <div id="dashboard-performance" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/dashboard/performance</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Top and bottom performing ASINs by contribution margin.</p>
+          <div class="params">
+            <div class="param-row"><span class="param-name">days</span><span class="param-type">number</span><span class="param-req">default 30</span></div>
+            <div class="param-row"><span class="param-name">limit</span><span class="param-type">number</span><span class="param-req">default 10</span></div>
+          </div>
+        </div>
+
+        <div id="dashboard-sales" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/dashboard/sales-performance</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Top 10 ASINs by revenue, daily sales trend, and Seller vs Vendor channel split.</p>
+          <div class="code-block"><code>GET /dashboard/sales-performance?days=30
+
+→ 200 {
+  "topAsins": [
+    { "asin": "B001TEST01", "productName": "...", "units": 120, "revenue": 4500.00, "activeDays": 28 }
+  ],
+  "dailyTrend": [
+    { "date": "2026-03-01", "revenue": 1420.50, "units": 28 }
+  ],
+  "channelSplit": [
+    { "channel": "seller", "revenue": 35000, "units": 700 },
+    { "channel": "vendor", "revenue": 7500,  "units": 140 }
+  ],
+  "days": 30
+}</code></div>
+        </div>
+
+        <div id="dashboard-asin" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/dashboard/asin/:asin</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>CM trend for a specific ASIN over time.</p>
+        </div>
+
+        <div id="dashboard-sync" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/dashboard/sync</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Manually trigger a full data sync for the logged-in client (runs in background).</p>
+        </div>
+      </section>
+
+      <!-- DECISIONS -->
+      <section id="decisions">
+        <h2>Decisions</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/decisions</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Run the decision engine and return insights, alerts, and recommendations. Includes budget pacing alerts.</p>
+          <div class="code-block"><code>GET /decisions?days=30
+
+→ 200 {
+  "summary": {
+    "totalAsins": 12, "losingMoney": 2,
+    "overSpending": 3, "opportunities": 1, "alertCount": 5
+  },
+  "insights": [
+    {
+      "type": "danger",
+      "category": "negative_margin",
+      "title": "B001TEST03 is losing money",
+      "message": "CM3 is -$42.00 (-8.4%) — spending more than earning",
+      "action": { "label": "Reduce Ad Spend", "type": "reduce_budget", "asin": "B001TEST03" }
+    },
+    {
+      "type": "warning",
+      "category": "budget_overpacing",
+      "title": "Budget Over-Pacing",
+      "message": "Over-pacing: projected to overspend by 18.3% ($2,180 vs $1,840 budget)"
+    }
+  ]
+}</code></div>
+        </div>
+      </section>
+
+      <!-- ADVERTISING -->
+      <section id="advertising">
+        <h2>Advertising</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/advertising/overview</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Advertising overview: total spend, sales, ACOS, ROAS, impressions, clicks, daily trends.</p>
+          <div class="params">
+            <div class="param-row"><span class="param-name">days</span><span class="param-type">number</span><span class="param-req">default 30</span></div>
+          </div>
+        </div>
+
+        <div id="advertising-campaigns" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/advertising/campaigns</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Campaign-level performance breakdown with ACOS, ROAS, spend, and sales per campaign.</p>
+        </div>
+      </section>
+
+      <!-- CAMPAIGNS -->
+      <section id="campaigns">
+        <h2>Campaigns</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/campaigns</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>List all campaigns for the client with budget, status, and performance metrics.</p>
+        </div>
+      </section>
+
+      <!-- ACCOUNT -->
+      <section id="account">
+        <h2>Account</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/account/profile</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Get client profile including name, email, company, and logo URL.</p>
+        </div>
+
+        <div id="account-cogs" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/cogs/upload</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Upload COGS (Cost of Goods) data via CSV. Maps ASIN → cost per unit. Used in CM calculation.</p>
+        </div>
+      </section>
+
+      <!-- BILLING -->
+      <section id="billing">
+        <h2>Billing</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/billing/plans</span>
+          </div>
+          <p>Return plan definitions (no auth required).</p>
+          <div class="code-block"><code>GET /billing/plans
+
+→ 200 {
+  "plans": [
+    { "id": "starter", "name": "Starter", "price": 149, "priceMonthly": "$149/mo" },
+    { "id": "growth",  "name": "Growth",  "price": 299, "priceMonthly": "$299/mo" },
+    { "id": "pro",     "name": "Pro",     "price": 499, "priceMonthly": "$499/mo" }
+  ]
+}</code></div>
+        </div>
+
+        <div id="billing-subscribe" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/billing/subscribe</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>Create a Stripe checkout session for the selected plan.</p>
+        </div>
+      </section>
+
+      <!-- ADMIN -->
+      <section id="admin">
+        <h2>Admin</h2>
+        <p>Admin routes require an admin session (separate from client sessions). Log in via <code>POST /admin/login</code>.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/admin/clients</span>
+            <span class="auth-tag">🔐 Admin</span>
+          </div>
+          <p>List all clients with status, email, company name, and signup date.</p>
+        </div>
+
+        <div id="admin-health" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <span class="path">/admin/health-scores</span>
+            <span class="auth-tag">🔐 Admin</span>
+          </div>
+          <p>Health score (0–100) for all active clients with breakdown by component.</p>
+          <div class="code-block"><code>GET /admin/health-scores
+
+→ 200 [
+  {
+    "clientId": "test-client-001",
+    "score": 75,
+    "breakdown": {
+      "cmTrend": 20,          // improving CM
+      "acosVsBreakEven": -15, // ACOS above break-even
+      "dataFreshness": 20,    // synced last 24h
+      "amazonConnections": 20, // all 4 connected
+      "loginRecency": 10      // logged in last 30 days (not 7)
+    }
+  }
+]</code></div>
+        </div>
+
+        <div id="admin-invite" class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/admin/invite</span>
+            <span class="auth-tag">🔐 Admin</span>
+          </div>
+          <p>Pre-create an approved account and send an invite email.</p>
+        </div>
+      </section>
+
+      <!-- CHAT -->
+      <section id="chat">
+        <h2>Chat</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <span class="path">/chat</span>
+            <span class="auth-tag">🔒 Auth</span>
+          </div>
+          <p>AI assistant chat. Sends a message and returns a response with context from the client's CM data.</p>
+          <div class="params">
+            <div class="param-row"><span class="param-name">message</span><span class="param-type">string</span><span class="param-req">required</span></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="footer">
+    <p>CalBridge Client Portal · <a href="https://teamcalbridge.com">teamcalbridge.com</a> · <a href="index.html">Docs Home</a></p>
+  </footer>
+
+  <script>
+    // Active sidebar link tracking
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

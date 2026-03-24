@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Roadmap</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="shared.css"/>
+  <style>
+    .timeline { display: flex; flex-direction: column; gap: 0; }
+    .timeline-item { display: flex; gap: 20px; }
+    .timeline-left { display: flex; flex-direction: column; align-items: center; min-width: 48px; }
+    .timeline-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; flex-shrink: 0;
+      border: 2px solid;
+    }
+    .dot-done    { background: #dcfce7; border-color: #15803d; color: #15803d; }
+    .dot-active  { background: #fef9c3; border-color: #a16207; color: #a16207; }
+    .dot-planned { background: var(--beige-light); border-color: var(--border); color: var(--text-muted); }
+    .timeline-line { flex: 1; width: 2px; background: var(--border); margin: 4px 0; }
+    .timeline-item:last-child .timeline-line { display: none; }
+    .timeline-body { padding: 4px 0 32px; flex: 1; }
+    .timeline-title { font-size: 15px; font-weight: 700; color: var(--brand-dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+    .timeline-body p { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+    .timeline-body ul { font-size: 13px; color: var(--text-muted); padding-left: 16px; }
+    .timeline-body li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="index.html" class="topnav-brand"><span>📊 CalBridge</span></a>
+    <div class="topnav-links">
+      <a href="index.html">Overview</a>
+      <a href="api.html">API Reference</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="setup.html">Setup Guide</a>
+      <a href="roadmap.html" class="active">Roadmap</a>
+    </div>
+    <a href="https://app.teamcalbridge.com" class="topnav-cta">Open Portal →</a>
+  </nav>
+
+  <div class="page-layout">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Roadmap</div>
+        <a href="#completed" class="sidebar-link">Completed</a>
+        <a href="#upcoming" class="sidebar-link">Upcoming</a>
+        <a href="#future" class="sidebar-link">Future</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Roadmap</h1>
+      <p class="lead">CalBridge is in active development. Here's what's been built and what's coming next.</p>
+
+      <section id="completed">
+        <h2>✅ Completed</h2>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-done">✓</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 1 — Auth Portal <span class="badge-done">Done</span></div>
+              <ul>
+                <li>Signup, login, sessions (express-session)</li>
+                <li>Password reset via email (Resend)</li>
+                <li>Multi-tenant client isolation</li>
+                <li>Admin panel with separate session</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-done">✓</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 2 — Amazon OAuth <span class="badge-done">Done</span></div>
+              <ul>
+                <li>Amazon Advertising OAuth (LWA) — Ads, DSP</li>
+                <li>SP-API OAuth — Seller Central, Vendor Central</li>
+                <li>Token storage + auto-refresh</li>
+                <li>Connection status dashboard</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-done">✓</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 3 — Data Pipeline <span class="badge-done">Done</span></div>
+              <ul>
+                <li>Snowflake ingestion: sales, ad performance, products</li>
+                <li>6-hour scheduler with retry logic + failure alerts</li>
+                <li>COGS CSV upload per ASIN</li>
+                <li>ingestion_log table with history</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-done">✓</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 4 — CM Decisioning <span class="badge-done">Done</span></div>
+              <ul>
+                <li>CM1/CM2/CM3 waterfall calculation per ASIN per day</li>
+                <li>Proportional ad spend attribution by revenue share</li>
+                <li>Break-even ACOS per ASIN (auto-calculated)</li>
+                <li>CM waterfall visual on dashboard overview</li>
+                <li>Decision engine alerts: negative margin, ACOS above break-even, spend with no sales, ACOS spikes</li>
+                <li>Budget pacing alerts (over/under-pacing)</li>
+                <li>Scale opportunity recommendations</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-done">✓</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 5 — Analytics &amp; Admin <span class="badge-done">Done</span></div>
+              <ul>
+                <li>Performance tab: top 10 ASINs by revenue, daily sales trend, channel split pie</li>
+                <li>Advertising tab: overview KPIs, campaign-level breakdown</li>
+                <li>Campaigns tab: full campaign management table</li>
+                <li>Admin panel: client health scores (0–100), invite system, logs</li>
+                <li>Billing: Stripe plans + subscription management</li>
+                <li>Weekly HTML email reports (per client)</li>
+                <li>AI chat assistant with CM context</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="upcoming">
+        <h2>🚧 Upcoming</h2>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-planned">6</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 6 — One-Click Ad Actions</div>
+              <p>Write-back to Amazon Advertising API directly from the portal.</p>
+              <ul>
+                <li>Pause / unpause campaigns</li>
+                <li>Adjust campaign daily budget</li>
+                <li>Modify keyword bids toward target ACOS</li>
+                <li>Confirmation modal before any write action</li>
+                <li>Action history log</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline-item">
+            <div class="timeline-left">
+              <div class="timeline-dot dot-planned">7</div>
+              <div class="timeline-line"></div>
+            </div>
+            <div class="timeline-body">
+              <div class="timeline-title">Phase 7 — Vendor Central Full CM</div>
+              <p>Complete the Vendor CM model with co-op fees and chargebacks.</p>
+              <ul>
+                <li>Co-op fee rates per ASIN</li>
+                <li>Damage allowance tracking</li>
+                <li>Chargeback history</li>
+                <li>Shipped COGS as Vendor revenue (not consumer price)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="future">
+        <h2>🔮 Future Ideas</h2>
+        <ul>
+          <li><strong>Inventory forecasting</strong> — stockout risk alerts based on sales velocity</li>
+          <li><strong>DSP attribution</strong> — full DSP data ingestion and ROAS reporting</li>
+          <li><strong>Multi-marketplace</strong> — EU, CA, AU marketplaces alongside US</li>
+          <li><strong>Client onboarding wizard</strong> — guided setup for new clients</li>
+          <li><strong>Mobile app</strong> — React Native app for on-the-go insights</li>
+          <li><strong>Slack/email alerts</strong> — push alerts when CM drops or budget pacing changes</li>
+          <li><strong>Benchmark reports</strong> — industry ACOS/CM% benchmarks by category</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <p>CalBridge Client Portal · <a href="https://teamcalbridge.com">teamcalbridge.com</a> · <a href="index.html">Docs Home</a></p>
+  </footer>
+</body>
+</html>
