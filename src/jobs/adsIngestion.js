@@ -2,6 +2,12 @@
  * Amazon Advertising API ingestion
  * Covers: Amazon Ads (Sponsored Products/Brands/Display) + DSP
  *
+ * ASIN-level attribution (updated):
+ *   - SP/SB/SD: use advertisedAsin from ad-level reports (direct attribution)
+ *   - DSP: use product targeting / creative report asin field
+ *   - If no ASIN on a record: bucket as "UNATTRIBUTED"
+ *   - No proportional splitting — each ad row owns its own spend
+ *
  * Sandbox base URL: https://advertising-api-test.amazon.com
  * Production base URL: https://advertising-api.amazon.com (NA)
  */
@@ -53,12 +59,46 @@ async function fetchCampaigns(client, profileId, connectionType) {
 }
 
 /**
- * Request a performance report for a profile (async report flow)
+ * Request an SP ad-level performance report for a profile (async report flow)
+ * Uses the sponsored products ads report which includes advertisedAsin at the ad level.
+ * Metrics include: impressions, clicks, cost, attributedSales30d, attributedUnitsOrdered30d,
+ *                  newToBrandPurchases, newToBrandSales (SB only)
  */
-async function requestPerformanceReport(client, profileId, reportDate) {
-  const res = await client.post('/v2/sp/campaigns/report', {
+async function requestSPReport(client, profileId, reportDate) {
+  // SP report at "asin" level — returns one row per advertised ASIN
+  const res = await client.post('/v2/sp/adGroups/report', {
     reportDate,
-    metrics: 'impressions,clicks,cost,attributedSales30d,attributedUnitsOrdered30d'
+    metrics: 'impressions,clicks,cost,attributedSales30d,attributedUnitsOrdered30d,advertisedAsin'
+  }, {
+    headers: { 'Amazon-Advertising-API-Scope': profileId }
+  });
+  return res.data?.reportId;
+}
+
+/**
+ * Request a Sponsored Brands report including NTB metrics
+ */
+async function requestSBReport(client, profileId, reportDate) {
+  const res = await client.post('/v2/hsa/campaigns/report', {
+    reportDate,
+    metrics: [
+      'impressions', 'clicks', 'cost', 'attributedSales14d',
+      'unitsSold14d', 'newToBrandOrders14d', 'newToBrandSales14d',
+      'newToBrandUnitsSold14d'
+    ].join(',')
+  }, {
+    headers: { 'Amazon-Advertising-API-Scope': profileId }
+  });
+  return res.data?.reportId;
+}
+
+/**
+ * Request a Sponsored Display report at ad level (includes advertisedAsin)
+ */
+async function requestSDReport(client, profileId, reportDate) {
+  const res = await client.post('/v2/sd/adGroups/report', {
+    reportDate,
+    metrics: 'impressions,clicks,cost,attributedSales30d,attributedUnitsOrdered30d,advertisedAsin'
   }, {
     headers: { 'Amazon-Advertising-API-Scope': profileId }
   });
@@ -116,44 +156,113 @@ async function writeCampaigns(clientId, connectionType, profileId, campaigns) {
 }
 
 /**
- * Upsert performance data into Snowflake
+ * Ensure the ad_performance table has the advertised_asin column.
+ * Safe to call multiple times — uses ADD COLUMN IF NOT EXISTS pattern.
+ *
+ * Also ensures ntb_orders and ntb_sales columns exist for Sponsored Brands NTB data.
+ */
+async function ensureAdPerformanceSchema() {
+  // Snowflake supports ADD COLUMN IF NOT EXISTS in newer versions.
+  // Using a try/catch per-column for compatibility with older account tiers.
+  const alterStatements = [
+    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS advertised_asin VARCHAR(20)`,
+    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_orders    NUMBER`,
+    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_sales     FLOAT`,
+    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_units     NUMBER`
+  ];
+  for (const sql of alterStatements) {
+    try {
+      await query(sql);
+    } catch (err) {
+      // Column likely already exists — ignore duplicate column errors
+      if (!err.message?.includes('already exists') && !err.message?.includes('duplicate')) {
+        console.warn(`[ensureAdPerformanceSchema] ${err.message}`);
+      }
+    }
+  }
+}
+
+/**
+ * Upsert performance data into Snowflake with ASIN-level attribution.
+ *
+ * Each row in `rows` should have:
+ *   - campaignId, cost/spend, attributedSales*, clicks, impressions, units
+ *   - advertisedAsin (from SP/SD ad-level report) OR null for brand awareness/DSP
+ *   - ntbOrders, ntbSales, ntbUnits (SB only)
+ *
+ * The MERGE key includes advertised_asin so the same campaign on the same date
+ * can have multiple rows — one per ASIN targeted.
+ *
+ * Records with no ASIN use 'UNATTRIBUTED' as the bucket.
  */
 async function writePerformance(clientId, connectionType, reportDate, rows) {
   if (!rows.length) return 0;
   let written = 0;
   for (const r of rows) {
-    const spend = r.cost || 0;
-    const sales = r.attributedSales30d || 0;
-    const clicks = r.clicks || 0;
+    const spend       = r.cost || r.spend || 0;
+    const sales       = r.attributedSales30d || r.attributedSales14d || 0;
+    const clicks      = r.clicks || 0;
     const impressions = r.impressions || 0;
-    const acos = sales > 0 ? spend / sales : null;
-    const roas = spend > 0 ? sales / spend : null;
-    const ctr = impressions > 0 ? clicks / impressions : null;
-    const cpc = clicks > 0 ? spend / clicks : null;
+    const units       = r.attributedUnitsOrdered30d || r.unitsSold14d || 0;
+    const acos        = sales > 0 ? spend / sales : null;
+    const roas        = spend > 0 ? sales / spend : null;
+    const ctr         = impressions > 0 ? clicks / impressions : null;
+    const cpc         = clicks > 0 ? spend / clicks : null;
+
+    // Direct ASIN from ad-level report; fall back to 'UNATTRIBUTED' for
+    // brand awareness DSP or campaigns with no product targeting
+    const advertisedAsin = r.advertisedAsin || r.asin || 'UNATTRIBUTED';
+
+    // NTB metrics (Sponsored Brands only)
+    const ntbOrders = r.newToBrandOrders14d   || r.newToBrandPurchases || null;
+    const ntbSales  = r.newToBrandSales14d     || null;
+    const ntbUnits  = r.newToBrandUnitsSold14d || null;
 
     await query(`
       MERGE INTO ad_performance t
-      USING (SELECT ? AS client_id, ? AS connection_type, ? AS campaign_id, ? AS report_date) s
-      ON t.client_id = s.client_id AND t.connection_type = s.connection_type
-        AND t.campaign_id = s.campaign_id AND t.report_date = s.report_date
+      USING (SELECT ? AS client_id, ? AS connection_type, ? AS campaign_id,
+                    ? AS report_date, ? AS advertised_asin) s
+      ON  t.client_id       = s.client_id
+      AND t.connection_type = s.connection_type
+      AND t.campaign_id     = s.campaign_id
+      AND t.report_date     = s.report_date
+      AND COALESCE(t.advertised_asin, 'UNATTRIBUTED') = s.advertised_asin
       WHEN MATCHED THEN UPDATE SET
-        impressions = ?, clicks = ?, spend = ?, sales = ?,
-        orders = ?, units_sold = ?, acos = ?, roas = ?,
-        ctr = ?, cpc = ?, synced_at = CURRENT_TIMESTAMP
+        impressions     = ?,
+        clicks          = ?,
+        spend           = ?,
+        sales           = ?,
+        orders          = ?,
+        units_sold      = ?,
+        acos            = ?,
+        roas            = ?,
+        ctr             = ?,
+        cpc             = ?,
+        advertised_asin = ?,
+        ntb_orders      = ?,
+        ntb_sales       = ?,
+        ntb_units       = ?,
+        synced_at       = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT
         (client_id, connection_type, campaign_id, report_date,
          impressions, clicks, spend, sales, orders, units_sold,
-         acos, roas, ctr, cpc, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         acos, roas, ctr, cpc, advertised_asin,
+         ntb_orders, ntb_sales, ntb_units, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, connectionType, String(r.campaignId), reportDate,
+      // MERGE key
+      clientId, connectionType, String(r.campaignId), reportDate, advertisedAsin,
+      // UPDATE SET
       impressions, clicks, spend, sales,
-      r.attributedUnitsOrdered30d || 0, r.attributedUnitsOrdered30d || 0,
+      r.attributedUnitsOrdered30d || r.unitsSold14d || 0, units,
       acos, roas, ctr, cpc,
+      advertisedAsin, ntbOrders, ntbSales, ntbUnits,
+      // INSERT VALUES
       clientId, connectionType, String(r.campaignId), reportDate,
       impressions, clicks, spend, sales,
-      r.attributedUnitsOrdered30d || 0, r.attributedUnitsOrdered30d || 0,
-      acos, roas, ctr, cpc
+      r.attributedUnitsOrdered30d || r.unitsSold14d || 0, units,
+      acos, roas, ctr, cpc,
+      advertisedAsin, ntbOrders, ntbSales, ntbUnits
     ]);
     written++;
   }
@@ -178,9 +287,16 @@ async function ingestCampaigns(clientId, connectionType) {
 
 /**
  * Main ingestion job — performance (last N days)
+ *
+ * Requests separate SP, SB, and SD reports per profile per date.
+ * Each report type returns ASIN-level data via advertisedAsin.
+ * All rows are written to ad_performance with direct ASIN attribution.
  */
 async function ingestPerformance(clientId, connectionType, daysBack = 1) {
   return runJob(clientId, connectionType, 'performance', async () => {
+    // Ensure schema is up to date before writing
+    await ensureAdPerformanceSchema();
+
     const profiles = await fetchProfiles(clientId, connectionType);
     let totalWritten = 0;
 
@@ -191,13 +307,25 @@ async function ingestPerformance(clientId, connectionType, daysBack = 1) {
         date.setDate(date.getDate() - d);
         const reportDate = date.toISOString().split('T')[0].replace(/-/g, '');
 
-        try {
-          const reportId = await requestPerformanceReport(client, String(profile.profileId), reportDate);
-          if (!reportId) continue;
-          const rows = await downloadReport(client, String(profile.profileId), reportId);
-          totalWritten += await writePerformance(clientId, connectionType, reportDate, Array.isArray(rows) ? rows : []);
-        } catch (err) {
-          console.warn(`[performance] Skipping date ${reportDate} for profile ${profile.profileId}: ${err.message}`);
+        // Request SP, SB, and SD reports in parallel
+        const reportJobs = [
+          { type: 'SP', requester: requestSPReport  },
+          { type: 'SB', requester: requestSBReport  },
+          { type: 'SD', requester: requestSDReport  }
+        ];
+
+        for (const job of reportJobs) {
+          try {
+            const reportId = await job.requester(client, String(profile.profileId), reportDate);
+            if (!reportId) continue;
+            const rows = await downloadReport(client, String(profile.profileId), reportId);
+            const rowArr = Array.isArray(rows) ? rows : [];
+            // Tag each row with its report type so we can detect SB NTB fields
+            const tagged = rowArr.map(r => ({ ...r, _reportType: job.type }));
+            totalWritten += await writePerformance(clientId, connectionType, reportDate, tagged);
+          } catch (err) {
+            console.warn(`[performance:${job.type}] Skipping ${reportDate} profile ${profile.profileId}: ${err.message}`);
+          }
         }
       }
     }
@@ -205,4 +333,4 @@ async function ingestPerformance(clientId, connectionType, daysBack = 1) {
   });
 }
 
-module.exports = { ingestCampaigns, ingestPerformance };
+module.exports = { ingestCampaigns, ingestPerformance, ensureAdPerformanceSchema };

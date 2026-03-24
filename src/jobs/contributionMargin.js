@@ -1,11 +1,21 @@
 /**
  * Contribution Margin Calculator
  *
- * Formula: CM = Revenue - Ad Spend - FBA Fees - COGS - Other Costs
- * CM% = (CM / Revenue) * 100
+ * Formula:
+ *   CM1 = Revenue - COGS
+ *   CM2 = CM1 - FBA Fees - Referral Fees
+ *   CM3 = CM2 - Ad Spend   (= "true profit")
+ *   CM%  = (CM3 / Revenue) * 100
+ *
+ * Ad spend attribution (updated — ASIN-level direct):
+ *   Ad spend is attributed directly to the advertised ASIN from the
+ *   ad_performance.advertised_asin column populated by the ingestion job.
+ *   Rows with advertised_asin = 'UNATTRIBUTED' (brand awareness / no product
+ *   targeting) are excluded from per-ASIN attribution — they appear in the
+ *   total business TACOS but are NOT spread across ASINs.
  *
  * Reads from: sales, ad_performance, products
- * Writes to: contribution_margin
+ * Writes to:  contribution_margin
  */
 require('dotenv').config();
 const { query } = require('../services/snowflakeService');
@@ -31,19 +41,22 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
           AND order_date >= DATEADD(day, -?, CURRENT_DATE)
         GROUP BY client_id, asin, order_date
       ),
-      daily_total_revenue AS (
-        -- Total revenue per day (for proportional ad spend attribution)
-        SELECT client_id, calc_date, SUM(revenue) AS day_revenue
-        FROM sales_data
-        GROUP BY client_id, calc_date
-      ),
-      daily_ad_spend AS (
-        -- Total ad spend per day
-        SELECT client_id, report_date AS calc_date, SUM(spend) AS total_spend
+      asin_ad_spend AS (
+        -- Direct ASIN-level ad spend from advertised_asin column.
+        -- Only include rows where advertised_asin is a real ASIN (not UNATTRIBUTED).
+        -- This is the corrected attribution — no proportional spreading.
+        SELECT
+          client_id,
+          report_date AS calc_date,
+          UPPER(TRIM(advertised_asin)) AS asin,
+          SUM(spend) AS asin_spend
         FROM ad_performance
         WHERE client_id = ?
           AND report_date >= DATEADD(day, -?, CURRENT_DATE)
-        GROUP BY client_id, report_date
+          AND advertised_asin IS NOT NULL
+          AND advertised_asin != 'UNATTRIBUTED'
+          AND TRIM(advertised_asin) != ''
+        GROUP BY client_id, report_date, UPPER(TRIM(advertised_asin))
       ),
       product_costs AS (
         SELECT client_id, asin, fba_fees, cogs
@@ -56,19 +69,15 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
         s.calc_date,
         s.revenue,
         s.units,
-        -- Attribute ad spend proportionally: ASIN revenue / total day revenue * total day spend
-        CASE
-          WHEN dtr.day_revenue > 0
-          THEN COALESCE(das.total_spend, 0) * (s.revenue / dtr.day_revenue)
-          ELSE 0
-        END AS ad_spend,
-        COALESCE(p.fba_fees, 0) AS fba_fees,
-        COALESCE(p.cogs, 0)     AS cogs
+        -- Direct ASIN-level attribution — zero if no ads ran for this ASIN
+        COALESCE(aas.asin_spend, 0) AS ad_spend,
+        COALESCE(p.fba_fees, 0)     AS fba_fees,
+        COALESCE(p.cogs, 0)         AS cogs
       FROM sales_data s
-      LEFT JOIN daily_total_revenue dtr
-        ON s.client_id = dtr.client_id AND s.calc_date = dtr.calc_date
-      LEFT JOIN daily_ad_spend das
-        ON s.client_id = das.client_id AND s.calc_date = das.calc_date
+      LEFT JOIN asin_ad_spend aas
+        ON s.client_id = aas.client_id
+        AND s.calc_date = aas.calc_date
+        AND UPPER(TRIM(s.asin)) = aas.asin
       LEFT JOIN product_costs p
         ON s.client_id = p.client_id AND s.asin = p.asin
     `, [clientId, daysBack, clientId, daysBack, clientId]);

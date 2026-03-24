@@ -19,6 +19,9 @@
       <a href="/advertising.html" class="nav-item nav-item-ads">📢 Advertising</a>
       <a href="/campaigns.html" class="nav-item nav-item-campaigns nav-item-ads">📣 Campaigns</a>
       <a href="#performance" class="nav-item" data-section="performance">🏆 Performance</a>
+      <a href="#forecast" class="nav-item" data-section="forecast">📈 Forecast</a>
+      <a href="#pacing" class="nav-item nav-item-ads" data-section="pacing">⏱ Budget Pacing</a>
+      <a href="#ntb" class="nav-item nav-item-ads" data-section="ntb">🆕 New-to-Brand</a>
       <a href="/account.html" class="nav-item">⚙️ Account</a>
     </nav>
     <div class="sidebar-footer">
@@ -98,6 +101,11 @@
           <div class="kpi-value" id="kpi-acos">—</div>
           <div class="kpi-sub">Ad Cost of Sale</div>
         </div>
+        <div class="kpi-card highlight" id="kpi-tacos-card" style="display:none">
+          <div class="kpi-label">TACOS</div>
+          <div class="kpi-value" id="kpi-tacos">—</div>
+          <div class="kpi-sub">Total Ad Spend ÷ Total Revenue</div>
+        </div>
       </div>
 
       <!-- Charts Row -->
@@ -141,6 +149,149 @@
             <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
           </tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         Forecasting Section
+         ================================================================ -->
+    <section id="section-forecast" class="dashboard-section hidden">
+      <div class="kpi-grid kpi-grid-4">
+        <div class="kpi-card">
+          <div class="kpi-label">7-Day Rolling Avg Revenue</div>
+          <div class="kpi-value" id="forecast-avg7">—</div>
+          <div class="kpi-sub">Per day</div>
+        </div>
+        <div class="kpi-card highlight">
+          <div class="kpi-label">Projected Monthly Revenue</div>
+          <div class="kpi-value" id="forecast-monthly">—</div>
+          <div class="kpi-sub" id="forecast-monthly-sub">Current month run-rate</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Projected Annual Revenue</div>
+          <div class="kpi-value" id="forecast-annual">—</div>
+          <div class="kpi-sub">30-day trend, annualized</div>
+        </div>
+        <div class="kpi-card" id="forecast-trend-card">
+          <div class="kpi-label">30-Day Trend</div>
+          <div class="kpi-value" id="forecast-slope">—</div>
+          <div class="kpi-sub" id="forecast-slope-sub">Daily revenue change</div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <h3>📈 Revenue Trend (90 Days)</h3>
+          <canvas id="forecast-trend-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         Budget Pacing Section
+         ================================================================ -->
+    <section id="section-pacing" class="dashboard-section hidden">
+      <div class="kpi-grid kpi-grid-4" id="pacing-summary-kpis">
+        <div class="kpi-card">
+          <div class="kpi-label">MTD Ad Spend</div>
+          <div class="kpi-value" id="pacing-mtd-spend">—</div>
+          <div class="kpi-sub" id="pacing-mtd-sub">Month to date</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Monthly Budget</div>
+          <div class="kpi-value" id="pacing-budget">—</div>
+          <div class="kpi-sub">Combined campaign budgets</div>
+        </div>
+        <div class="kpi-card" id="pacing-over-card">
+          <div class="kpi-label">Over-Pacing Campaigns</div>
+          <div class="kpi-value" id="pacing-over">—</div>
+          <div class="kpi-sub">Spending &gt;110% of pace</div>
+        </div>
+        <div class="kpi-card" id="pacing-under-card">
+          <div class="kpi-label">Under-Pacing Campaigns</div>
+          <div class="kpi-value" id="pacing-under">—</div>
+          <div class="kpi-sub">Spending &lt;70% of pace</div>
+        </div>
+      </div>
+      <div class="table-card">
+        <h3>📊 Campaign Budget Pacing</h3>
+        <p style="font-size:13px;color:var(--gray-400);margin:0 0 12px">
+          <strong>Daily Budget × Days in Month = Monthly Budget.</strong>
+          Expected = Monthly Budget × (Days Elapsed / Days in Month).
+          Status: 🟢 On track · 🔴 Over-pacing (&gt;110%) · 🟡 Under-pacing (&lt;70%)
+        </p>
+        <table class="data-table" id="pacing-table">
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>Type</th>
+              <th>Daily Budget</th>
+              <th>Monthly Budget</th>
+              <th>MTD Spend</th>
+              <th>Expected MTD</th>
+              <th>Pacing</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="pacing-body">
+            <tr><td colspan="8" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         New-to-Brand Section
+         ================================================================ -->
+    <section id="section-ntb" class="dashboard-section hidden">
+      <div id="ntb-unavailable" class="table-card" style="display:none">
+        <p style="color:var(--gray-400);font-size:14px;text-align:center;padding:24px">
+          📭 NTB data not available yet.<br>
+          NTB metrics come from Sponsored Brands (SB) campaigns.<br>
+          Data will appear here after your first SB sync.
+        </p>
+      </div>
+      <div id="ntb-content">
+        <div class="kpi-grid kpi-grid-4">
+          <div class="kpi-card highlight">
+            <div class="kpi-label">NTB Orders</div>
+            <div class="kpi-value" id="ntb-orders">—</div>
+            <div class="kpi-sub" id="ntb-order-rate-sub">—% of total orders</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">NTB Revenue</div>
+            <div class="kpi-value" id="ntb-sales">—</div>
+            <div class="kpi-sub" id="ntb-revenue-rate-sub">—% of ad revenue</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">NTB ROAS</div>
+            <div class="kpi-value" id="ntb-roas">—</div>
+            <div class="kpi-sub">New customer revenue per $1 spent</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">NTB ACOS</div>
+            <div class="kpi-value" id="ntb-acos">—</div>
+            <div class="kpi-sub">Ad cost per $1 NTB revenue</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <h3>🆕 NTB by Campaign</h3>
+          <table class="data-table" id="ntb-table">
+            <thead>
+              <tr>
+                <th>Campaign</th>
+                <th>Type</th>
+                <th>Total Orders</th>
+                <th>NTB Orders</th>
+                <th>NTB Order Rate</th>
+                <th>NTB Revenue</th>
+                <th>NTB ROAS</th>
+              </tr>
+            </thead>
+            <tbody id="ntb-body">
+              <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 

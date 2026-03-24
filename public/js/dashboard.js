@@ -1,7 +1,7 @@
 // CalBridge Dashboard — client-side JS
 
 const $ = id => document.getElementById(id);
-let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart;
+let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;
 let currentDays = 30;
 
 // ---- Init ----
@@ -51,8 +51,11 @@ function setupNav() {
       link.classList.add('active');
       $(`section-${section}`).classList.remove('hidden');
       $('section-title').textContent = link.textContent.replace(/^./, '').trim();
-      // Lazy-load performance tab
+      // Lazy-load tabs
       if (section === 'performance') loadPerformance();
+      if (section === 'forecast')    loadForecast();
+      if (section === 'pacing')      loadBudgetPacing();
+      if (section === 'ntb')         loadNtb();
     });
   });
 
@@ -179,6 +182,9 @@ async function loadOverview() {
 
     // CM Waterfall
     if (summary.cmBreakdown) renderCmWaterfall(summary.cmBreakdown);
+
+    // TACOS (Total ACOS) — load async, show card if data is available
+    loadTacos();
 
     // CM Trend chart (aggregate by ASIN across all performers)
     await loadCmTrend();
@@ -478,6 +484,220 @@ function renderCmWaterfall(cm) {
       <div class="cm-waterfall-value" style="${r.style}">${fmt$(r.value)}${r.value !== cm.revenue && r.value >= 0 ? pctStr(r.value) : ''}</div>
     </div>
   `).join('') + `</div>`;
+}
+
+// ---- TACOS KPI ----
+async function loadTacos() {
+  try {
+    const res = await fetch(`/dashboard/tacos?days=${currentDays}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const card = $('kpi-tacos-card');
+    if (card && data.tacos != null) {
+      $('kpi-tacos').textContent = (data.tacos * 100).toFixed(1) + '%';
+      card.style.display = '';
+    }
+  } catch { /* TACOS is optional */ }
+}
+
+// ---- Forecast Tab ----
+let forecastLoaded = false;
+async function loadForecast() {
+  if (forecastLoaded) return;
+  forecastLoaded = true;
+  try {
+    const res = await fetch('/dashboard/forecast?days=90', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!data.available) {
+      $('forecast-avg7').textContent    = '—';
+      $('forecast-monthly').textContent = 'No data';
+      $('forecast-annual').textContent  = '—';
+      $('forecast-slope').textContent   = '—';
+      return;
+    }
+
+    $('forecast-avg7').textContent      = fmt$(data.rollingAvg7d) + '/day';
+    $('forecast-monthly').textContent   = fmt$(data.projectedMonthly);
+    $('forecast-monthly-sub').textContent = `Day ${data.dayOfMonth} of ${data.daysInMonth} · MTD ${fmt$(data.mtdRevenue)}`;
+    $('forecast-annual').textContent    = fmt$(data.projectedAnnual);
+
+    const slopeSign = data.trend30dSlope >= 0 ? '+' : '';
+    $('forecast-slope').textContent     = slopeSign + fmt$(data.trend30dSlope) + '/day';
+    const slopeEl = $('forecast-slope');
+    slopeEl.style.color = data.trend30dSlope >= 0 ? 'var(--success)' : 'var(--danger)';
+    $('forecast-slope-sub').textContent = data.trendDirection === 'up'
+      ? '📈 Growing trend'
+      : data.trendDirection === 'down'
+        ? '📉 Declining trend'
+        : '➡️ Flat trend';
+
+    // Trend chart
+    if (data.dailySeries?.length) {
+      const labels  = data.dailySeries.map(d => d.date);
+      const revs    = data.dailySeries.map(d => d.revenue);
+
+      // Build 7-day rolling average series
+      const rolling = revs.map((_, i) => {
+        const start = Math.max(0, i - 6);
+        const slice = revs.slice(start, i + 1);
+        return slice.reduce((s, v) => s + v, 0) / slice.length;
+      });
+
+      // Build linear regression line for last 30 points
+      const n = data.dailySeries.length;
+      const last30start = Math.max(0, n - 30);
+      const trendLine = revs.map((_, i) => {
+        if (i < last30start) return null;
+        const xi = i - last30start;
+        const yMean = revs.slice(last30start).reduce((s, v) => s + v, 0) / (n - last30start);
+        return yMean + data.trend30dSlope * (xi - (n - last30start - 1) / 2);
+      });
+
+      if (forecastChart) forecastChart.destroy();
+      forecastChart = new Chart($('forecast-trend-chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Daily Revenue',
+              data: revs,
+              borderColor: 'rgba(26,86,219,0.4)',
+              backgroundColor: 'rgba(26,86,219,0.04)',
+              tension: 0.1,
+              fill: true,
+              pointRadius: 2
+            },
+            {
+              label: '7-Day Rolling Avg',
+              data: rolling,
+              borderColor: '#1a56db',
+              backgroundColor: 'transparent',
+              tension: 0.4,
+              borderWidth: 2.5,
+              pointRadius: 0
+            },
+            {
+              label: '30-Day Trend',
+              data: trendLine,
+              borderColor: data.trend30dSlope >= 0 ? '#057a55' : '#e02424',
+              backgroundColor: 'transparent',
+              tension: 0,
+              borderWidth: 2,
+              borderDash: [6, 3],
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
+        }
+      });
+    }
+  } catch (err) { console.error('Forecast load error:', err); }
+}
+
+// ---- Budget Pacing Tab ----
+let pacingLoaded = false;
+async function loadBudgetPacing() {
+  if (pacingLoaded) return;
+  pacingLoaded = true;
+  try {
+    const res = await fetch('/dashboard/budget-pacing', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Summary KPIs
+    $('pacing-mtd-spend').textContent = fmt$(data.summary.totalMtdSpend);
+    $('pacing-mtd-sub').textContent   = `Day ${data.dayOfMonth} of ${data.daysInMonth}`;
+    $('pacing-budget').textContent    = fmt$(data.summary.totalMonthlyBudget);
+    $('pacing-over').textContent      = data.summary.overPacing;
+    $('pacing-under').textContent     = data.summary.underPacing;
+
+    if (data.summary.overPacing > 0) {
+      $('pacing-over-card').style.border = '1px solid var(--danger)';
+      $('pacing-over').style.color = 'var(--danger)';
+    }
+    if (data.summary.underPacing > 0) {
+      $('pacing-under-card').style.border = '1px solid var(--warning, #f59e0b)';
+      $('pacing-under').style.color = '#f59e0b';
+    }
+
+    const tbody = $('pacing-body');
+    if (!data.campaigns?.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No campaigns with budgets found. Campaign budget data comes from the ads sync.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.campaigns.map(c => {
+      const statusIcon = c.pacingStatus === 'over_pacing'  ? '🔴'
+                       : c.pacingStatus === 'under_pacing' ? '🟡' : '🟢';
+      const pacingPct = c.pacingRatio != null ? (c.pacingRatio * 100).toFixed(0) + '%' : '—';
+      const cls = c.pacingStatus === 'over_pacing' ? 'cm-negative' : c.pacingStatus === 'under_pacing' ? '' : 'cm-positive';
+      return `<tr>
+        <td style="font-size:12px">${c.campaignName || c.campaignId}</td>
+        <td><span style="font-size:11px;color:var(--gray-400)">${c.campaignType || c.connectionType || '—'}</span></td>
+        <td>${fmt$(c.dailyBudget)}</td>
+        <td>${fmt$(c.monthlyBudget)}</td>
+        <td><strong>${fmt$(c.mtdSpend)}</strong></td>
+        <td>${fmt$(c.expectedMtdSpend)}</td>
+        <td class="${cls}"><strong>${pacingPct}</strong> of expected</td>
+        <td>${statusIcon} ${c.pacingStatus.replace('_', ' ')}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) { console.error('Pacing load error:', err); }
+}
+
+// ---- New-to-Brand Tab ----
+let ntbLoaded = false;
+async function loadNtb() {
+  if (ntbLoaded) return;
+  ntbLoaded = true;
+  try {
+    const res = await fetch(`/dashboard/ntb?days=${currentDays}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!data.available) {
+      $('ntb-unavailable').style.display = '';
+      $('ntb-content').style.display = 'none';
+      return;
+    }
+
+    $('ntb-unavailable').style.display = 'none';
+    $('ntb-content').style.display = '';
+
+    $('ntb-orders').textContent = Number(data.ntbOrders).toLocaleString();
+    $('ntb-order-rate-sub').textContent = data.ntbOrderRate != null
+      ? `${(data.ntbOrderRate * 100).toFixed(1)}% of total orders`
+      : '—% of total orders';
+    $('ntb-sales').textContent = fmt$(data.ntbSales);
+    $('ntb-revenue-rate-sub').textContent = data.ntbRevenueRate != null
+      ? `${(data.ntbRevenueRate * 100).toFixed(1)}% of ad revenue`
+      : '—% of ad revenue';
+    $('ntb-roas').textContent = data.ntbRoas != null ? data.ntbRoas.toFixed(2) + 'x' : '—';
+    $('ntb-acos').textContent = data.ntbAcos != null ? (data.ntbAcos * 100).toFixed(1) + '%' : '—';
+
+    // NTB by campaign table
+    const tbody = $('ntb-body');
+    if (data.byCampaign?.length) {
+      tbody.innerHTML = data.byCampaign.map(c => `<tr>
+        <td style="font-size:12px">${c.campaignName || c.campaignId}</td>
+        <td><span style="font-size:11px;color:var(--gray-400)">${c.campaignType || '—'}</span></td>
+        <td>${Number(c.totalOrders).toLocaleString()}</td>
+        <td><strong>${Number(c.ntbOrders).toLocaleString()}</strong></td>
+        <td>${c.ntbOrderRate != null ? (c.ntbOrderRate * 100).toFixed(1) + '%' : '—'}</td>
+        <td>${fmt$(c.ntbSales)}</td>
+        <td>${c.ntbRoas != null ? c.ntbRoas.toFixed(2) + 'x' : '—'}</td>
+      </tr>`).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No NTB campaign data</td></tr>';
+    }
+  } catch (err) { console.error('NTB load error:', err); }
 }
 
 // ---- Helpers ----
