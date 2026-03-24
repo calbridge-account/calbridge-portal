@@ -6,27 +6,90 @@ const { getTopPerformers, getAsinTrend } = require('../jobs/contributionMargin')
 const { syncClient } = require('../jobs/scheduler');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
+const { getPlanLimits } = require('../middleware/planGate');
+
+// ---------------------------------------------------------------------------
+// Brand resolver — resolves brandId for a request.
+//
+// Priority:
+//   1. ?brandId= query param (if supplied and owned by client)
+//   2. Client's first active brand
+//   3. null (no brands configured)
+//
+// Returns: { brandId, brand, noBrands }
+// ---------------------------------------------------------------------------
+async function resolveBrand(clientId, requestedBrandId) {
+  try {
+    if (requestedBrandId) {
+      const rows = await query(
+        'SELECT * FROM brands WHERE brand_id = ? AND client_id = ? AND is_active = TRUE',
+        [requestedBrandId, clientId]
+      );
+      if (rows.length) return { brandId: rows[0].BRAND_ID, brand: rows[0], noBrands: false };
+    }
+
+    // Fall back to first active brand
+    const rows = await query(
+      'SELECT * FROM brands WHERE client_id = ? AND is_active = TRUE ORDER BY created_at ASC LIMIT 1',
+      [clientId]
+    );
+    if (rows.length) return { brandId: rows[0].BRAND_ID, brand: rows[0], noBrands: false };
+
+    return { brandId: null, brand: null, noBrands: true };
+  } catch {
+    // brands table may not exist in older envs — graceful fallback
+    return { brandId: null, brand: null, noBrands: false };
+  }
+}
 
 // GET /dashboard
-// Summary: connection status + ingestion health
+// Summary: connection status + ingestion health + brand context
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const [connections, ingestion] = await Promise.all([
-      getConnectionStatus(req.session.clientId),
-      getIngestionStatus(req.session.clientId)
+    const clientId = req.session.clientId;
+    const plan = req.session?.clientPlan || 'starter';
+    const planLimits = getPlanLimits(plan);
+
+    const [connections, ingestion, brandCtx] = await Promise.all([
+      getConnectionStatus(clientId),
+      getIngestionStatus(clientId),
+      resolveBrand(clientId, req.query.brandId),
     ]);
-    res.json({ connections, ingestion });
+
+    res.json({
+      connections,
+      ingestion,
+      brand: brandCtx.brand ? {
+        brandId:     brandCtx.brand.BRAND_ID,
+        name:        brandCtx.brand.NAME,
+        marketplace: brandCtx.brand.MARKETPLACE,
+      } : null,
+      noBrands:   brandCtx.noBrands,
+      plan,
+      planLimits: { brands: planLimits.brands === Infinity ? null : planLimits.brands, dsp: planLimits.dsp },
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /dashboard/summary?days=30
+// GET /dashboard/summary?days=30&brandId=<optional>
 // Overview KPIs: total retail sales, ad attributed sales, ad spend, total ROAS
+// brandId: optional — if omitted, uses client's first active brand
 router.get('/summary', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const clientId = req.session.clientId;
+
+    // Resolve brand context — attach to response so frontend can show brand name/switcher
+    const brandCtx = await resolveBrand(clientId, req.query.brandId);
+    if (brandCtx.noBrands) {
+      return res.json({
+        noBrands: true,
+        message:  'No brands configured. Set up your first brand to see data.',
+        days,
+      });
+    }
 
     const [salesRow, adsRow] = await Promise.all([
       // Total retail sales = Seller ordered revenue + Vendor shipped revenue
@@ -106,7 +169,14 @@ router.get('/summary', requireAuth, async (req, res, next) => {
       acos:             a.ACOS     ? Number(a.ACOS)      : null,
       totalRoas,
       cmBreakdown,
-      days
+      days,
+      // Brand context — frontend uses this to show brand name in header / switcher
+      brand: brandCtx.brand ? {
+        brandId:     brandCtx.brand.BRAND_ID,
+        name:        brandCtx.brand.NAME,
+        marketplace: brandCtx.brand.MARKETPLACE,
+      } : null,
+      noBrands: brandCtx.noBrands,
     });
   } catch (err) { next(err); }
 });

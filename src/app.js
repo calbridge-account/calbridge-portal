@@ -17,6 +17,7 @@ const billingRoutes = require('./routes/billing');
 const chatRoutes = require('./routes/chat');
 const campaignsRoutes = require('./routes/campaigns');
 const { ensureCampaignActionsTable } = require('./routes/campaigns');
+const brandsRoutes = require('./routes/brands');
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use('/admin', adminRoutes);
 app.use('/billing', billingRoutes);
 app.use('/chat', chatRoutes);
 app.use('/campaigns', campaignsRoutes);
+app.use('/brands', brandsRoutes);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>

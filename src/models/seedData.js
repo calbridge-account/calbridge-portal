@@ -5,11 +5,25 @@
  * All campaigns have positive ROAS (1.5x - 6x)
  * All ASINs have positive contribution margin
  * Includes unit CM and unit CM%
+ *
+ * Brand architecture:
+ *   test-client-001 is on 'pro' plan with 3 demo brands:
+ *     - TechGear US  (primary, linked to existing seed data)
+ *     - TechGear UK
+ *     - HomeStyle US
  */
 require('dotenv').config();
+const crypto = require('crypto');
 const { query } = require('../services/snowflakeService');
 
 const CLIENT_ID = 'test-client-001';
+
+// Demo brand IDs — fixed so re-runs are idempotent
+const BRAND_IDS = {
+  techgearUS:  'seed-brand-techgear-us-001',
+  techgearUK:  'seed-brand-techgear-uk-001',
+  homestyleUS: 'seed-brand-homestyle-us-001',
+};
 
 const ASINS = [
   { asin: 'B001TEST01', title: 'Premium Bamboo Cutting Board',       sku: 'BCB-001', price: 34.99, fba: 5.50, cogs: 8.00,  referral: 3.50 },
@@ -40,6 +54,35 @@ function round(n, dp = 4) { return parseFloat(n.toFixed(dp)); }
 
 async function seed() {
   console.log('🌱 Seeding realistic test data...\n');
+
+  // 0. Set test-client-001 to 'pro' plan and seed demo brands
+  console.log('0. Setting up plan and brands...');
+
+  // Ensure plan column exists (safe to call even if already set)
+  await query(
+    `UPDATE clients SET plan = 'pro' WHERE client_id = ?`,
+    [CLIENT_ID]
+  ).catch(err => console.warn('   Could not update plan (column may not exist yet):', err.message));
+
+  const demoBrands = [
+    { brandId: BRAND_IDS.techgearUS,  name: 'TechGear US',  marketplace: 'US' },
+    { brandId: BRAND_IDS.techgearUK,  name: 'TechGear UK',  marketplace: 'UK' },
+    { brandId: BRAND_IDS.homestyleUS, name: 'HomeStyle US', marketplace: 'US' },
+  ];
+
+  for (const b of demoBrands) {
+    await query(`
+      MERGE INTO brands t
+      USING (SELECT ? AS brand_id) s ON t.brand_id = s.brand_id
+      WHEN MATCHED THEN UPDATE SET
+        name = ?, marketplace = ?, updated_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT
+        (brand_id, client_id, name, marketplace, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `, [b.brandId, b.name, b.marketplace, b.brandId, CLIENT_ID, b.name, b.marketplace])
+      .catch(err => console.warn(`   Could not upsert brand ${b.name}:`, err.message));
+    console.log(`   ✅ Brand: ${b.name} (${b.marketplace})`);
+  }
 
   // 1. Update products with correct COGS
   console.log('1. Updating products with COGS...');

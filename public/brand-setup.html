@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Brand Setup</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    /* ---- Brand Setup Page ---- */
+    .brand-setup-page { display: flex; min-height: 100vh; }
+
+    /* Sidebar (same as dashboard) */
+    .sidebar { width: var(--sidebar-w); background: var(--brand-dark); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; align-items: center; justify-content: center; background: #d8d0c4; }
+    .sidebar-logo img { height: 56px; width: auto; }
+    .sidebar-nav { flex: 1; padding: 16px 0; }
+    .nav-item { display: block; padding: 10px 20px; color: rgba(255,255,255,.65); text-decoration: none; transition: all .15s; font-size: 14px; }
+    .nav-item:hover, .nav-item.active { background: rgba(255,255,255,.10); color: #fff; border-left: 3px solid rgba(255,255,255,.5); }
+    .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.08); }
+    .sidebar-footer #client-name { display: block; font-size: 12px; color: rgba(255,255,255,.5); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .btn-logout { width: 100%; padding: 8px; background: transparent; color: rgba(255,255,255,.5); border: 1px solid rgba(255,255,255,.15); border-radius: var(--radius); cursor: pointer; font-size: 13px; transition: all .15s; }
+    .btn-logout:hover { background: rgba(255,255,255,.08); color: #fff; }
+
+    /* Brand switcher — Pro+ only */
+    .brand-switcher { margin: 12px 0; padding: 0 12px; }
+    .brand-switcher-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.4); padding: 0 8px; margin-bottom: 6px; }
+    .brand-switcher-list { list-style: none; }
+    .brand-switcher-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; font-size: 13px; color: rgba(255,255,255,.7); transition: background .12s; }
+    .brand-switcher-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .brand-switcher-item.active { background: rgba(255,255,255,.12); color: #fff; font-weight: 600; }
+    .brand-switcher-item .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-mid); flex-shrink: 0; }
+    .brand-switcher-item.active .brand-dot { background: #6fcf5a; }
+    .brand-add-btn { display: block; width: 100%; padding: 7px 10px; margin-top: 6px; background: transparent; border: 1px dashed rgba(255,255,255,.2); border-radius: var(--radius); color: rgba(255,255,255,.45); font-size: 12px; cursor: pointer; text-align: center; transition: all .15s; }
+    .brand-add-btn:hover { border-color: rgba(255,255,255,.45); color: rgba(255,255,255,.75); background: rgba(255,255,255,.06); }
+    .brand-usage { font-size: 11px; color: rgba(255,255,255,.4); text-align: center; padding: 2px 8px 10px; }
+
+    /* Main content */
+    .main-content { margin-left: var(--sidebar-w); flex: 1; padding: 0; overflow-x: hidden; min-height: 100vh; }
+    .page-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 28px; background: #fff; border-bottom: 1px solid var(--gray-200); }
+    .page-header h1 { font-size: 20px; font-weight: 600; }
+    .page-header p { color: var(--gray-400); font-size: 13px; margin-top: 2px; }
+
+    /* Starter header brand badge */
+    .starter-brand-badge { display: inline-flex; align-items: center; gap: 8px; background: var(--brand-light); border: 1px solid #b6d9b2; border-radius: 20px; padding: 4px 14px; font-size: 13px; color: var(--brand); font-weight: 500; }
+    .starter-brand-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+
+    /* Form layout */
+    .setup-body { padding: 28px; max-width: 720px; }
+    .setup-card { background: #fff; border-radius: 10px; border: 1px solid var(--gray-200); box-shadow: var(--shadow); padding: 28px; margin-bottom: 20px; }
+    .setup-card h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--gray-800); }
+    .setup-card .card-desc { font-size: 13px; color: var(--gray-400); margin-bottom: 20px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-weight: 500; font-size: 13px; margin-bottom: 6px; color: var(--gray-600); }
+    .form-group input, .form-group select { width: 100%; padding: 9px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 13px; background: #fff; transition: border-color .15s; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(45,90,39,.10); }
+    .form-group .field-hint { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
+    /* Connect buttons */
+    .connect-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .connect-btn { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; text-decoration: none; color: var(--gray-800); }
+    .connect-btn:hover { border-color: var(--brand); background: var(--brand-light); }
+    .connect-btn.connected { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
+    .connect-btn .connect-icon { font-size: 20px; flex-shrink: 0; }
+    .connect-btn .connect-label { font-weight: 600; font-size: 13px; }
+    .connect-btn .connect-sub { font-size: 11px; color: var(--gray-400); }
+    .connect-btn.connected .connect-sub { color: var(--brand); }
+    .connect-status-tick { margin-left: auto; font-size: 16px; }
+
+    /* DSP section — Scale+ only */
+    .plan-gate { background: #fef3c7; border: 1px solid #f59e0b; border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .plan-gate p { font-size: 13px; color: #92400e; margin: 0; }
+    .plan-gate a { font-size: 13px; font-weight: 600; color: #92400e; text-decoration: none; white-space: nowrap; }
+    .plan-gate a:hover { text-decoration: underline; }
+
+    /* White-label section — Scale+ only */
+    .wl-section { display: none; }
+
+    /* Save button row */
+    .save-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+    .btn-primary { padding: 10px 24px; background: var(--brand); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .save-status { font-size: 13px; color: var(--gray-400); }
+    .save-status.success { color: var(--brand); }
+    .save-status.error { color: var(--danger); }
+
+    /* Profile dropdown for Ads profile select */
+    .profile-select-wrap { position: relative; }
+    .profile-select-empty { font-size: 12px; color: var(--gray-400); padding: 8px 0 0; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-800); color: #fff; border-radius: var(--radius); padding: 12px 18px; font-size: 13px; z-index: 1000; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .toast.success { background: var(--brand); }
+    .toast.error { background: var(--danger); }
+
+    /* Loading spinner */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="brand-setup-page">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="/images/calbridge-logo.png" alt="CalBridge" />
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="nav-item">📊 Overview</a>
+      <a href="/advertising.html" class="nav-item">📢 Advertising</a>
+      <a href="/campaigns.html" class="nav-item">📣 Campaigns</a>
+      <a href="/brand-setup.html" class="nav-item active">🏷️ Brands</a>
+      <a href="/account.html" class="nav-item">⚙️ Account</a>
+    </nav>
+
+    <!-- Brand switcher — only shown for Pro+ plans -->
+    <div class="brand-switcher hidden" id="brand-switcher-section">
+      <div class="brand-switcher-label">Your Brands</div>
+      <ul class="brand-switcher-list" id="brand-switcher-list">
+        <!-- populated by JS -->
+      </ul>
+      <div class="brand-usage" id="brand-usage-label"></div>
+      <button class="brand-add-btn" id="brand-add-btn" onclick="showNewBrandForm()">＋ Add Brand</button>
+    </div>
+
+    <div class="sidebar-footer">
+      <span id="client-name">Loading...</span>
+      <button class="btn-logout" id="logout-btn">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- Page Header -->
+    <header class="page-header" id="page-header">
+      <div>
+        <h1>Brand Setup</h1>
+        <p id="page-sub">Connect your Amazon accounts to a brand</p>
+      </div>
+      <!-- Starter: show current brand name as badge -->
+      <div id="starter-brand-header" class="hidden">
+        <span class="starter-brand-badge"><span class="dot"></span><span id="starter-brand-name">—</span></span>
+      </div>
+    </header>
+
+    <div class="setup-body" id="setup-body">
+      <!-- Loading state -->
+      <div id="loading-state" style="padding:40px;text-align:center;color:var(--gray-400);">Loading your brand settings…</div>
+
+      <!-- No brands prompt -->
+      <div id="no-brands-state" class="hidden">
+        <div class="setup-card" style="text-align:center;padding:48px 28px;">
+          <div style="font-size:48px;margin-bottom:16px;">🏷️</div>
+          <h2 style="margin-bottom:8px;">Set up your first brand</h2>
+          <p style="color:var(--gray-400);font-size:14px;margin-bottom:24px;">A brand connects all your Amazon accounts — Ads, DSP, Seller, and Vendor — into one unified view.</p>
+          <button class="btn-primary" onclick="showNewBrandForm()">Create Your First Brand</button>
+        </div>
+      </div>
+
+      <!-- Brand form (create / edit) -->
+      <div id="brand-form-section" class="hidden">
+
+        <!-- Brand identity -->
+        <div class="setup-card">
+          <h2>Brand Details</h2>
+          <p class="card-desc">Give your brand a name and select the primary marketplace.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="brand-name">Brand Name <span style="color:var(--danger)">*</span></label>
+              <input type="text" id="brand-name" placeholder="e.g. TechGear US" maxlength="100" />
+            </div>
+            <div class="form-group">
+              <label for="brand-marketplace">Marketplace</label>
+              <select id="brand-marketplace">
+                <option value="US">🇺🇸 United States (US)</option>
+                <option value="UK">🇬🇧 United Kingdom (UK)</option>
+                <option value="CA">🇨🇦 Canada (CA)</option>
+                <option value="DE">🇩🇪 Germany (DE)</option>
+                <option value="FR">🇫🇷 France (FR)</option>
+                <option value="IT">🇮🇹 Italy (IT)</option>
+                <option value="ES">🇪🇸 Spain (ES)</option>
+                <option value="AU">🇦🇺 Australia (AU)</option>
+                <option value="JP">🇯🇵 Japan (JP)</option>
+                <option value="IN">🇮🇳 India (IN)</option>
+                <option value="MX">🇲🇽 Mexico (MX)</option>
+                <option value="AE">🇦🇪 UAE (AE)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Amazon Ads profile -->
+        <div class="setup-card">
+          <h2>Amazon Advertising</h2>
+          <p class="card-desc">Select the Ads profile to link to this brand. Profiles are discovered after you connect your Amazon Ads account.</p>
+          <div class="form-group profile-select-wrap">
+            <label for="ads-profile-select">Ads Profile (Sponsored Products / Brands / Display)</label>
+            <select id="ads-profile-select">
+              <option value="">— None / Not connected yet —</option>
+            </select>
+            <p class="profile-select-empty hidden" id="ads-profiles-empty">
+              No profiles discovered yet. <a href="/account.html">Connect your Amazon Ads account</a> first, then return here.
+            </p>
+          </div>
+        </div>
+
+        <!-- DSP Advertiser — Scale+ only -->
+        <div class="setup-card" id="dsp-card">
+          <h2>DSP Advertiser <span style="font-size:11px;background:var(--warning-bg);color:var(--warning);padding:2px 8px;border-radius:10px;margin-left:8px;">Scale+</span></h2>
+          <p class="card-desc">Link a DSP advertiser to combine programmatic display spend into this brand's reporting.</p>
+          <div id="dsp-gate" class="plan-gate">
+            <p>DSP integration is available on the <strong>Scale</strong> plan and above.</p>
+            <a href="/billing.html">Upgrade →</a>
+          </div>
+          <div id="dsp-enabled" class="hidden">
+            <div class="form-group">
+              <label for="dsp-advertiser-select">DSP Advertiser</label>
+              <select id="dsp-advertiser-select">
+                <option value="">— None / Not connected yet —</option>
+              </select>
+              <p class="field-hint">Advertisers are discovered after DSP OAuth is completed in Account Settings.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SP-API connections -->
+        <div class="setup-card">
+          <h2>Seller &amp; Vendor Central</h2>
+          <p class="card-desc">Connect this brand's seller or vendor accounts to include sales and COGS data.</p>
+          <div class="connect-grid" id="connect-grid">
+            <a class="connect-btn" href="/account.html#seller" id="connect-seller-btn">
+              <span class="connect-icon">🏪</span>
+              <div>
+                <div class="connect-label">Seller Central</div>
+                <div class="connect-sub" id="seller-sub">Not connected</div>
+              </div>
+              <span class="connect-status-tick" id="seller-tick"></span>
+            </a>
+            <a class="connect-btn" href="/account.html#vendor" id="connect-vendor-btn">
+              <span class="connect-icon">🏭</span>
+              <div>
+                <div class="connect-label">Vendor Central</div>
+                <div class="connect-sub" id="vendor-sub">Not connected</div>
+              </div>
+              <span class="connect-status-tick" id="vendor-tick"></span>
+            </a>
+          </div>
+          <p style="font-size:12px;color:var(--gray-400);margin-top:10px;">
+            SP-API connections are shared across all brands in the same marketplace.
+            Once connected, they are automatically linked here.
+          </p>
+        </div>
+
+        <!-- White-label settings — Scale+ only -->
+        <div class="setup-card wl-section" id="wl-card">
+          <h2>White-Label Settings <span style="font-size:11px;background:var(--warning-bg);color:var(--warning);padding:2px 8px;border-radius:10px;margin-left:8px;">Scale+</span></h2>
+          <p class="card-desc">Customise portal branding for this brand's client-facing view.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="wl-company">Company / Brand Display Name</label>
+              <input type="text" id="wl-company" placeholder="Your Company Name" />
+            </div>
+            <div class="form-group">
+              <label for="wl-logo">Logo URL</label>
+              <input type="url" id="wl-logo" placeholder="https://..." />
+            </div>
+          </div>
+          <p class="field-hint">Custom domain configuration is managed from Account Settings.</p>
+        </div>
+
+        <!-- Save -->
+        <div class="save-row">
+          <button class="btn-primary" id="save-brand-btn" onclick="saveBrand()">Save Brand</button>
+          <button class="btn-primary" id="saving-btn" disabled style="display:none"><span class="spinner"></span> Saving…</button>
+          <span class="save-status" id="save-status"></span>
+        </div>
+
+      </div><!-- /brand-form-section -->
+    </div><!-- /setup-body -->
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+    let planInfo = null;      // { plan, brandCount, limits, canAddBrand }
+    let brands = [];          // array of brand objects
+    let activeBrandId = null; // currently editing / viewing
+    let adProfiles = [];      // discovered ad profiles
+    let dspAdvertisers = [];  // discovered DSP advertisers
+
+    // -------------------------------------------------------------------------
+    // Bootstrap
+    // -------------------------------------------------------------------------
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.getElementById('logout-btn').addEventListener('click', logout);
+      await loadClientName();
+      await loadPlanInfo();
+      await loadBrands();
+      await loadAdProfiles();
+      await loadDspAdvertisers();
+      renderPage();
+    });
+
+    async function loadClientName() {
+      try {
+        const r = await fetch('/auth/me', { credentials: 'include' });
+        if (!r.ok) { window.location.href = '/'; return; }
+        const d = await r.json();
+        document.getElementById('client-name').textContent = d.client?.name || d.name || '';
+      } catch { /* silent */ }
+    }
+
+    async function loadPlanInfo() {
+      try {
+        const r = await fetch('/brands/plan-info', { credentials: 'include' });
+        if (r.ok) planInfo = await r.json();
+      } catch { /* use defaults */ }
+      if (!planInfo) planInfo = { plan: 'starter', brandCount: 0, limits: { brands: 1, dsp: false, whiteLabel: false }, canAddBrand: true };
+    }
+
+    async function loadBrands() {
+      try {
+        const r = await fetch('/brands', { credentials: 'include' });
+        if (r.ok) {
+          const d = await r.json();
+          brands = d.brands || [];
+        }
+      } catch { /* silent */ }
+    }
+
+    async function loadAdProfiles() {
+      try {
+        const r = await fetch('/amazon/profiles', { credentials: 'include' });
+        if (r.ok) {
+          const d = await r.json();
+          adProfiles = d.profiles || [];
+        }
+      } catch { /* endpoint may not exist yet — TODO: implement /amazon/profiles */ }
+    }
+
+    async function loadDspAdvertisers() {
+      if (!planInfo?.limits?.dsp) return;
+      try {
+        const r = await fetch('/amazon/dsp-advertisers', { credentials: 'include' });
+        if (r.ok) {
+          const d = await r.json();
+          dspAdvertisers = d.advertisers || [];
+        }
+      } catch { /* endpoint may not exist yet — TODO: implement /amazon/dsp-advertisers */ }
+    }
+
+    // -------------------------------------------------------------------------
+    // Render
+    // -------------------------------------------------------------------------
+    function renderPage() {
+      const plan = planInfo?.plan || 'starter';
+      const isPro = ['pro', 'scale', 'enterprise'].includes(plan);
+      const isScale = ['scale', 'enterprise'].includes(plan);
+
+      // Sidebar brand switcher — Pro+ only
+      if (isPro && brands.length > 0) {
+        document.getElementById('brand-switcher-section').classList.remove('hidden');
+        renderBrandSwitcher();
+      }
+
+      // Hide loading
+      document.getElementById('loading-state').classList.add('hidden');
+
+      if (brands.length === 0) {
+        document.getElementById('no-brands-state').classList.remove('hidden');
+        return;
+      }
+
+      // Show form for first (or active) brand
+      activeBrandId = activeBrandId || brands[0].brandId;
+      showBrandForm(activeBrandId);
+
+      // Starter: show brand name badge in header
+      if (!isPro) {
+        document.getElementById('starter-brand-header').classList.remove('hidden');
+        document.getElementById('starter-brand-name').textContent = brands[0]?.name || '—';
+      }
+
+      // DSP card
+      if (isScale) {
+        document.getElementById('dsp-gate').classList.add('hidden');
+        document.getElementById('dsp-enabled').classList.remove('hidden');
+        populateDspSelect();
+      }
+
+      // White-label card — Scale+
+      if (isScale) {
+        document.getElementById('wl-card').style.display = 'block';
+      }
+
+      // Ads profile select
+      populateAdsProfileSelect();
+    }
+
+    function renderBrandSwitcher() {
+      const list = document.getElementById('brand-switcher-list');
+      list.innerHTML = '';
+      brands.forEach(b => {
+        const li = document.createElement('li');
+        li.className = 'brand-switcher-item' + (b.brandId === activeBrandId ? ' active' : '');
+        li.innerHTML = `<span class="brand-dot"></span>${escHtml(b.name)}`;
+        li.onclick = () => switchBrand(b.brandId);
+        list.appendChild(li);
+      });
+
+      const limit = planInfo.limits.brands;
+      const used = planInfo.brandCount;
+      const label = limit === Infinity ? `${used} brand${used !== 1 ? 's' : ''}` : `${used} of ${limit} brands used`;
+      document.getElementById('brand-usage-label').textContent = label;
+
+      // Hide add button if at limit
+      const addBtn = document.getElementById('brand-add-btn');
+      addBtn.style.display = planInfo.canAddBrand ? 'block' : 'none';
+    }
+
+    function showBrandForm(brandId) {
+      activeBrandId = brandId;
+      const brand = brands.find(b => b.brandId === brandId);
+      if (!brand) return;
+
+      document.getElementById('brand-form-section').classList.remove('hidden');
+      document.getElementById('no-brands-state').classList.add('hidden');
+
+      document.getElementById('brand-name').value = brand.name || '';
+      document.getElementById('brand-marketplace').value = brand.marketplace || 'US';
+
+      // Update active state in switcher
+      document.querySelectorAll('.brand-switcher-item').forEach((el, i) => {
+        el.classList.toggle('active', brands[i]?.brandId === brandId);
+      });
+
+      // Update header subtitle
+      document.getElementById('page-sub').textContent = `Editing: ${brand.name}`;
+
+      // Starter header badge
+      document.getElementById('starter-brand-name').textContent = brand.name || '—';
+    }
+
+    function switchBrand(brandId) {
+      showBrandForm(brandId);
+      // Re-select ads profile / dsp advertiser for this brand
+      const brand = brands.find(b => b.brandId === brandId);
+      if (brand) {
+        document.getElementById('ads-profile-select').value = brand.adsProfileId || '';
+        if (planInfo?.limits?.dsp) {
+          document.getElementById('dsp-advertiser-select').value = brand.dspAdvertiserId || '';
+        }
+      }
+    }
+
+    function showNewBrandForm() {
+      activeBrandId = null;
+      document.getElementById('brand-form-section').classList.remove('hidden');
+      document.getElementById('no-brands-state').classList.add('hidden');
+      document.getElementById('brand-name').value = '';
+      document.getElementById('brand-marketplace').value = 'US';
+      document.getElementById('ads-profile-select').value = '';
+      document.getElementById('page-sub').textContent = 'New brand';
+      document.getElementById('save-status').textContent = '';
+    }
+
+    function populateAdsProfileSelect() {
+      const sel = document.getElementById('ads-profile-select');
+      // Keep the "none" option
+      sel.innerHTML = '<option value="">— None / Not connected yet —</option>';
+      if (adProfiles.length === 0) {
+        document.getElementById('ads-profiles-empty').classList.remove('hidden');
+      } else {
+        document.getElementById('ads-profiles-empty').classList.add('hidden');
+        adProfiles.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.profileId || p.profile_id;
+          opt.textContent = `${p.name || p.profileId} (${p.marketplace || ''} ${p.type || ''})`.trim();
+          sel.appendChild(opt);
+        });
+      }
+      // Set current brand's value
+      const brand = brands.find(b => b.brandId === activeBrandId);
+      if (brand?.adsProfileId) sel.value = brand.adsProfileId;
+    }
+
+    function populateDspSelect() {
+      const sel = document.getElementById('dsp-advertiser-select');
+      sel.innerHTML = '<option value="">— None / Not connected yet —</option>';
+      dspAdvertisers.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.advertiserId || a.advertiser_id;
+        opt.textContent = a.name || a.advertiserId;
+        sel.appendChild(opt);
+      });
+      const brand = brands.find(b => b.brandId === activeBrandId);
+      if (brand?.dspAdvertiserId) sel.value = brand.dspAdvertiserId;
+    }
+
+    // -------------------------------------------------------------------------
+    // Save
+    // -------------------------------------------------------------------------
+    async function saveBrand() {
+      const name = document.getElementById('brand-name').value.trim();
+      if (!name) { showToast('Brand name is required', 'error'); return; }
+
+      const payload = {
+        name,
+        marketplace:     document.getElementById('brand-marketplace').value,
+        adsProfileId:    document.getElementById('ads-profile-select').value || null,
+        dspAdvertiserId: planInfo?.limits?.dsp ? (document.getElementById('dsp-advertiser-select').value || null) : null,
+      };
+
+      toggleSaving(true);
+
+      try {
+        let res, data;
+        if (activeBrandId) {
+          res  = await fetch(`/brands/${activeBrandId}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        } else {
+          res  = await fetch('/brands', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        }
+        data = await res.json();
+
+        if (!res.ok) {
+          const msg = data.message || data.error || 'Save failed';
+          showToast(msg, 'error');
+          document.getElementById('save-status').textContent = msg;
+          document.getElementById('save-status').className = 'save-status error';
+          toggleSaving(false);
+          return;
+        }
+
+        // Update local state
+        const savedBrand = data.brand;
+        if (activeBrandId) {
+          const idx = brands.findIndex(b => b.brandId === activeBrandId);
+          if (idx >= 0) brands[idx] = savedBrand;
+        } else {
+          brands.push(savedBrand);
+          activeBrandId = savedBrand.brandId;
+        }
+
+        // Reload plan info for updated count
+        await loadPlanInfo();
+        renderBrandSwitcher();
+
+        document.getElementById('save-status').textContent = '✓ Saved';
+        document.getElementById('save-status').className = 'save-status success';
+        document.getElementById('starter-brand-name').textContent = savedBrand.name;
+        showToast('Brand saved!', 'success');
+      } catch (err) {
+        showToast('Network error — please try again', 'error');
+      }
+
+      toggleSaving(false);
+    }
+
+    function toggleSaving(on) {
+      document.getElementById('save-brand-btn').style.display = on ? 'none' : '';
+      document.getElementById('saving-btn').style.display = on ? '' : 'none';
+    }
+
+    // -------------------------------------------------------------------------
+    // Auth
+    // -------------------------------------------------------------------------
+    async function logout() {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+      window.location.href = '/';
+    }
+
+    // -------------------------------------------------------------------------
+    // Utils
+    // -------------------------------------------------------------------------
+    function escHtml(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function showToast(msg, type = 'info') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = `toast ${type} show`;
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>

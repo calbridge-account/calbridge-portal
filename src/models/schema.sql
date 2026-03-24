@@ -146,6 +146,60 @@ CREATE TABLE IF NOT EXISTS contribution_margin (
 );
 
 -- ============================================================
+-- PLAN / TIER TRACKING
+-- ============================================================
+-- values: starter | pro | scale | enterprise
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'starter';
+
+-- ============================================================
+-- AD PROFILES (discovered via GET /v2/profiles after OAuth)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ad_profiles (
+  profile_id        VARCHAR       NOT NULL,
+  client_id         VARCHAR       NOT NULL,
+  name              VARCHAR,
+  type              VARCHAR,
+  sub_type          VARCHAR,
+  marketplace       VARCHAR,
+  currency_code     VARCHAR,
+  timezone          VARCHAR,
+  account_id        VARCHAR,
+  daily_budget      NUMBER,
+  created_at        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (profile_id, client_id)
+);
+
+-- ============================================================
+-- DSP ADVERTISERS (discovered after DSP OAuth)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dsp_advertisers (
+  advertiser_id     VARCHAR       NOT NULL,
+  client_id         VARCHAR       NOT NULL,
+  name              VARCHAR,
+  agency_profile_id VARCHAR,
+  created_at        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (advertiser_id, client_id)
+);
+
+-- ============================================================
+-- BRANDS — user-defined unifying layer across Amazon entities
+-- Maps: Amazon Ads profile + optional DSP advertiser + optional SP-API connections
+-- ============================================================
+CREATE TABLE IF NOT EXISTS brands (
+  brand_id            VARCHAR       NOT NULL PRIMARY KEY,
+  client_id           VARCHAR       NOT NULL,
+  name                VARCHAR       NOT NULL,
+  marketplace         VARCHAR       DEFAULT 'US',
+  ads_profile_id      VARCHAR,      -- Amazon Ads profileId (Sponsored Products/Brands/Display)
+  dsp_advertiser_id   VARCHAR,      -- DSP advertiserId — Scale+ only
+  sp_seller_id        VARCHAR,      -- SP-API sellingPartnerId — optional
+  sp_vendor_id        VARCHAR,      -- SP-API vendorGroupId — optional
+  is_active           BOOLEAN       DEFAULT TRUE,
+  created_at          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================
 -- INGESTION LOG (pipeline monitoring)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS ingestion_log (
