@@ -57,10 +57,16 @@
 
     toggle.addEventListener('click', () => {
       const isCollapsed = sidebar.classList.toggle('collapsed');
-      if (main) main.style.marginLeft = isCollapsed ? '60px' : 'var(--sidebar-w)';
+      const newWidth = isCollapsed ? '60px' : 'var(--sidebar-w)';
+      if (main) main.style.marginLeft = newWidth;
+      toggle.style.left = isCollapsed ? 'calc(60px - 12px)' : 'calc(var(--sidebar-w) - 12px)';
       toggle.textContent = isCollapsed ? '▶' : '◀';
       toggle.title = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
       localStorage.setItem('sidebar-collapsed', isCollapsed);
     });
+
+    // Set initial toggle position
+    const initCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    toggle.style.left = initCollapsed ? 'calc(60px - 12px)' : 'calc(var(--sidebar-w) - 12px)';
   });
 })();
