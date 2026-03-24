@@ -70,12 +70,12 @@ Server runs on `http://localhost:3000`
 
 **Test login:**
 - Email: `demo@teamcalbridge.com`
-- Password: `<PASSWORD>`
+- Password: `<see .env or ask Abe>`
 
 **Admin panel:**
 - URL: `http://localhost:3000/admin.html`
 - Email: `abe@teamcalbridge.com`
-- Password: `<PASSWORD>`
+- Password: `<see .env or ask Abe>`
 
 ---
 

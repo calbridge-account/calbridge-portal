@@ -7,8 +7,8 @@ Both the Advertising API and SP-API use LWA for OAuth 2.0.
 ### Credentials (stored in .env)
 
 ```
-LWA_CLIENT_ID=<CLIENT_ID>
-LWA_CLIENT_SECRET=<CLIENT_SECRET>
+LWA_CLIENT_ID=<stored in .env>
+LWA_CLIENT_SECRET=<stored in .env>
 ```
 
 ### Redirect URIs (register these in Amazon Developer Console)

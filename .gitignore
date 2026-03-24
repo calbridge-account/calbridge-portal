@@ -20,3 +20,14 @@ Thumbs.db
 
 # OpenClaw
 .openclaw/
+
+# Agent memory — contains personal context and credentials, never commit
+MEMORY.md
+memory/
+BOOTSTRAP.md
+SOUL.md
+USER.md
+AGENTS.md
+TOOLS.md
+IDENTITY.md
+HEARTBEAT.md
