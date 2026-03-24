@@ -1,148 +1,166 @@
 /**
  * Seed Snowflake SANDBOX with realistic test data
  * Usage: node src/models/seedData.js
+ *
+ * All campaigns have positive ROAS (1.5x - 6x)
+ * All ASINs have positive contribution margin
+ * Includes unit CM and unit CM%
  */
 require('dotenv').config();
-const { v4: uuidv4 } = require('uuid');
 const { query } = require('../services/snowflakeService');
 
-const TEST_CLIENT_ID = 'test-client-001';
-const TEST_CLIENT_EMAIL = 'demo@example.com';
-const TEST_CLIENT_NAME = 'Acme Brands LLC';
+const CLIENT_ID = 'test-client-001';
 
 const ASINS = [
-  { asin: 'B001TEST01', title: 'Premium Bamboo Cutting Board', brand: 'Acme', price: 34.99, fba_fees: 5.50, cogs: 8.00 },
-  { asin: 'B001TEST02', title: 'Stainless Steel Water Bottle 32oz', brand: 'Acme', price: 24.99, fba_fees: 4.20, cogs: 5.50 },
-  { asin: 'B001TEST03', title: 'Silicone Kitchen Utensil Set', brand: 'Acme', price: 29.99, fba_fees: 4.80, cogs: 7.00 },
-  { asin: 'B001TEST04', title: 'Cast Iron Skillet 12-inch', brand: 'Acme', price: 49.99, fba_fees: 8.00, cogs: 18.00 },
-  { asin: 'B001TEST05', title: 'Magnetic Knife Strip', brand: 'Acme', price: 19.99, fba_fees: 3.50, cogs: 4.00 },
-  { asin: 'B001TEST06', title: 'Organic Cotton Kitchen Towels 6pk', brand: 'Acme', price: 22.99, fba_fees: 3.80, cogs: 5.00 },
-  { asin: 'B001TEST07', title: 'Bamboo Dish Drying Rack', brand: 'Acme', price: 39.99, fba_fees: 6.50, cogs: 10.00 },
-  { asin: 'B001TEST08', title: 'Glass Food Storage Containers 10pk', brand: 'Acme', price: 44.99, fba_fees: 7.00, cogs: 12.00 },
+  { asin: 'B001TEST01', title: 'Premium Bamboo Cutting Board',       sku: 'BCB-001', price: 34.99, fba: 5.50, cogs: 8.00,  referral: 3.50 },
+  { asin: 'B001TEST02', title: 'Stainless Steel Water Bottle 32oz',  sku: 'WB-32',  price: 24.99, fba: 4.20, cogs: 5.50,  referral: 2.50 },
+  { asin: 'B001TEST03', title: 'Silicone Kitchen Utensil Set',        sku: 'KUS-6',  price: 29.99, fba: 4.80, cogs: 7.00,  referral: 3.00 },
+  { asin: 'B001TEST04', title: 'Cast Iron Skillet 12-inch',           sku: 'CIS-12', price: 49.99, fba: 8.00, cogs: 18.00, referral: 5.00 },
+  { asin: 'B001TEST05', title: 'Magnetic Knife Strip',                sku: 'MKS-18', price: 19.99, fba: 3.50, cogs: 4.00,  referral: 2.00 },
+  { asin: 'B001TEST06', title: 'Organic Cotton Kitchen Towels 6pk',   sku: 'KT-6PK', price: 22.99, fba: 3.80, cogs: 5.00,  referral: 2.30 },
+  { asin: 'B001TEST07', title: 'Bamboo Dish Drying Rack',             sku: 'DDR-B',  price: 39.99, fba: 6.50, cogs: 10.00, referral: 4.00 },
+  { asin: 'B001TEST08', title: 'Glass Food Storage Containers 10pk',  sku: 'FSC-10', price: 44.99, fba: 7.00, cogs: 12.00, referral: 4.50 },
 ];
 
+// Campaigns — each mapped to specific ASINs so ad spend is realistic per ASIN
 const CAMPAIGNS = [
-  { id: 'camp-001', name: 'Cutting Board - SP Auto', type: 'sponsoredProducts', budget: 50 },
-  { id: 'camp-002', name: 'Water Bottle - SP Manual', type: 'sponsoredProducts', budget: 75 },
-  { id: 'camp-003', name: 'Kitchen Set - SB Brand', type: 'sponsoredBrands', budget: 100 },
-  { id: 'camp-004', name: 'Cast Iron - SD Retargeting', type: 'sponsoredDisplay', budget: 40 },
-  { id: 'camp-005', name: 'Knife Strip - SP Auto', type: 'sponsoredProducts', budget: 30 },
+  { id: 'camp-001', name: 'Cutting Board - SP Auto',        type: 'sponsoredProducts', budgetDay: 45,  asins: ['B001TEST01'], channel: 'ads' },
+  { id: 'camp-002', name: 'Water Bottle - SP Manual',       type: 'sponsoredProducts', budgetDay: 60,  asins: ['B001TEST02'], channel: 'ads' },
+  { id: 'camp-003', name: 'Kitchen Set - SB Brand',         type: 'sponsoredBrands',   budgetDay: 80,  asins: ['B001TEST03','B001TEST06'], channel: 'ads' },
+  { id: 'camp-004', name: 'Cast Iron - SD Retargeting',     type: 'sponsoredDisplay',  budgetDay: 35,  asins: ['B001TEST04'], channel: 'ads' },
+  { id: 'camp-005', name: 'Knife Strip - SP Auto',          type: 'sponsoredProducts', budgetDay: 25,  asins: ['B001TEST05'], channel: 'ads' },
+  { id: 'dsp-001',  name: 'Retargeting - Kitchen Category', type: 'dsp',               budgetDay: 150, asins: ['B001TEST01','B001TEST04','B001TEST07'], channel: 'dsp' },
+  { id: 'dsp-002',  name: 'Prospecting - Homeware Audience',type: 'dsp',               budgetDay: 200, asins: ['B001TEST02','B001TEST03','B001TEST08'], channel: 'dsp' },
+  { id: 'dsp-003',  name: 'Competitor Conquesting',         type: 'dsp',               budgetDay: 120, asins: ['B001TEST05','B001TEST06'], channel: 'dsp' },
 ];
 
-function randomBetween(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
-function formatDate(d) {
-  return d.toISOString().split('T')[0];
-}
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function fmtDate(d) { return d.toISOString().split('T')[0]; }
+function round(n, dp = 4) { return parseFloat(n.toFixed(dp)); }
 
 async function seed() {
-  console.log('🌱 Seeding test data into Snowflake SANDBOX...\n');
+  console.log('🌱 Seeding realistic test data...\n');
 
-  // 1. Insert test client
-  console.log('1. Creating test client...');
-  await query(`
-    MERGE INTO clients t USING (SELECT ? AS client_id) s ON t.client_id = s.client_id
-    WHEN NOT MATCHED THEN INSERT (client_id, email, name, created_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-  `, [TEST_CLIENT_ID, TEST_CLIENT_ID, TEST_CLIENT_EMAIL, TEST_CLIENT_NAME]);
-  console.log(`   ✅ Client: ${TEST_CLIENT_NAME} (${TEST_CLIENT_ID})`);
-
-  // 2. Insert products
-  console.log('\n2. Inserting products...');
+  // 1. Update products with correct COGS
+  console.log('1. Updating products with COGS...');
   for (const p of ASINS) {
     await query(`
       MERGE INTO products t
       USING (SELECT ? AS client_id, ? AS connection_type, ? AS asin) s
-      ON t.client_id = s.client_id AND t.connection_type = s.connection_type AND t.asin = s.asin
-      WHEN MATCHED THEN UPDATE SET title=?, brand=?, price=?, fba_fees=?, cogs=?, synced_at=CURRENT_TIMESTAMP
-      WHEN NOT MATCHED THEN INSERT (client_id, connection_type, asin, title, brand, price, fba_fees, cogs, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON t.client_id=s.client_id AND t.connection_type=s.connection_type AND t.asin=s.asin
+      WHEN MATCHED THEN UPDATE SET
+        sku=?, title=?, price=?, fba_fees=?, cogs=?, synced_at=CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT
+        (client_id,connection_type,asin,sku,title,price,fba_fees,cogs,synced_at)
+        VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
     `, [
-      TEST_CLIENT_ID, 'seller', p.asin,
-      p.title, p.brand, p.price, p.fba_fees, p.cogs,
-      TEST_CLIENT_ID, 'seller', p.asin, p.title, p.brand, p.price, p.fba_fees, p.cogs
+      CLIENT_ID,'seller',p.asin, p.sku,p.title,p.price,p.fba,p.cogs,
+      CLIENT_ID,'seller',p.asin,p.sku,p.title,p.price,p.fba,p.cogs
     ]);
-    console.log(`   ✅ ${p.asin}: ${p.title}`);
+    const unitCM = p.price - p.fba - p.cogs - p.referral;
+    const unitCMPct = (unitCM / p.price * 100).toFixed(1);
+    console.log(`   ${p.asin}: price $${p.price}, COGS $${p.cogs}, FBA $${p.fba} → Unit CM $${unitCM.toFixed(2)} (${unitCMPct}%)`);
   }
 
-  // 3. Insert campaigns
-  console.log('\n3. Inserting campaigns...');
-  for (const c of CAMPAIGNS) {
-    await query(`
-      MERGE INTO ad_campaigns t
-      USING (SELECT ? AS client_id, ? AS connection_type, ? AS campaign_id) s
-      ON t.client_id = s.client_id AND t.connection_type = s.connection_type AND t.campaign_id = s.campaign_id
-      WHEN MATCHED THEN UPDATE SET campaign_name=?, campaign_type=?, status='enabled', budget=?, synced_at=CURRENT_TIMESTAMP
-      WHEN NOT MATCHED THEN INSERT (client_id, connection_type, campaign_id, campaign_name, campaign_type, status, budget, budget_type, synced_at)
-      VALUES (?, ?, ?, ?, ?, 'enabled', ?, 'daily', CURRENT_TIMESTAMP)
-    `, [
-      TEST_CLIENT_ID, 'ads', c.id,
-      c.name, c.type, c.budget,
-      TEST_CLIENT_ID, 'ads', c.id, c.name, c.type, c.budget
-    ]);
-    console.log(`   ✅ ${c.id}: ${c.name}`);
-  }
-
-  // 4. Insert 90 days of performance + sales data (batch inserts)
-  console.log('\n4. Inserting 90 days of performance + sales data (batch)...');
+  // 2. Build 90 days of performance + sales
+  console.log('\n2. Building 90 days of performance + sales data...');
   const today = new Date();
-  const perfValues = [];
-  const salesValues = [];
+  const perfRows = [];
+  const salesRows = [];
+
+  // Track per-ASIN spend for CM calc
+  const asinDailySpend = {}; // asin -> { date -> spend }
 
   for (let d = 90; d >= 1; d--) {
     const date = new Date(today);
     date.setDate(date.getDate() - d);
-    const dateStr = formatDate(date);
+    const dateStr = fmtDate(date);
 
     for (const c of CAMPAIGNS) {
-      const impressions = Math.round(randomBetween(1000, 8000));
-      const clicks = Math.round(impressions * randomBetween(0.003, 0.012));
-      const spend = parseFloat((clicks * randomBetween(0.45, 1.80)).toFixed(4));
-      const orders = Math.round(clicks * randomBetween(0.05, 0.18));
-      const sales = parseFloat((orders * randomBetween(20, 50)).toFixed(4));
-      const acos = sales > 0 ? parseFloat((spend / sales).toFixed(4)) : null;
-      const roas = spend > 0 ? parseFloat((sales / spend).toFixed(4)) : null;
-      const ctr = impressions > 0 ? parseFloat((clicks / impressions).toFixed(6)) : null;
-      const cpc = clicks > 0 ? parseFloat((spend / clicks).toFixed(4)) : null;
-      perfValues.push(`('${TEST_CLIENT_ID}','ads','${c.id}','${dateStr}',${impressions},${clicks},${spend},${sales},${orders},${orders},${acos ?? 'NULL'},${roas ?? 'NULL'},${ctr ?? 'NULL'},${cpc ?? 'NULL'},CURRENT_TIMESTAMP)`);
+      // Realistic CTR: SP 0.4-0.8%, DSP 0.1-0.3%
+      const isDSP = c.channel === 'dsp';
+      const impressions = Math.round(rand(isDSP ? 8000 : 2000, isDSP ? 50000 : 10000));
+      const ctr         = rand(isDSP ? 0.001 : 0.004, isDSP ? 0.003 : 0.008);
+      const clicks      = Math.round(impressions * ctr);
+      const cpc         = round(rand(isDSP ? 1.20 : 0.45, isDSP ? 2.50 : 1.20));
+      const spend       = round(clicks * cpc);
+
+      // Realistic CVR: SP 8-15%, DSP 3-7%
+      const cvr    = rand(isDSP ? 0.03 : 0.08, isDSP ? 0.07 : 0.15);
+      const orders = Math.round(clicks * cvr);
+
+      // Pick a primary ASIN for this campaign's sales
+      const primaryAsin = c.asins[0];
+      const product = ASINS.find(p => p.asin === primaryAsin);
+      const avgOrderValue = product ? round(product.price * rand(1.0, 1.3)) : round(rand(25, 50));
+      const sales  = round(orders * avgOrderValue);
+
+      // ROAS must be positive (1.5x - 5x)
+      const targetRoas = rand(1.5, 5.0);
+      const adjustedSales = Math.max(sales, round(spend * targetRoas));
+      const adjustedOrders = Math.max(orders, Math.round(adjustedSales / avgOrderValue));
+
+      const acos = adjustedSales > 0 ? round(spend / adjustedSales) : null;
+      const roas = spend > 0 ? round(adjustedSales / spend) : null;
+      const finalCTR = impressions > 0 ? round(clicks / impressions, 6) : null;
+      const finalCPC = clicks > 0 ? round(spend / clicks) : null;
+
+      perfRows.push(`('${CLIENT_ID}','${c.channel}','${c.id}','${dateStr}',${impressions},${clicks},${spend},${adjustedSales},${adjustedOrders},${adjustedOrders},${acos??'NULL'},${roas??'NULL'},${finalCTR??'NULL'},${finalCPC??'NULL'},CURRENT_TIMESTAMP)`);
+
+      // Track spend per ASIN for this campaign
+      const spendPerAsin = spend / c.asins.length;
+      c.asins.forEach(asin => {
+        if (!asinDailySpend[asin]) asinDailySpend[asin] = {};
+        asinDailySpend[asin][dateStr] = (asinDailySpend[asin][dateStr] || 0) + spendPerAsin;
+      });
     }
 
+    // Sales per ASIN — realistic units
     for (const p of ASINS) {
-      const units = Math.round(randomBetween(1, 15));
-      const revenue = parseFloat((units * p.price).toFixed(4));
-      salesValues.push(`('${TEST_CLIENT_ID}','seller','${p.asin}','${dateStr}',${units},${revenue},CURRENT_TIMESTAMP)`);
+      const units   = Math.round(rand(3, 20));
+      const revenue = round(units * p.price);
+      salesRows.push(`('${CLIENT_ID}','seller','${p.asin}','${dateStr}',${units},${revenue},0,0,CURRENT_TIMESTAMP)`);
     }
   }
 
-  // Batch insert performance (chunks of 100)
-  const CHUNK = 100;
-  for (let i = 0; i < perfValues.length; i += CHUNK) {
-    const chunk = perfValues.slice(i, i + CHUNK).join(',');
-    await query(`INSERT INTO ad_performance (client_id,connection_type,campaign_id,report_date,impressions,clicks,spend,sales,orders,units_sold,acos,roas,ctr,cpc,synced_at) VALUES ${chunk}`);
+  // Batch insert performance
+  const CHUNK = 50;
+  for (let i = 0; i < perfRows.length; i += CHUNK) {
+    await query(`INSERT INTO ad_performance (client_id,connection_type,campaign_id,report_date,impressions,clicks,spend,sales,orders,units_sold,acos,roas,ctr,cpc,synced_at) VALUES ${perfRows.slice(i,i+CHUNK).join(',')}`);
   }
-  console.log(`   ✅ ${perfValues.length} performance rows`);
+  console.log(`   ✅ ${perfRows.length} ad performance rows`);
 
-  // Batch insert sales
-  for (let i = 0; i < salesValues.length; i += CHUNK) {
-    const chunk = salesValues.slice(i, i + CHUNK).join(',');
-    await query(`INSERT INTO sales (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,synced_at) VALUES ${chunk}`);
+  for (let i = 0; i < salesRows.length; i += CHUNK) {
+    await query(`INSERT INTO sales (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,units_shipped,shipped_revenue,synced_at) VALUES ${salesRows.slice(i,i+CHUNK).join(',')}`);
   }
-  console.log(`   ✅ ${salesValues.length} sales rows`);
+  console.log(`   ✅ ${salesRows.length} sales rows`);
 
-  // 5. Calculate contribution margin
-  console.log('\n5. Calculating contribution margin...');
+  // 3. Calculate contribution margin
+  console.log('\n3. Calculating contribution margin...');
   const { calculateContributionMargin } = require('../jobs/contributionMargin');
-  const result = await calculateContributionMargin(TEST_CLIENT_ID, 90);
-  console.log(`   ✅ ${result.recordsWritten} contribution margin records`);
+  const result = await calculateContributionMargin(CLIENT_ID, 90);
+  console.log(`   ✅ ${result.recordsWritten} CM records`);
 
-  console.log('\n✅ Seed complete! Test client ID:', TEST_CLIENT_ID);
-  console.log('   Use this client_id to test dashboard queries.');
+  // 4. Show summary
+  console.log('\n4. Verifying data...');
+  const check = await query(`
+    SELECT
+      ROUND(SUM(cm.revenue),2) AS total_revenue,
+      ROUND(SUM(cm.ad_spend),2) AS total_ad_spend,
+      ROUND(SUM(cm.contribution_margin),2) AS total_cm,
+      ROUND(AVG(cm.cm_percent),1) AS avg_cm_pct
+    FROM contribution_margin cm
+    WHERE client_id = ?
+      AND calc_date >= DATEADD(day, -30, CURRENT_DATE)
+  `, [CLIENT_ID]);
+  const r = check[0];
+  console.log(`   Revenue: $${r.TOTAL_REVENUE}`);
+  console.log(`   Ad Spend: $${r.TOTAL_AD_SPEND}`);
+  console.log(`   Total CM: $${r.TOTAL_CM}`);
+  console.log(`   Avg CM%: ${r.AVG_CM_PCT}%`);
+
+  console.log('\n✅ Seed complete!');
   process.exit(0);
 }
 
-seed().catch(err => {
-  console.error('Seed failed:', err.message);
-  process.exit(1);
-});
+seed().catch(e => { console.error('Seed failed:', e.message); process.exit(1); });

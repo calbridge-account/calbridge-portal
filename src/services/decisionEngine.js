@@ -191,18 +191,18 @@ async function getContributionMarginData(clientId, days) {
 async function getCampaignData(clientId, days) {
   return query(`
     SELECT
-      p.campaign_id,
+      ap.campaign_id,
       c.campaign_name,
-      SUM(p.spend)   AS spend,
-      SUM(p.sales)   AS sales,
-      CASE WHEN SUM(p.sales) > 0 THEN SUM(p.spend)/SUM(p.sales) ELSE NULL END AS acos,
-      CASE WHEN SUM(p.spend) > 0 THEN SUM(p.sales)/SUM(p.spend) ELSE NULL END AS roas
-    FROM ad_performance p
-    LEFT JOIN ad_campaigns c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id AND p.connection_type=c.connection_type
-    WHERE p.client_id = ?
-      AND p.report_date >= DATEADD(day, -?, CURRENT_DATE)
-    GROUP BY p.campaign_id, c.campaign_name
-    HAVING SUM(p.spend) > 0
+      SUM(ap.spend)   AS spend,
+      SUM(ap.sales)   AS sales,
+      CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend)/SUM(ap.sales) ELSE NULL END AS acos,
+      CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales)/SUM(ap.spend) ELSE NULL END AS roas
+    FROM ad_performance ap
+    LEFT JOIN ad_campaigns c ON ap.client_id=c.client_id AND ap.campaign_id=c.campaign_id AND ap.connection_type=c.connection_type
+    WHERE ap.client_id = ?
+      AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+    GROUP BY ap.campaign_id, c.campaign_name
+    HAVING SUM(ap.spend) > 0
   `, [clientId, days]);
 }
 

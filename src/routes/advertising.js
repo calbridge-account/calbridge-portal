@@ -68,23 +68,23 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
     const rows = await query(`
       SELECT
         c.campaign_type,
-        p.connection_type,
-        SUM(p.impressions)  AS impressions,
-        SUM(p.clicks)       AS clicks,
-        SUM(p.spend)        AS spend,
-        SUM(p.sales)        AS sales,
-        SUM(p.orders)       AS orders,
-        CASE WHEN SUM(p.sales) > 0 THEN SUM(p.spend) / SUM(p.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(p.spend) > 0 THEN SUM(p.sales) / SUM(p.spend) ELSE NULL END AS roas
-      FROM ad_performance p
+        ap.connection_type,
+        SUM(ap.impressions)  AS impressions,
+        SUM(ap.clicks)       AS clicks,
+        SUM(ap.spend)        AS spend,
+        SUM(ap.sales)        AS sales,
+        SUM(ap.orders)       AS orders,
+        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas
+      FROM ad_performance ap
       JOIN ad_campaigns c
-        ON p.client_id = c.client_id
-        AND p.campaign_id = c.campaign_id
-        AND p.connection_type = c.connection_type
-      WHERE p.client_id = ?
-        AND p.report_date >= DATEADD(day, -?, CURRENT_DATE)
-      GROUP BY c.campaign_type, p.connection_type
-      ORDER BY SUM(p.spend) DESC
+        ON ap.client_id = c.client_id
+        AND ap.campaign_id = c.campaign_id
+        AND ap.connection_type = c.connection_type
+      WHERE ap.client_id = ?
+        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY c.campaign_type, ap.connection_type
+      ORDER BY SUM(ap.spend) DESC
     `, [req.session.clientId, days]);
 
     res.json(rows);
@@ -129,30 +129,30 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const limit = Number(req.query.limit) || 20;
     const rows = await query(`
       SELECT
-        p.campaign_id,
+        ap.campaign_id,
         c.campaign_name,
         c.campaign_type,
-        p.connection_type,
+        ap.connection_type,
         c.status,
         c.budget,
-        SUM(p.impressions)  AS impressions,
-        SUM(p.clicks)       AS clicks,
-        SUM(p.spend)        AS spend,
-        SUM(p.sales)        AS sales,
-        SUM(p.orders)       AS orders,
-        CASE WHEN SUM(p.sales) > 0 THEN SUM(p.spend) / SUM(p.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(p.spend) > 0 THEN SUM(p.sales) / SUM(p.spend) ELSE NULL END AS roas,
-        CASE WHEN SUM(p.impressions) > 0 THEN SUM(p.clicks) / SUM(p.impressions) ELSE NULL END AS ctr,
-        CASE WHEN SUM(p.clicks) > 0 THEN SUM(p.spend) / SUM(p.clicks) ELSE NULL END AS cpc
-      FROM ad_performance p
+        SUM(ap.impressions)  AS impressions,
+        SUM(ap.clicks)       AS clicks,
+        SUM(ap.spend)        AS spend,
+        SUM(ap.sales)        AS sales,
+        SUM(ap.orders)       AS orders,
+        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas,
+        CASE WHEN SUM(ap.impressions) > 0 THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr,
+        CASE WHEN SUM(ap.clicks) > 0 THEN SUM(ap.spend) / SUM(ap.clicks) ELSE NULL END AS cpc
+      FROM ad_performance ap
       LEFT JOIN ad_campaigns c
-        ON p.client_id = c.client_id
-        AND p.campaign_id = c.campaign_id
-        AND p.connection_type = c.connection_type
-      WHERE p.client_id = ?
-        AND p.report_date >= DATEADD(day, -?, CURRENT_DATE)
-      GROUP BY p.campaign_id, c.campaign_name, c.campaign_type, p.connection_type, c.status, c.budget
-      ORDER BY SUM(p.spend) DESC
+        ON ap.client_id = c.client_id
+        AND ap.campaign_id = c.campaign_id
+        AND ap.connection_type = c.connection_type
+      WHERE ap.client_id = ?
+        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY ap.campaign_id, c.campaign_name, c.campaign_type, ap.connection_type, c.status, c.budget
+      ORDER BY SUM(ap.spend) DESC
       LIMIT ?
     `, [req.session.clientId, days, limit]);
 

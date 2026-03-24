@@ -53,10 +53,10 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
         s.asin,
         s.calc_date,
         s.revenue,
+        s.units,
         COALESCE(a.total_ad_spend, 0) AS ad_spend,
         COALESCE(p.fba_fees, 0) AS fba_fees,
-        COALESCE(p.cogs, 0) AS cogs,
-        s.units
+        COALESCE(p.cogs, 0) AS cogs
       FROM sales_data s
       LEFT JOIN ad_data a ON s.client_id = a.client_id AND s.calc_date = a.calc_date
       LEFT JOIN product_costs p ON s.client_id = p.client_id AND s.asin = p.asin
@@ -69,9 +69,13 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
       const revenue = Number(row.REVENUE || 0);
       const adSpend = Number(row.AD_SPEND || 0);
       const fbaFees = Number(row.FBA_FEES || 0);
-      const cogs = Number(row.COGS || 0);
-      const cm = revenue - adSpend - fbaFees - cogs;
+      const cogs    = Number(row.COGS    || 0);
+      const units   = Number(row.UNITS   || 0);
+      const cm      = revenue - adSpend - fbaFees - cogs;
       const cmPercent = revenue > 0 ? (cm / revenue) * 100 : null;
+      // Unit-level CM: CM divided by units sold
+      const unitCm        = units > 0 ? cm / units : null;
+      const unitCmPercent = units > 0 && revenue > 0 ? (cm / units) / (revenue / units) * 100 : null;
 
       await query(`
         MERGE INTO contribution_margin t
@@ -80,16 +84,19 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
         WHEN MATCHED THEN UPDATE SET
           revenue = ?, ad_spend = ?, fba_fees = ?, cogs = ?,
           contribution_margin = ?, cm_percent = ?,
+          units = ?, unit_cm = ?, unit_cm_percent = ?,
           calculated_at = CURRENT_TIMESTAMP
         WHEN NOT MATCHED THEN INSERT
           (client_id, asin, calc_date, revenue, ad_spend, fba_fees, cogs,
-           contribution_margin, cm_percent, calculated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+           contribution_margin, cm_percent, units, unit_cm, unit_cm_percent, calculated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `, [
         row.CLIENT_ID, row.ASIN, row.CALC_DATE,
         revenue, adSpend, fbaFees, cogs, cm, cmPercent,
+        units, unitCm, unitCmPercent,
         row.CLIENT_ID, row.ASIN, row.CALC_DATE,
-        revenue, adSpend, fbaFees, cogs, cm, cmPercent
+        revenue, adSpend, fbaFees, cogs, cm, cmPercent,
+        units, unitCm, unitCmPercent
       ]);
       written++;
     }
@@ -104,18 +111,25 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
 async function getTopPerformers(clientId, { days = 30, limit = 10, order = 'DESC' } = {}) {
   return query(`
     SELECT
-      asin,
-      SUM(revenue) AS total_revenue,
-      SUM(ad_spend) AS total_ad_spend,
-      SUM(fba_fees) AS total_fba_fees,
-      SUM(cogs) AS total_cogs,
-      SUM(contribution_margin) AS total_cm,
-      AVG(cm_percent) AS avg_cm_percent,
-      COUNT(*) AS days_with_data
-    FROM contribution_margin
-    WHERE client_id = ?
-      AND calc_date >= DATEADD(day, -?, CURRENT_DATE)
-    GROUP BY asin
+      cm.asin,
+      MAX(p.title) AS product_title,
+      MAX(p.sku)   AS sku,
+      SUM(cm.revenue)             AS total_revenue,
+      SUM(cm.ad_spend)            AS total_ad_spend,
+      SUM(cm.fba_fees)            AS total_fba_fees,
+      SUM(cm.cogs)                AS total_cogs,
+      SUM(cm.contribution_margin) AS total_cm,
+      SUM(cm.units)               AS total_units,
+      AVG(cm.cm_percent)          AS avg_cm_percent,
+      AVG(cm.unit_cm)             AS avg_unit_cm,
+      AVG(cm.unit_cm_percent)     AS avg_unit_cm_percent,
+      COUNT(*)                    AS days_with_data
+    FROM contribution_margin cm
+    LEFT JOIN products p
+      ON cm.client_id = p.client_id AND cm.asin = p.asin
+    WHERE cm.client_id = ?
+      AND cm.calc_date >= DATEADD(day, -?, CURRENT_DATE)
+    GROUP BY cm.asin
     ORDER BY total_cm ${order === 'ASC' ? 'ASC' : 'DESC'}
     LIMIT ?
   `, [clientId, days, limit]);

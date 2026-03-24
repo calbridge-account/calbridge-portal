@@ -53,26 +53,26 @@ router.get('/', requireAuth, async (req, res, next) => {
         c.connection_type,
         c.status,
         c.budget,
-        COALESCE(SUM(p.impressions), 0)  AS impressions,
-        COALESCE(SUM(p.clicks),      0)  AS clicks,
-        COALESCE(SUM(p.spend),       0)  AS spend,
-        COALESCE(SUM(p.sales),       0)  AS sales,
-        COALESCE(SUM(p.orders),      0)  AS orders,
-        CASE WHEN SUM(p.sales) > 0 THEN SUM(p.spend) / SUM(p.sales) ELSE NULL END  AS acos,
-        CASE WHEN SUM(p.spend) > 0 THEN SUM(p.sales) / SUM(p.spend) ELSE NULL END  AS roas,
-        CASE WHEN SUM(p.impressions) > 0 THEN SUM(p.clicks) / SUM(p.impressions) ELSE NULL END AS ctr,
-        CASE WHEN SUM(p.clicks) > 0 THEN SUM(p.spend) / SUM(p.clicks) ELSE NULL END AS cpc
+        COALESCE(SUM(ap.impressions), 0)  AS impressions,
+        COALESCE(SUM(ap.clicks),      0)  AS clicks,
+        COALESCE(SUM(ap.spend),       0)  AS spend,
+        COALESCE(SUM(ap.sales),       0)  AS sales,
+        COALESCE(SUM(ap.orders),      0)  AS orders,
+        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END  AS acos,
+        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END  AS roas,
+        CASE WHEN SUM(ap.impressions) > 0 THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr,
+        CASE WHEN SUM(ap.clicks) > 0 THEN SUM(ap.spend) / SUM(ap.clicks) ELSE NULL END AS cpc
       FROM ad_campaigns c
-      LEFT JOIN ad_performance p
-        ON c.client_id    = p.client_id
-        AND c.campaign_id  = p.campaign_id
-        AND c.connection_type = p.connection_type
-        AND p.report_date >= DATEADD(day, -?, CURRENT_DATE)
+      LEFT JOIN ad_performance ap
+        ON c.client_id    = ap.client_id
+        AND c.campaign_id  = ap.campaign_id
+        AND c.connection_type = ap.connection_type
+        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
       WHERE c.client_id = ?
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget
-      ORDER BY SUM(p.spend) DESC NULLS LAST
+      ORDER BY SUM(ap.spend) DESC NULLS LAST
     `, [days, req.session.clientId]);
 
     res.json(rows);
@@ -112,19 +112,19 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       SELECT
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget, 
-        COALESCE(SUM(p.impressions), 0) AS impressions,
-        COALESCE(SUM(p.clicks),      0) AS clicks,
-        COALESCE(SUM(p.spend),       0) AS spend,
-        COALESCE(SUM(p.sales),       0) AS sales,
-        COALESCE(SUM(p.orders),      0) AS orders,
-        CASE WHEN SUM(p.sales) > 0 THEN SUM(p.spend) / SUM(p.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(p.spend) > 0 THEN SUM(p.sales) / SUM(p.spend) ELSE NULL END AS roas
+        COALESCE(SUM(ap.impressions), 0) AS impressions,
+        COALESCE(SUM(ap.clicks),      0) AS clicks,
+        COALESCE(SUM(ap.spend),       0) AS spend,
+        COALESCE(SUM(ap.sales),       0) AS sales,
+        COALESCE(SUM(ap.orders),      0) AS orders,
+        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas
       FROM ad_campaigns c
-      LEFT JOIN ad_performance p
-        ON c.client_id = p.client_id
-        AND c.campaign_id = p.campaign_id
-        AND c.connection_type = p.connection_type
-        AND p.report_date >= DATEADD(day, -?, CURRENT_DATE)
+      LEFT JOIN ad_performance ap
+        ON c.client_id = ap.client_id
+        AND c.campaign_id = ap.campaign_id
+        AND c.connection_type = ap.connection_type
+        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
       WHERE c.client_id = ?
         AND c.campaign_id = ?
       GROUP BY

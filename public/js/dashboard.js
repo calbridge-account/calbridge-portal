@@ -231,36 +231,44 @@ async function loadCampaignData() {
 
 function renderTopAsins(rows) {
   const tbody = $('top-asins-body');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No data yet</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">No data yet</td></tr>'; return; }
   tbody.innerHTML = rows.slice(0, 10).map(r => {
-    const cm = parseFloat(r.TOTAL_CM || 0);
-    const pct = parseFloat(r.AVG_CM_PERCENT || 0);
+    const cm      = parseFloat(r.TOTAL_CM         || 0);
+    const pct     = parseFloat(r.AVG_CM_PERCENT   || 0);
+    const unitCm  = r.AVG_UNIT_CM        != null ? parseFloat(r.AVG_UNIT_CM)        : null;
+    const unitPct = r.AVG_UNIT_CM_PERCENT != null ? parseFloat(r.AVG_UNIT_CM_PERCENT) : null;
     const cls = cm > 0 ? 'cm-positive' : cm < 0 ? 'cm-negative' : 'cm-neutral';
+    const title = r.PRODUCT_TITLE ? `<div style="font-weight:600;font-size:12px">${r.PRODUCT_TITLE}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || ''}</div>` : r.ASIN;
     return `<tr>
-      <td>${r.ASIN}</td>
+      <td style="max-width:180px">${title}</td>
+      <td style="font-size:11px;color:var(--gray-400)">${r.ASIN}</td>
+      <td>${Number(r.TOTAL_UNITS || 0).toLocaleString()}</td>
       <td>${fmt$(r.TOTAL_REVENUE)}</td>
       <td>${fmt$(r.TOTAL_AD_SPEND)}</td>
-      <td>${fmt$(r.TOTAL_FBA_FEES)}</td>
-      <td>${fmt$(r.TOTAL_COGS)}</td>
       <td class="${cls}">${fmt$(cm)}</td>
       <td class="${cls}">${pct.toFixed(1)}%</td>
+      <td class="${cls}">${unitCm != null ? fmt$(unitCm) : '—'}</td>
+      <td class="${cls}">${unitPct != null ? unitPct.toFixed(1) + '%' : '—'}</td>
     </tr>`;
   }).join('');
 }
 
 function renderBottomAsins(rows) {
   const tbody = $('bottom-asins-body');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No data yet</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No data yet</td></tr>'; return; }
   tbody.innerHTML = rows.slice(0, 10).map(r => {
-    const cm = parseFloat(r.TOTAL_CM || 0);
-    const pct = parseFloat(r.AVG_CM_PERCENT || 0);
-    const cls = cm < 0 ? 'cm-negative' : 'cm-neutral';
+    const cm     = parseFloat(r.TOTAL_CM       || 0);
+    const pct    = parseFloat(r.AVG_CM_PERCENT || 0);
+    const unitCm = r.AVG_UNIT_CM != null ? parseFloat(r.AVG_UNIT_CM) : null;
+    const cls    = cm < 0 ? 'cm-negative' : 'cm-neutral';
+    const title  = r.PRODUCT_TITLE ? `<div style="font-weight:600;font-size:12px">${r.PRODUCT_TITLE}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || ''}</div>` : r.ASIN;
     return `<tr>
-      <td>${r.ASIN}</td>
+      <td style="max-width:180px">${title}</td>
       <td>${fmt$(r.TOTAL_REVENUE)}</td>
       <td>${fmt$(r.TOTAL_AD_SPEND)}</td>
       <td class="${cls}">${fmt$(cm)}</td>
       <td class="${cls}">${pct.toFixed(1)}%</td>
+      <td class="${cls}">${unitCm != null ? fmt$(unitCm) : '—'}</td>
       <td><button class="btn-connect" onclick="alert('Decisioning coming soon!')">Review</button></td>
     </tr>`;
   }).join('');
