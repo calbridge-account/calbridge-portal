@@ -7,6 +7,8 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../services/snowflakeService');
 const { Resend } = require('resend');
+const { sendWeeklyReportsToAll } = require('../jobs/weeklyEmailScheduler');
+const { generateAndSend } = require('../services/weeklyReport');
 
 // Admin auth middleware
 function requireAdmin(req, res, next) {
@@ -204,6 +206,50 @@ router.post('/invite', requireAdmin, async (req, res, next) => {
     });
 
     res.status(201).json({ message: `Invite sent to ${email}`, clientId: id });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/send-weekly-reports
+ * Trigger weekly email reports for all eligible active clients (runs in background)
+ */
+router.post('/send-weekly-reports', requireAdmin, async (req, res, next) => {
+  try {
+    // Count eligible clients first for the response
+    const clients = await query(`
+      SELECT COUNT(*) AS cnt FROM clients
+      WHERE status = 'active'
+        AND (weekly_report_enabled IS NULL OR weekly_report_enabled = TRUE)
+    `);
+    const clientCount = Number(clients[0]?.CNT || 0);
+
+    // Fire and forget — runs in background, logs to console
+    sendWeeklyReportsToAll().catch(err =>
+      console.error('[WeeklyEmail] Background send failed:', err.message)
+    );
+
+    res.json({ message: 'Weekly reports queued', clientCount });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/test-weekly-report/:clientId
+ * Send a test weekly report to abe@teamcalbridge.com (not the real client email)
+ */
+router.post('/test-weekly-report/:clientId', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId } = req.params;
+
+    const rows = await query(`SELECT client_id, email, name FROM clients WHERE client_id = ?`, [clientId]);
+    if (!rows.length) return res.status(404).json({ error: 'Client not found' });
+
+    const result = await generateAndSend(clientId, { overrideEmail: 'abe@teamcalbridge.com' });
+
+    if (result.skipped) {
+      return res.json({ message: `Test skipped: ${result.reason}`, skipped: true });
+    }
+
+    res.json({ message: `Test report sent to abe@teamcalbridge.com for client ${rows[0].EMAIL}` });
   } catch (err) { next(err); }
 });
 

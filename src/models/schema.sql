@@ -32,7 +32,10 @@ CREATE TABLE IF NOT EXISTS clients (
   password_reset_expires  TIMESTAMP_NTZ,
 
   -- Onboarding
-  onboarding_completed    BOOLEAN       DEFAULT FALSE
+  onboarding_completed    BOOLEAN       DEFAULT FALSE,
+
+  -- Email preferences
+  weekly_report_enabled   BOOLEAN       DEFAULT TRUE
 );
 
 -- ============================================================

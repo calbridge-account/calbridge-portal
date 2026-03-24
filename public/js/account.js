@@ -37,6 +37,9 @@ async function loadProfile() {
   $('contact-name').value  = profile.name || '';
   $('profile-email').value = profile.email || '';
 
+  // Weekly report toggle
+  initWeeklyReportToggle(profile.weeklyReportEnabled);
+
   // Logo
   if (profile.logoUrl) {
     $('logo-preview-img').src = profile.logoUrl;
@@ -232,6 +235,42 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) { showStatus('cogs-status', `❌ ${err.message}`, 'error'); }
   });
 });
+
+// ---- Weekly Report Toggle ----
+function initWeeklyReportToggle(enabled) {
+  const toggle   = $('weekly-report-toggle');
+  const slider   = $('weekly-report-slider');
+  if (!toggle || !slider) return;
+
+  function applyState(checked) {
+    toggle.checked = checked;
+    slider.style.background = checked ? '#2d5a27' : '#ccc';
+    // Move the pseudo-element via inline style on the span
+    slider.style.backgroundImage = 'none';
+  }
+
+  applyState(enabled !== false);
+
+  toggle.addEventListener('change', async () => {
+    const newVal = toggle.checked;
+    applyState(newVal);
+    try {
+      const res = await fetch('/account/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ weeklyReportEnabled: newVal })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showStatus('prefs-status', newVal ? '✅ Weekly emails enabled' : '✅ Weekly emails disabled', 'success');
+    } catch (err) {
+      // Revert on failure
+      applyState(!newVal);
+      showStatus('prefs-status', `❌ ${err.message}`, 'error');
+    }
+  });
+}
 
 // ---- Helpers ----
 function showStatus(elId, msg, type) {

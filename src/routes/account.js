@@ -34,33 +34,47 @@ const upload = multer({
 router.get('/profile', requireAuth, async (req, res, next) => {
   try {
     const rows = await query(`
-      SELECT client_id, email, name, company_name, logo_url, team_members, created_at
+      SELECT client_id, email, name, company_name, logo_url, team_members, created_at, weekly_report_enabled
       FROM clients WHERE client_id = ?
     `, [req.session.clientId]);
     if (!rows.length) return res.status(404).json({ error: 'Client not found' });
     const r = rows[0];
     res.json({
-      id:          r.CLIENT_ID,
-      email:       r.EMAIL,
-      name:        r.NAME,
-      companyName: r.COMPANY_NAME || r.NAME,
-      logoUrl:     r.LOGO_URL || null,
-      teamMembers: r.TEAM_MEMBERS ? JSON.parse(r.TEAM_MEMBERS) : [],
-      createdAt:   r.CREATED_AT
+      id:                  r.CLIENT_ID,
+      email:               r.EMAIL,
+      name:                r.NAME,
+      companyName:         r.COMPANY_NAME || r.NAME,
+      logoUrl:             r.LOGO_URL || null,
+      teamMembers:         r.TEAM_MEMBERS ? JSON.parse(r.TEAM_MEMBERS) : [],
+      createdAt:           r.CREATED_AT,
+      weeklyReportEnabled: r.WEEKLY_REPORT_ENABLED !== false  // default true
     });
   } catch (err) { next(err); }
 });
 
 /**
  * PATCH /account/profile
- * Update name and company name
+ * Update name, company name, and email preferences
  */
 router.patch('/profile', requireAuth, async (req, res, next) => {
   try {
-    const { name, companyName } = req.body;
-    await query(`
-      UPDATE clients SET name = ?, company_name = ? WHERE client_id = ?
-    `, [name, companyName, req.session.clientId]);
+    const { name, companyName, weeklyReportEnabled } = req.body;
+
+    // Build update fields dynamically
+    const updates = [];
+    const binds   = [];
+
+    if (name !== undefined)         { updates.push('name = ?');                  binds.push(name); }
+    if (companyName !== undefined)  { updates.push('company_name = ?');          binds.push(companyName); }
+    if (weeklyReportEnabled !== undefined) {
+      updates.push('weekly_report_enabled = ?');
+      binds.push(weeklyReportEnabled === true || weeklyReportEnabled === 'true');
+    }
+
+    if (!updates.length) return res.json({ message: 'Nothing to update' });
+
+    binds.push(req.session.clientId);
+    await query(`UPDATE clients SET ${updates.join(', ')} WHERE client_id = ?`, binds);
     res.json({ message: 'Profile updated' });
   } catch (err) { next(err); }
 });

@@ -92,6 +92,12 @@
 
       <!-- Clients Tab -->
       <div id="tab-clients" class="admin-section active">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap">
+          <div>
+            <button class="btn-primary" id="send-weekly-reports-btn" style="width:auto;padding:9px 18px;font-size:13px">📧 Send Weekly Reports</button>
+            <span id="weekly-report-status" style="font-size:12px;color:var(--gray-400);margin-left:10px"></span>
+          </div>
+        </div>
         <div class="table-card">
           <div class="table-header-row">
             <h3>All Clients</h3>
@@ -176,5 +182,32 @@
 
   <script src="/js/admin.js"></script>
   <script src="/js/nav.js"></script>
+  <script>
+    // Weekly Reports button
+    document.getElementById('send-weekly-reports-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('send-weekly-reports-btn');
+      const status = document.getElementById('weekly-report-status');
+      btn.disabled = true;
+      btn.textContent = '⏳ Sending...';
+      status.textContent = '';
+      try {
+        const res = await fetch('/admin/send-weekly-reports', { method: 'POST', credentials: 'include' });
+        const data = await res.json();
+        if (res.ok) {
+          status.textContent = `✅ Queued for ${data.clientCount} active client(s)`;
+          status.style.color = 'var(--success)';
+        } else {
+          status.textContent = `❌ ${data.error || 'Failed'}`;
+          status.style.color = 'var(--danger)';
+        }
+      } catch (err) {
+        status.textContent = '❌ Request failed';
+        status.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📧 Send Weekly Reports';
+      }
+    });
+  </script>
 </body>
 </html>

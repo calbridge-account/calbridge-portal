@@ -132,6 +132,23 @@
           </table>
         </div>
 
+        <!-- Email Preferences -->
+        <div class="settings-card">
+          <h3>📧 Email Preferences</h3>
+          <p class="settings-desc">Control which automated emails you receive from Calbridge.</p>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--gray-100)">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--gray-800)">Receive weekly performance emails</div>
+              <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Sent every Monday at 8am PT with your weekly metrics summary</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;margin-left:16px">
+              <input type="checkbox" id="weekly-report-toggle" style="opacity:0;width:0;height:0" />
+              <span id="weekly-report-slider" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:.3s"></span>
+            </label>
+          </div>
+          <div id="prefs-status" class="status-msg hidden" style="margin-top:10px"></div>
+        </div>
+
         <!-- Team Members -->
         <div class="settings-card settings-card-wide">
           <h3>👥 Team Members</h3>
