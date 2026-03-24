@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CalBridge — Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="shared.css"/>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="index.html" class="topnav-brand"><span>📊 CalBridge</span></a>
+    <div class="topnav-links">
+      <a href="index.html">Overview</a>
+      <a href="api.html">API Reference</a>
+      <a href="architecture.html" class="active">Architecture</a>
+      <a href="setup.html">Setup Guide</a>
+      <a href="roadmap.html">Roadmap</a>
+    </div>
+    <a href="https://app.teamcalbridge.com" class="topnav-cta">Open Portal →</a>
+  </nav>
+
+  <div class="page-layout">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-heading">Architecture</div>
+        <a href="#overview" class="sidebar-link">Overview</a>
+        <a href="#stack" class="sidebar-link">Tech Stack</a>
+        <a href="#structure" class="sidebar-link">Project Structure</a>
+        <a href="#auth-flow" class="sidebar-link">Auth Flow</a>
+        <a href="#multitenancy" class="sidebar-link">Multi-Tenancy</a>
+        <a href="#cm" class="sidebar-link">CM Model</a>
+        <a href="#decision-engine" class="sidebar-link">Decision Engine</a>
+        <a href="#ingestion" class="sidebar-link">Data Ingestion</a>
+        <a href="#services" class="sidebar-link">Services</a>
+        <a href="#phases" class="sidebar-link">Phase Status</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Architecture</h1>
+      <p class="lead">CalBridge is a multi-tenant client portal built on Node.js/Express with Snowflake as the data warehouse. Each client's Amazon data is ingested, stored, and analyzed independently.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The portal allows CalBridge clients to:</p>
+        <ol>
+          <li>Create an account at <code>app.teamcalbridge.com</code></li>
+          <li>Self-connect Amazon Advertising and/or Seller/Vendor Central via OAuth</li>
+          <li>View advertising performance and contribution margin data</li>
+          <li>Receive AI-driven decisioning insights to maximize profitability</li>
+        </ol>
+      </section>
+
+      <section id="stack">
+        <h2>Tech Stack</h2>
+        <table class="doc-table">
+          <thead><tr><th>Layer</th><th>Technology</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Runtime</td><td><code>Node.js v22</code></td><td>LTS, production-ready</td></tr>
+            <tr><td>Framework</td><td><code>Express 5.x</code></td><td>Async error handling built-in</td></tr>
+            <tr><td>Auth</td><td>Session-based (express-session)</td><td>Snowflake-backed session store in prod</td></tr>
+            <tr><td>Amazon Auth</td><td>Login with Amazon (LWA) OAuth 2.0</td><td>Separate flows: Ads/DSP vs SP-API</td></tr>
+            <tr><td>Data Warehouse</td><td>Snowflake</td><td>Direct SDK writes, no Fivetran</td></tr>
+            <tr><td>Email</td><td>Resend</td><td>ash@teamcalbridge.com sender</td></tr>
+            <tr><td>Billing</td><td>Stripe</td><td>Checkout sessions + webhooks</td></tr>
+            <tr><td>Hosting</td><td>Azure VM (Ubuntu 22.04)</td><td>Nginx reverse proxy + PM2 process manager</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="structure">
+        <h2>Project Structure</h2>
+        <div class="code-block"><code>src/
+  app.js                   — Express app setup, middleware, route mounting
+  server.js                — Entry point (listen)
+  routes/
+    auth.js                — Signup, login, logout, /me, password reset
+    amazon.js              — OAuth connect flows + callbacks (Ads + SP-API)
+    dashboard.js           — Client dashboard KPIs, CM breakdown, sales performance
+    advertising.js         — Ad performance overview and campaign breakdown
+    campaigns.js           — Campaign list and management
+    decisions.js           — Decision engine endpoint
+    billing.js             — Stripe plans and subscriptions
+    account.js             — Client profile, settings, connections
+    cogs.js                — COGS CSV upload and management
+    chat.js                — AI assistant chat
+    admin.js               — Admin panel: clients, invite, health scores, logs
+  middleware/
+    requireAuth.js         — Session-based auth guard
+  services/
+    authService.js         — Client account management
+    amazonAuthService.js   — LWA OAuth, token exchange, token refresh
+    snowflakeService.js    — Snowflake connection pool and query utility
+    decisionEngine.js      — Break-even ACOS, alerts, budget pacing
+    healthScore.js         — Client health score calculator (0–100)
+    chatContextService.js  — AI chat context builder
+    weeklyReport.js        — Weekly email report generator
+    account.js             — Account service (profile, connections)
+  jobs/
+    contributionMargin.js  — CM calculator: proportional ad spend per ASIN
+    ingestionRunner.js     — Retry logic, logging, failure alerts
+    scheduler.js           — Scheduled sync orchestrator (6-hour cycle)
+    weeklyEmailScheduler.js — Weekly report dispatcher
+docs/
+  api.md                   — API endpoint reference
+  architecture.md          — This file
+  runbook.md               — Ops and deployment
+  decisioning.md           — Decision engine reference
+public/
+  dashboard.html/js        — Client dashboard (CM waterfall, performance tab)
+  advertising.html/js      — Advertising analytics
+  campaigns.html/js        — Campaign management
+  admin.html/js            — Admin panel with health scores
+  account.html/js          — Client account settings and COGS upload
+  billing.html             — Billing and plan selection</code></div>
+      </section>
+
+      <section id="auth-flow">
+        <h2>Authentication Flow</h2>
+        <ol>
+          <li>Client signs up at <code>/auth/signup</code> → session created</li>
+          <li>Client clicks "Connect Amazon Ads" → redirected to <code>/amazon/connect/ads</code></li>
+          <li>Server generates OAuth state token, redirects to Amazon LWA consent screen</li>
+          <li>Amazon redirects back to <code>/amazon/callback/ads</code> with auth code</li>
+          <li>Server exchanges code for access + refresh tokens</li>
+          <li>Tokens stored against <code>client_id</code> in Snowflake <code>amazon_connections</code> table</li>
+          <li>All subsequent API calls use stored tokens (auto-refreshed on expiry)</li>
+        </ol>
+        <p>Same flow for SP-API via <code>/amazon/connect/seller|vendor</code>. Admin auth is a separate session under <code>req.session.adminId</code>.</p>
+      </section>
+
+      <section id="multitenancy">
+        <h2>Multi-Tenancy</h2>
+        <p>Every record in every table is scoped to a <code>client_id</code>. No client can ever see another's data. Enforced at:</p>
+        <ul>
+          <li><strong>Session layer:</strong> <code>req.session.clientId</code> set on login, never overridable</li>
+          <li><strong>Route layer:</strong> <code>requireAuth</code> middleware on all client routes</li>
+          <li><strong>Service layer:</strong> all service functions take <code>clientId</code> as first param</li>
+          <li><strong>Snowflake layer:</strong> all tables have <code>client_id</code> column; all queries filter by it</li>
+        </ul>
+      </section>
+
+      <section id="cm">
+        <h2>Contribution Margin Model</h2>
+        <p>The CM waterfall breaks revenue down into profit tiers:</p>
+        <table class="doc-table">
+          <thead><tr><th>Tier</th><th>Formula</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Revenue</strong></td><td>Seller ordered revenue + Vendor shipped revenue</td><td>Top-line sales</td></tr>
+            <tr><td><strong>CM1</strong></td><td>Revenue − COGS</td><td>Gross margin — is the product priced right?</td></tr>
+            <tr><td><strong>CM2</strong></td><td>CM1 − FBA Fees − Referral Fees</td><td>Margin after Amazon takes its cut</td></tr>
+            <tr><td><strong>CM3</strong></td><td>CM2 − Ad Spend</td><td>True profitability — what you actually keep</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin:20px 0 10px;font-size:15px;color:var(--brand-dark)">Proportional Ad Spend Attribution</h3>
+        <p>Ad spend is distributed per ASIN proportionally by revenue share each day:</p>
+        <div class="code-block"><code>ASIN Ad Spend = (ASIN Revenue / Total Day Revenue) × Total Day Ad Spend</code></div>
+        <p>This ensures each ASIN receives a fair share of ad spend based on its contribution to daily revenue, rather than applying total ad spend uniformly.</p>
+
+        <h3 style="margin:20px 0 10px;font-size:15px;color:var(--brand-dark)">Break-Even ACOS</h3>
+        <div class="code-block"><code>Break-Even ACOS = CM2 / Revenue = (Revenue - COGS - FBA Fees) / Revenue
+
+Example:
+  Revenue: $50 · COGS: $10 · FBA Fees: $8
+  CM2 = $32 → Break-Even ACOS = 32/50 = 64%
+
+If actual ACOS > 64%, the product loses money on ads.
+If actual ACOS &lt; 64%, there's headroom to spend more profitably.</code></div>
+      </section>
+
+      <section id="decision-engine">
+        <h2>Decision Engine</h2>
+        <p>The decision engine (<code>src/services/decisionEngine.js</code>) runs on every dashboard load and surfaces:</p>
+        <ul>
+          <li>🔴 <strong>Negative CM3</strong> — losing money on every sale</li>
+          <li>🔴 <strong>Spend with no sales</strong> — wasted campaign spend (&gt;$100, 0 sales)</li>
+          <li>🟡 <strong>ACOS above break-even</strong> — profitable but ads eating margin</li>
+          <li>🟡 <strong>High ACOS campaign</strong> — campaign ACOS &gt; 60%</li>
+          <li>🟡 <strong>ACOS spike</strong> — 3-day rolling ACOS &gt; 120% of 7-day baseline</li>
+          <li>🟡 <strong>Budget over-pacing</strong> — projected month-end spend &gt;110% of budget</li>
+          <li>🟡 <strong>Budget under-pacing</strong> — projected month-end spend &lt;70% of budget</li>
+          <li>🟢 <strong>Scale opportunity</strong> — CM3% &gt;15% and ACOS &lt;50% of break-even</li>
+        </ul>
+      </section>
+
+      <section id="ingestion">
+        <h2>Data Ingestion</h2>
+        <p>Data is pulled from Amazon APIs on a 6-hour schedule via <code>src/jobs/scheduler.js</code>:</p>
+        <ol>
+          <li><strong>Sales data</strong> — Seller/Vendor Central reporting APIs</li>
+          <li><strong>Ad performance</strong> — Amazon Advertising API (campaigns, ad groups, keywords)</li>
+          <li><strong>Products</strong> — ASIN catalog with COGS from client upload</li>
+          <li><strong>Contribution Margin</strong> — Calculated from sales + ad_performance + products</li>
+        </ol>
+        <p>All jobs wrap in <code>runJob()</code> from <code>ingestionRunner.js</code> which provides retry logic (3 retries with exponential backoff), logging to <code>ingestion_log</code> table, and failure email alerts.</p>
+      </section>
+
+      <section id="services">
+        <h2>Key Services</h2>
+        <table class="doc-table">
+          <thead><tr><th>Service</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>snowflakeService.js</code></td><td>Connection pool + parameterized query utility</td></tr>
+            <tr><td><code>amazonAuthService.js</code></td><td>LWA token exchange, refresh, and connection status</td></tr>
+            <tr><td><code>decisionEngine.js</code></td><td>Break-even ACOS analysis, alerts, budget pacing</td></tr>
+            <tr><td><code>healthScore.js</code></td><td>Client health scoring (0–100) for admin panel</td></tr>
+            <tr><td><code>chatContextService.js</code></td><td>Builds data context for AI assistant prompts</td></tr>
+            <tr><td><code>weeklyReport.js</code></td><td>HTML email report generation via Resend</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="phases">
+        <h2>Phase Status</h2>
+        <table class="doc-table">
+          <thead><tr><th>Phase</th><th>Description</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Auth portal — signup, login, sessions, password reset</td><td><span class="badge-done">✅ Done</span></td></tr>
+            <tr><td>2</td><td>Amazon OAuth — all 4 integrations (Ads, DSP, Seller, Vendor)</td><td><span class="badge-done">✅ Done</span></td></tr>
+            <tr><td>3</td><td>Snowflake ingestion pipeline — sales, ads, products</td><td><span class="badge-done">✅ Done</span></td></tr>
+            <tr><td>4</td><td>CM decisioning, waterfall, performance tab, budget pacing, health scores</td><td><span class="badge-done">✅ Done</span></td></tr>
+            <tr><td>5</td><td>Admin panel, billing, weekly reports, AI chat</td><td><span class="badge-done">✅ Done</span></td></tr>
+            <tr><td>6</td><td>One-click ad write-back actions (Amazon Advertising API)</td><td><span class="badge-planned">Planned</span></td></tr>
+            <tr><td>7</td><td>Vendor Central full CM model (co-op fees, chargebacks)</td><td><span class="badge-planned">Planned</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <p>CalBridge Client Portal · <a href="https://teamcalbridge.com">teamcalbridge.com</a> · <a href="index.html">Docs Home</a></p>
+  </footer>
+</body>
+</html>
