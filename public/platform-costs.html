@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calbridge — Platform Costs</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    /* ── Layout ── */
+    .ops-layout { display: flex; min-height: 100vh; }
+    .ops-sidebar {
+      width: 220px;
+      background: var(--brand-dark);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      position: fixed;
+      top: 0; left: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .ops-sidebar-logo {
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      display: flex; align-items: center; justify-content: center;
+      background: #d8d0c4;
+    }
+    .ops-sidebar-logo img { height: 44px; }
+    .ops-nav { flex: 1; padding: 12px 0; }
+    .ops-nav a {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 18px;
+      color: rgba(255,255,255,.65);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .15s;
+      border-left: 3px solid transparent;
+    }
+    .ops-nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .ops-nav a.active { background: rgba(255,255,255,.12); color: #fff; border-left-color: rgba(255,255,255,.5); }
+    .ops-nav .nav-section {
+      padding: 14px 18px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: rgba(255,255,255,.35);
+    }
+
+    .ops-main { margin-left: 220px; flex: 1; min-height: 100vh; background: var(--gray-50); }
+
+    /* ── Top bar ── */
+    .ops-topbar {
+      background: #fff;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .ops-topbar h1 { font-size: 19px; font-weight: 700; color: var(--gray-800); }
+    .ops-topbar p { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .ops-topbar-actions { display: flex; gap: 10px; align-items: center; }
+    .refresh-indicator { font-size: 11px; color: var(--gray-400); }
+
+    /* ── Content ── */
+    .ops-content { padding: 24px 28px; max-width: 1200px; }
+
+    /* ── Cards ── */
+    .ops-card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .ops-card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--gray-200);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ops-card-header h2 { font-size: 14px; font-weight: 700; color: var(--gray-800); }
+    .ops-card-header span { font-size: 12px; color: var(--gray-400); }
+    .ops-card-body { padding: 18px; }
+
+    /* ── KPI grid ── */
+    .ops-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .ops-kpi {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+    }
+    .ops-kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); margin-bottom: 6px; }
+    .ops-kpi-value { font-size: 24px; font-weight: 700; color: var(--gray-800); }
+    .ops-kpi-sub { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+    .ops-kpi.highlight { border-color: var(--brand); background: var(--brand-light); }
+    .ops-kpi.highlight .ops-kpi-value { color: var(--brand); }
+    .ops-kpi.danger { border-color: var(--danger); background: var(--danger-bg); }
+    .ops-kpi.danger .ops-kpi-value { color: var(--danger); }
+    .ops-kpi.warning { border-color: var(--warning); background: var(--warning-bg); }
+    .ops-kpi.warning .ops-kpi-value { color: var(--warning); }
+
+    /* ── Cost table ── */
+    .cost-table { width: 100%; border-collapse: collapse; }
+    .cost-table th {
+      text-align: left;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--gray-400);
+      padding: 8px 14px;
+      border-bottom: 2px solid var(--gray-200);
+    }
+    .cost-table td { padding: 11px 14px; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+    .cost-table tr:last-child td { border-bottom: none; }
+    .cost-table .total-row td { font-weight: 700; font-size: 14px; background: var(--brand-light); color: var(--brand); border-top: 2px solid var(--brand); }
+    .cost-source-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 2px 7px;
+      border-radius: 20px;
+    }
+    .badge-auto { background: var(--brand-light); color: var(--brand); }
+    .badge-manual { background: var(--gray-100); color: var(--gray-600); }
+    .badge-na { background: var(--warning-bg); color: var(--warning); }
+
+    /* ── Alerts ── */
+    .alert-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .alert-item:last-child { margin-bottom: 0; }
+    .alert-danger { background: var(--danger-bg); border: 1px solid #f5c6c6; color: var(--danger); }
+    .alert-warning { background: var(--warning-bg); border: 1px solid #fcd34d; color: var(--warning); }
+    .alert-ok { background: var(--success-bg); border: 1px solid #a7d9a4; color: var(--success); }
+    .alert-icon { font-size: 16px; flex-shrink: 0; }
+    .alert-text { flex: 1; }
+    .alert-text strong { display: block; font-weight: 700; margin-bottom: 2px; }
+
+    /* ── Stripe ── */
+    .ops-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ops-table th {
+      text-align: left;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--gray-400);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .ops-table td { padding: 10px 12px; border-bottom: 1px solid var(--gray-100); color: var(--gray-800); }
+    .ops-table tr:last-child td { border-bottom: none; }
+
+    /* ── Unit Economics ── */
+    .econ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 700px) { .econ-grid { grid-template-columns: 1fr; } }
+    .econ-metric { padding: 12px 0; border-bottom: 1px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center; }
+    .econ-metric:last-child { border-bottom: none; }
+    .econ-label { font-size: 13px; color: var(--gray-600); }
+    .econ-value { font-size: 15px; font-weight: 700; color: var(--gray-800); }
+    .econ-value.positive { color: var(--success); }
+    .econ-value.negative { color: var(--danger); }
+
+    /* ── Manual ARPU input ── */
+    .manual-input-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--gray-200); }
+    .manual-input-row label { font-size: 12px; color: var(--gray-600); white-space: nowrap; }
+    .manual-input-row input { padding: 7px 10px; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 13px; width: 140px; }
+
+    /* ── Loading ── */
+    .spinner-wrap { display: flex; align-items: center; justify-content: center; padding: 40px; }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--gray-200);
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .err-text { font-size: 12px; color: var(--gray-400); font-style: italic; }
+
+    /* Login gate */
+    #pc-login { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #1a2e18; }
+  </style>
+</head>
+<body>
+
+<!-- Login Gate -->
+<div id="pc-login">
+  <div class="auth-card" style="max-width:380px">
+    <div class="logo" style="text-align:center;margin-bottom:20px">
+      <img src="/images/calbridge-logo.png" style="height:70px" alt="Calbridge"/>
+      <p style="color:var(--gray-400);font-size:13px;margin-top:6px">Admin — Platform Costs</p>
+    </div>
+    <div id="pc-login-error" class="error-banner hidden"></div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="pc-email-input" placeholder="abe@teamcalbridge.com" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="pc-password-input" placeholder="••••••••" />
+    </div>
+    <button class="btn-primary" id="pc-login-btn">Sign In</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="pc-app" style="display:none">
+  <div class="ops-layout">
+
+    <!-- Sidebar -->
+    <aside class="ops-sidebar">
+      <div class="ops-sidebar-logo">
+        <img src="/images/calbridge-logo.png" alt="Calbridge"/>
+      </div>
+      <nav class="ops-nav">
+        <div class="nav-section">Admin</div>
+        <a href="/admin.html">👥 Clients</a>
+
+        <div class="nav-section">Operations</div>
+        <a href="/ash-ops.html">⚡ Ash Operations</a>
+        <a href="/platform-costs.html" class="active">💰 Platform Costs</a>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="ops-main">
+      <!-- Topbar -->
+      <div class="ops-topbar">
+        <div>
+          <h1>💰 Platform Costs</h1>
+          <p>Monthly operating costs, unit economics & revenue</p>
+        </div>
+        <div class="ops-topbar-actions">
+          <span class="refresh-indicator" id="last-refresh-label">Refreshing every 60s</span>
+          <button class="btn-secondary" onclick="loadData()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="ops-content">
+
+        <!-- Loading State -->
+        <div id="loading-state" class="spinner-wrap"><div class="spinner"></div></div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard-content" style="display:none">
+
+          <!-- ── Summary KPIs ── -->
+          <div class="ops-kpi-grid" id="summary-kpis"></div>
+
+          <!-- ── 4. Alerts (shown first if any) ── -->
+          <div class="ops-card" id="alerts-card">
+            <div class="ops-card-header">
+              <h2>🚨 Alerts</h2>
+              <span id="alert-count">Checking...</span>
+            </div>
+            <div class="ops-card-body" id="alerts-body">
+              <div class="err-text">Loading...</div>
+            </div>
+          </div>
+
+          <!-- ── 1. Monthly Cost Summary ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>📊 Monthly Cost Summary</h2>
+              <span id="cost-month">This month</span>
+            </div>
+            <div class="ops-card-body">
+              <table class="cost-table" id="cost-summary-table">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Cost</th>
+                    <th>Source</th>
+                    <th>Period</th>
+                  </tr>
+                </thead>
+                <tbody id="cost-tbody">
+                  <tr><td colspan="4" class="err-text" style="padding:14px">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── 2. Unit Economics ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>📐 Unit Economics</h2>
+              <span id="active-clients-label">—</span>
+            </div>
+            <div class="ops-card-body">
+              <div class="econ-grid">
+                <div id="econ-metrics"></div>
+                <div>
+                  <div style="font-size:13px;color:var(--gray-600);margin-bottom:12px">Set ARPU to calculate margins:</div>
+                  <div class="manual-input-row">
+                    <label>Monthly Revenue Per Client ($ARPU):</label>
+                    <input type="number" id="arpu-input" placeholder="0" min="0" step="1" />
+                    <button class="btn-secondary" onclick="applyArpu()">Calculate</button>
+                  </div>
+                  <div id="margin-calc" style="margin-top:16px"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 3. Client Revenue (Stripe) ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>💳 Client Revenue</h2>
+              <span>Stripe subscriptions</span>
+            </div>
+            <div class="ops-card-body" id="stripe-body">
+              <div class="err-text">Loading...</div>
+            </div>
+          </div>
+
+        </div><!-- /dashboard-content -->
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let pageData = null;
+let arpu = 0;
+
+// ── Auth ──────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const res = await fetch('/admin/me', { credentials: 'include' });
+    if (res.ok) {
+      showApp();
+    }
+  } catch {}
+}
+
+function showApp() {
+  document.getElementById('pc-login').style.display = 'none';
+  document.getElementById('pc-app').style.display = 'block';
+  loadData();
+  startAutoRefresh();
+}
+
+document.getElementById('pc-login-btn').addEventListener('click', async () => {
+  const email    = document.getElementById('pc-email-input').value.trim();
+  const password = document.getElementById('pc-password-input').value;
+  const errEl    = document.getElementById('pc-login-error');
+  errEl.classList.add('hidden');
+  if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.classList.remove('hidden'); return; }
+  try {
+    const res = await fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include'
+    });
+    const data = await res.json();
+    if (res.ok) { showApp(); }
+    else { errEl.textContent = data.error || 'Login failed'; errEl.classList.remove('hidden'); }
+  } catch { errEl.textContent = 'Request failed'; errEl.classList.remove('hidden'); }
+});
+
+document.getElementById('pc-password-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('pc-login-btn').click();
+});
+
+// ── Load Data ──────────────────────────────────────
+async function loadData() {
+  try {
+    const res = await fetch('/admin/platform-costs/data', { credentials: 'include' });
+    if (res.status === 401) { location.reload(); return; }
+    pageData = await res.json();
+
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = 'block';
+
+    renderCostSummary(pageData);
+    renderUnitEconomics(pageData);
+    renderStripe(pageData);
+    renderAlerts(pageData);
+
+    document.getElementById('last-refresh-label').textContent = 'Last refreshed ' + new Date().toLocaleTimeString();
+    document.getElementById('cost-month').textContent = 'Period: ' + new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+  } catch (err) {
+    console.error('Failed to load platform-costs data:', err);
+  }
+}
+
+// ── Cost Summary ──
+function renderCostSummary(d) {
+  const manual = d.manualCosts || {};
+  const sfCompute = d.snowflakeCompute;
+  const sfStorage = d.snowflakeStorage;
+  const resend    = d.resend;
+  const openrouter = d.openrouter;
+
+  // Build line items
+  const rows = [
+    {
+      service: 'Snowflake Compute',
+      cost: sfCompute?.error ? null : sfCompute?.estimatedCostUsd,
+      error: sfCompute?.error,
+      source: 'auto',
+      period: 'This month'
+    },
+    {
+      service: 'Snowflake Storage',
+      cost: sfStorage?.error ? null : sfStorage?.estimatedCostUsd,
+      error: sfStorage?.error,
+      source: 'auto',
+      period: 'This month'
+    },
+    {
+      service: 'Resend (Email)',
+      cost: resend?.error ? null : (resend?.estimatedCostUsd || 0),
+      error: resend?.error,
+      source: 'auto',
+      period: 'This month',
+      sub: resend && !resend.error ? `${resend.emailsThisMonth} emails sent` : null
+    },
+    {
+      service: 'OpenRouter (AI)',
+      cost: openrouter?.error ? null : null,
+      error: openrouter?.error || (openrouter ? 'Balance shown in Ash Ops' : null),
+      source: 'auto',
+      period: 'This month'
+    },
+    {
+      service: 'Azure VM',
+      cost: manual.azureVm || 0,
+      source: 'manual',
+      period: 'Monthly'
+    },
+    {
+      service: 'Domain / SSL',
+      cost: manual.domainSsl || 0,
+      source: 'manual',
+      period: 'Annual ÷ 12'
+    },
+    {
+      service: 'GitHub',
+      cost: manual.github || 0,
+      source: 'manual',
+      period: 'Monthly'
+    }
+  ];
+
+  // Total (only known numeric values)
+  let total = 0;
+  rows.forEach(r => { if (typeof r.cost === 'number') total += r.cost; });
+
+  window._platformTotal = total;
+
+  const tbody = document.getElementById('cost-tbody');
+  tbody.innerHTML = rows.map(r => {
+    const badge = r.source === 'auto'
+      ? `<span class="cost-source-badge badge-auto">Auto</span>`
+      : `<span class="cost-source-badge badge-manual">Manual</span>`;
+    let costCell;
+    if (r.error) {
+      costCell = `<span class="cost-source-badge badge-na">N/A</span> <span style="font-size:11px;color:var(--gray-400)">${esc(r.error)}</span>`;
+    } else if (typeof r.cost === 'number') {
+      costCell = `<strong>$${r.cost.toFixed(2)}</strong>${r.sub ? `<br><span style="font-size:11px;color:var(--gray-400)">${esc(r.sub)}</span>` : ''}`;
+    } else {
+      costCell = `<span style="color:var(--gray-400)">$0.00</span>`;
+    }
+    return `<tr>
+      <td>${esc(r.service)}</td>
+      <td>${costCell}</td>
+      <td>${badge}</td>
+      <td style="color:var(--gray-400)">${esc(r.period)}</td>
+    </tr>`;
+  }).join('') + `<tr class="total-row">
+    <td>Total (Known Costs)</td>
+    <td>$${total.toFixed(2)}</td>
+    <td></td>
+    <td>Monthly est.</td>
+  </tr>`;
+
+  // Summary KPIs
+  const activeClients = typeof d.activeClients === 'number' ? d.activeClients : 0;
+  const mrr = d.stripe && !d.stripe.error ? (d.stripe.mrr || 0) : 0;
+  const costPerClient = activeClients > 0 ? total / activeClients : 0;
+
+  document.getElementById('summary-kpis').innerHTML = `
+    <div class="ops-kpi highlight">
+      <div class="ops-kpi-label">Total Monthly Cost</div>
+      <div class="ops-kpi-value">$${total.toFixed(0)}</div>
+      <div class="ops-kpi-sub">Known line items</div>
+    </div>
+    <div class="ops-kpi">
+      <div class="ops-kpi-label">Active Clients</div>
+      <div class="ops-kpi-value">${typeof d.activeClients === 'number' ? d.activeClients : 'N/A'}</div>
+      <div class="ops-kpi-sub">In Snowflake</div>
+    </div>
+    <div class="ops-kpi">
+      <div class="ops-kpi-label">Cost per Client</div>
+      <div class="ops-kpi-value">$${activeClients > 0 ? costPerClient.toFixed(2) : '—'}</div>
+      <div class="ops-kpi-sub">Total ÷ clients</div>
+    </div>
+    <div class="ops-kpi ${mrr > 0 && mrr >= total ? 'highlight' : 'warning'}">
+      <div class="ops-kpi-label">MRR</div>
+      <div class="ops-kpi-value">$${mrr > 0 ? mrr.toFixed(0) : '—'}</div>
+      <div class="ops-kpi-sub">From Stripe</div>
+    </div>
+  `;
+}
+
+// ── Unit Economics ──
+function applyArpu() {
+  arpu = parseFloat(document.getElementById('arpu-input').value) || 0;
+  if (pageData) renderUnitEconomics(pageData);
+}
+
+function renderUnitEconomics(d) {
+  const activeClients = typeof d.activeClients === 'number' ? d.activeClients : 0;
+  const total = window._platformTotal || 0;
+  const costPerClient = activeClients > 0 ? total / activeClients : 0;
+  const mrrArpu = d.stripe && !d.stripe.error && d.stripe.activeSubscriptions > 0
+    ? (d.stripe.mrr / d.stripe.activeSubscriptions)
+    : arpu;
+  const effectiveArpu = arpu > 0 ? arpu : mrrArpu;
+
+  document.getElementById('active-clients-label').textContent = `${activeClients} active client${activeClients !== 1 ? 's' : ''}`;
+
+  const metrics = [
+    { label: 'Active Clients', value: activeClients },
+    { label: 'Total Platform Cost (est.)', value: '$' + total.toFixed(2) },
+    { label: 'Cost per Client', value: activeClients > 0 ? '$' + costPerClient.toFixed(2) : '—' },
+    { label: 'ARPU (effective)', value: effectiveArpu > 0 ? '$' + effectiveArpu.toFixed(2) : 'Set below ↓' }
+  ];
+
+  document.getElementById('econ-metrics').innerHTML = metrics.map(m => `
+    <div class="econ-metric">
+      <span class="econ-label">${esc(String(m.label))}</span>
+      <span class="econ-value">${esc(String(m.value))}</span>
+    </div>
+  `).join('');
+
+  // Margin calculations
+  const calcEl = document.getElementById('margin-calc');
+  if (effectiveArpu > 0) {
+    const grossMargin = ((effectiveArpu - costPerClient) / effectiveArpu) * 100;
+    const breakEven = total > 0 && effectiveArpu > 0 ? Math.ceil(total / effectiveArpu) : null;
+    const marginClass = grossMargin >= 50 ? 'positive' : grossMargin >= 0 ? '' : 'negative';
+
+    calcEl.innerHTML = `
+      <div class="econ-metric">
+        <span class="econ-label">Gross Margin (per client)</span>
+        <span class="econ-value ${marginClass}">${grossMargin.toFixed(1)}%</span>
+      </div>
+      <div class="econ-metric">
+        <span class="econ-label">Break-even Clients</span>
+        <span class="econ-value">${breakEven !== null ? breakEven : '—'}</span>
+      </div>
+      <div class="econ-metric">
+        <span class="econ-label">Monthly Profit (est.)</span>
+        <span class="econ-value ${effectiveArpu * activeClients - total >= 0 ? 'positive' : 'negative'}">
+          $${((effectiveArpu * activeClients) - total).toFixed(2)}
+        </span>
+      </div>
+    `;
+  } else {
+    calcEl.innerHTML = `<div class="err-text">Enter ARPU above to calculate margins and break-even.</div>`;
+  }
+
+  // Pre-fill ARPU from Stripe if available
+  if (d.stripe && !d.stripe.error && d.stripe.activeSubscriptions > 0 && arpu === 0) {
+    const stripeArpu = d.stripe.mrr / d.stripe.activeSubscriptions;
+    document.getElementById('arpu-input').placeholder = stripeArpu.toFixed(2) + ' (from Stripe)';
+  }
+}
+
+// ── Stripe ──
+function renderStripe(d) {
+  const stripeEl = document.getElementById('stripe-body');
+  const stripe = d.stripe;
+
+  if (!stripe || stripe.error) {
+    stripeEl.innerHTML = `
+      <div class="err-text" style="margin-bottom:14px">${stripe?.error || 'No Stripe data'}</div>
+      <p style="font-size:13px;color:var(--gray-600)">No active Stripe subscriptions — use ARPU field in Unit Economics for manual MRR entry.</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <label style="font-size:12px;color:var(--gray-600)">Manual MRR ($):</label>
+        <input type="number" id="manual-mrr" placeholder="0" min="0" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;width:140px"/>
+        <button class="btn-secondary" onclick="applyManualMrr()">Apply</button>
+      </div>
+    `;
+    return;
+  }
+
+  const planRows = Object.entries(stripe.planDistribution || {}).map(([plan, count]) => `
+    <tr>
+      <td>${esc(plan)}</td>
+      <td>${count}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="2" class="err-text" style="padding:10px">No plans</td></tr>';
+
+  stripeEl.innerHTML = `
+    <div class="ops-kpi-grid" style="margin-bottom:16px">
+      <div class="ops-kpi highlight">
+        <div class="ops-kpi-label">Active Subscriptions</div>
+        <div class="ops-kpi-value">${stripe.activeSubscriptions}</div>
+      </div>
+      <div class="ops-kpi highlight">
+        <div class="ops-kpi-label">MRR</div>
+        <div class="ops-kpi-value">$${stripe.mrr.toFixed(0)}</div>
+        <div class="ops-kpi-sub">Monthly Recurring Revenue</div>
+      </div>
+    </div>
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);margin-bottom:8px">Plan Distribution</div>
+    <table class="ops-table">
+      <thead><tr><th>Plan</th><th>Subscriptions</th></tr></thead>
+      <tbody>${planRows}</tbody>
+    </table>
+  `;
+}
+
+// ── Alerts ──
+function renderAlerts(d) {
+  const alerts = [];
+  const total = window._platformTotal || 0;
+  const mrr = d.stripe && !d.stripe.error ? (d.stripe.mrr || 0) : 0;
+  const resend = d.resend;
+  const sfCompute = d.snowflakeCompute;
+
+  // Snowflake compute > $50
+  if (sfCompute && !sfCompute.error && sfCompute.estimatedCostUsd > 50) {
+    alerts.push({
+      type: 'danger',
+      icon: '🔴',
+      title: 'Snowflake compute over $50/month',
+      message: `Current estimate: $${sfCompute.estimatedCostUsd.toFixed(2)} — unexpected usage, investigate warehouse activity.`
+    });
+  }
+
+  // Resend approaching free tier (>2,500)
+  if (resend && !resend.error && resend.emailsThisMonth > 2500) {
+    alerts.push({
+      type: 'warning',
+      icon: '🟡',
+      title: 'Resend approaching free tier limit',
+      message: `${resend.emailsThisMonth} emails sent this month (free tier: 3,000). Paid tier begins at $0.001/email.`
+    });
+  }
+
+  // Total costs > MRR
+  if (mrr > 0 && total > mrr) {
+    alerts.push({
+      type: 'danger',
+      icon: '🔴',
+      title: 'Costs exceed MRR',
+      message: `Monthly costs ($${total.toFixed(2)}) exceed Stripe MRR ($${mrr.toFixed(2)}). You're spending more than you're making.`
+    });
+  } else if (mrr > 0 && total <= mrr) {
+    alerts.push({
+      type: 'ok',
+      icon: '✅',
+      title: 'Costs within MRR',
+      message: `Monthly costs ($${total.toFixed(2)}) are below MRR ($${mrr.toFixed(2)}). Margin: ${(((mrr - total) / mrr) * 100).toFixed(1)}%.`
+    });
+  }
+
+  if (alerts.length === 0) {
+    alerts.push({ type: 'ok', icon: '✅', title: 'No alerts', message: 'All monitored metrics are within normal thresholds.' });
+  }
+
+  document.getElementById('alert-count').textContent = `${alerts.filter(a => a.type !== 'ok').length} alert(s)`;
+  document.getElementById('alerts-body').innerHTML = alerts.map(a => `
+    <div class="alert-item alert-${a.type}">
+      <span class="alert-icon">${a.icon}</span>
+      <div class="alert-text">
+        <strong>${esc(a.title)}</strong>
+        ${esc(a.message)}
+      </div>
+    </div>
+  `).join('');
+}
+
+function applyManualMrr() {
+  const val = parseFloat(document.getElementById('manual-mrr')?.value) || 0;
+  if (pageData) {
+    if (!pageData.stripe) pageData.stripe = {};
+    pageData.stripe.mrr = val;
+    pageData.stripe.activeSubscriptions = 1;
+    pageData.stripe.planDistribution = { 'Manual Entry': 1 };
+    pageData.stripe.error = null;
+    renderStripe(pageData);
+    renderAlerts(pageData);
+    renderUnitEconomics(pageData);
+    renderCostSummary(pageData);
+  }
+}
+
+// ── Helpers ──
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Auto-refresh ──
+let refreshTimer = null;
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(loadData, 60000);
+}
+
+// ── Init ──
+checkAuth();
+</script>
+</body>
+</html>

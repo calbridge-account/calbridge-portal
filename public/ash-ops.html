@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calbridge — Ash Operations</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    /* ── Layout ── */
+    .ops-layout { display: flex; min-height: 100vh; }
+    .ops-sidebar {
+      width: 220px;
+      background: var(--brand-dark);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      position: fixed;
+      top: 0; left: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .ops-sidebar-logo {
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      display: flex; align-items: center; justify-content: center;
+      background: #d8d0c4;
+    }
+    .ops-sidebar-logo img { height: 44px; }
+    .ops-nav { flex: 1; padding: 12px 0; }
+    .ops-nav a {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 18px;
+      color: rgba(255,255,255,.65);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .15s;
+      border-left: 3px solid transparent;
+    }
+    .ops-nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .ops-nav a.active { background: rgba(255,255,255,.12); color: #fff; border-left-color: rgba(255,255,255,.5); }
+    .ops-nav .nav-section {
+      padding: 14px 18px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: rgba(255,255,255,.35);
+    }
+
+    .ops-main { margin-left: 220px; flex: 1; min-height: 100vh; background: var(--gray-50); }
+
+    /* ── Top bar ── */
+    .ops-topbar {
+      background: #fff;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .ops-topbar h1 { font-size: 19px; font-weight: 700; color: var(--gray-800); }
+    .ops-topbar p { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .ops-topbar-actions { display: flex; gap: 10px; align-items: center; }
+    .refresh-indicator {
+      font-size: 11px; color: var(--gray-400);
+    }
+
+    /* ── Content ── */
+    .ops-content { padding: 24px 28px; max-width: 1200px; }
+
+    /* ── Section cards ── */
+    .ops-card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .ops-card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--gray-200);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ops-card-header h2 { font-size: 14px; font-weight: 700; color: var(--gray-800); }
+    .ops-card-header span { font-size: 12px; color: var(--gray-400); }
+    .ops-card-body { padding: 18px; }
+
+    /* ── KPI grid ── */
+    .ops-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .ops-kpi {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+    }
+    .ops-kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); margin-bottom: 6px; }
+    .ops-kpi-value { font-size: 24px; font-weight: 700; color: var(--gray-800); }
+    .ops-kpi-sub { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+    .ops-kpi.highlight { border-color: var(--brand); background: var(--brand-light); }
+    .ops-kpi.highlight .ops-kpi-value { color: var(--brand); }
+
+    /* ── Status pills ── */
+    .pill { padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .pill-success { background: var(--success-bg); color: var(--success); }
+    .pill-failed  { background: var(--danger-bg);  color: var(--danger); }
+    .pill-running { background: var(--warning-bg); color: var(--warning); }
+    .pill-queued  { background: var(--gray-100);   color: var(--gray-600); }
+    .pill-na      { background: var(--gray-100);   color: var(--gray-400); }
+
+    /* ── Tables ── */
+    .ops-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ops-table th {
+      text-align: left;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--gray-400);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .ops-table td { padding: 10px 12px; border-bottom: 1px solid var(--gray-100); color: var(--gray-800); }
+    .ops-table tr:last-child td { border-bottom: none; }
+    .ops-table tr:hover td { background: var(--gray-50); }
+
+    /* ── Git/terminal style ── */
+    .git-log {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      background: var(--gray-800);
+      color: #a5f3a5;
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .git-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); margin-bottom: 6px; margin-top: 14px; }
+    .git-label:first-child { margin-top: 0; }
+    .git-value {
+      font-size: 13px; color: var(--gray-800);
+      background: var(--gray-100);
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      font-family: monospace;
+    }
+    .git-changed { color: var(--warning); }
+    .git-clean { color: var(--success); }
+
+    /* ── Docs grid ── */
+    .docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .doc-card {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: var(--gray-50);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .doc-card-name { font-size: 13px; font-weight: 600; color: var(--gray-800); }
+    .doc-card-meta { font-size: 11px; color: var(--gray-400); }
+    .doc-card a { font-size: 12px; color: var(--brand); text-decoration: none; }
+    .doc-card a:hover { text-decoration: underline; }
+
+    /* ── Loading spinner ── */
+    .spinner-wrap { display: flex; align-items: center; justify-content: center; padding: 40px; }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--gray-200);
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error / NA ── */
+    .err-text { font-size: 12px; color: var(--gray-400); font-style: italic; }
+
+    /* ── Cost row ── */
+    .cost-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
+    .cost-row:last-child { border-bottom: none; }
+    .cost-label { font-size: 13px; color: var(--gray-800); }
+    .cost-amount { font-size: 14px; font-weight: 700; color: var(--gray-800); }
+    .cost-source { font-size: 11px; color: var(--gray-400); }
+    .cost-total { background: var(--brand-light); border-radius: var(--radius); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+    .cost-total .cost-label { font-weight: 700; color: var(--brand); }
+    .cost-total .cost-amount { font-size: 18px; color: var(--brand); }
+
+    .manual-input-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .manual-input-row label { font-size: 12px; color: var(--gray-600); white-space: nowrap; }
+    .manual-input-row input { padding: 7px 10px; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 13px; width: 120px; }
+
+    /* ── Login gate ── */
+    #ash-login { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #1a2e18; }
+
+    /* ── Two-col layout for git ── */
+    .git-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .git-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<!-- Login Gate -->
+<div id="ash-login">
+  <div class="auth-card" style="max-width:380px">
+    <div class="logo" style="text-align:center;margin-bottom:20px">
+      <img src="/images/calbridge-logo.png" style="height:70px" alt="Calbridge"/>
+      <p style="color:var(--gray-400);font-size:13px;margin-top:6px">Admin — Ash Operations</p>
+    </div>
+    <div id="ash-login-error" class="error-banner hidden"></div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="ash-email-input" placeholder="abe@teamcalbridge.com" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="ash-password-input" placeholder="••••••••" />
+    </div>
+    <button class="btn-primary" id="ash-login-btn">Sign In</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="ash-app" style="display:none">
+  <div class="ops-layout">
+
+    <!-- Sidebar -->
+    <aside class="ops-sidebar">
+      <div class="ops-sidebar-logo">
+        <img src="/images/calbridge-logo.png" alt="Calbridge"/>
+      </div>
+      <nav class="ops-nav">
+        <div class="nav-section">Admin</div>
+        <a href="/admin.html">👥 Clients</a>
+
+        <div class="nav-section">Operations</div>
+        <a href="/ash-ops.html" class="active">⚡ Ash Operations</a>
+        <a href="/platform-costs.html">💰 Platform Costs</a>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="ops-main">
+      <!-- Topbar -->
+      <div class="ops-topbar">
+        <div>
+          <h1>⚡ Ash Operations</h1>
+          <p>AI assistant monitoring — costs, jobs, memory, GitHub</p>
+        </div>
+        <div class="ops-topbar-actions">
+          <span class="refresh-indicator" id="last-refresh-label">Refreshing every 60s</span>
+          <button class="btn-secondary" id="manual-refresh-btn" onclick="loadData()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="ops-content">
+
+        <!-- Loading State -->
+        <div id="loading-state" class="spinner-wrap"><div class="spinner"></div></div>
+
+        <!-- Dashboard Content (hidden until loaded) -->
+        <div id="dashboard-content" style="display:none">
+
+          <!-- ── 1. Cost Overview ── -->
+          <div class="ops-kpi-grid" id="cost-kpis"></div>
+
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>💸 AI Cost Overview</h2>
+              <span>OpenRouter + Azure VM</span>
+            </div>
+            <div class="ops-card-body" id="cost-body">
+              <div class="cost-row">
+                <div>
+                  <div class="cost-label">OpenRouter Credits Remaining</div>
+                  <div class="cost-source" id="or-source">Auto — openrouter.ai/api/v1/credits</div>
+                </div>
+                <div class="cost-amount" id="or-balance">—</div>
+              </div>
+              <div class="cost-row">
+                <div>
+                  <div class="cost-label">Azure VM Monthly Cost</div>
+                  <div class="cost-source">Manual — AZURE_VM_MONTHLY_COST env var</div>
+                </div>
+                <div class="cost-amount" id="azure-cost">—</div>
+              </div>
+              <div class="manual-input-row">
+                <label>Override Azure VM Cost ($):</label>
+                <input type="number" id="azure-override-input" placeholder="50" min="0" step="1" />
+                <button class="btn-secondary" onclick="applyAzureOverride()">Apply</button>
+                <span style="font-size:11px;color:var(--gray-400)">(local override, not saved to server)</span>
+              </div>
+              <div class="cost-total" id="cost-total-row">
+                <span class="cost-label">Estimated Monthly Total (AI)</span>
+                <span class="cost-amount" id="cost-total">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 2. Job Status ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>⚙️ Job Status</h2>
+              <span>Last 10 ingestion jobs</span>
+            </div>
+            <div class="ops-card-body">
+              <div class="ops-kpi-grid" id="job-counts-grid" style="margin-bottom:16px"></div>
+              <table class="ops-table" id="jobs-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Records</th>
+                    <th>Started</th>
+                    <th>Completed</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-tbody">
+                  <tr><td colspan="6" class="err-text" style="padding:14px">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── 3. Scheduler Status ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>🕐 Scheduler Status</h2>
+              <span>Every 6 hours</span>
+            </div>
+            <div class="ops-card-body">
+              <div class="cost-row">
+                <span class="cost-label">Next Scheduled Run</span>
+                <span class="cost-amount" id="next-run" style="font-size:13px">—</span>
+              </div>
+              <div style="margin-top:14px">
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);margin-bottom:8px">Last Sync Per Client</div>
+                <table class="ops-table" id="sync-table">
+                  <thead><tr><th>Client ID</th><th>Last Successful Sync</th></tr></thead>
+                  <tbody id="sync-tbody"><tr><td colspan="2" class="err-text" style="padding:14px">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 4. Documents Library ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>📚 Documents Library</h2>
+              <span id="doc-count">docs/ directory</span>
+            </div>
+            <div class="ops-card-body">
+              <div class="docs-grid" id="docs-grid">
+                <div class="err-text">Loading...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 5. Memory & Activity ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>🧠 Memory & Activity</h2>
+              <span id="disk-usage">Loading...</span>
+            </div>
+            <div class="ops-card-body">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+                <div>
+                  <div class="git-label">Memory Files</div>
+                  <table class="ops-table" id="memory-table">
+                    <thead><tr><th>File</th><th>Last Modified</th><th>Size</th></tr></thead>
+                    <tbody id="memory-tbody"><tr><td colspan="3" class="err-text" style="padding:10px">Loading...</td></tr></tbody>
+                  </table>
+                </div>
+                <div>
+                  <div class="git-label">Last 5 Git Commits</div>
+                  <div class="git-log" id="git-commits">Loading...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 6. GitHub Status ── -->
+          <div class="ops-card">
+            <div class="ops-card-header">
+              <h2>🐙 GitHub Status</h2>
+              <span id="git-branch-label">—</span>
+            </div>
+            <div class="ops-card-body">
+              <div class="git-grid">
+                <div>
+                  <div class="git-label">Current Branch</div>
+                  <div class="git-value" id="git-branch">—</div>
+                  <div class="git-label">Last Push</div>
+                  <div class="git-value" id="git-last-push">—</div>
+                </div>
+                <div>
+                  <div class="git-label">Uncommitted Changes</div>
+                  <div class="git-log" id="git-status-output" style="max-height:120px">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /dashboard-content -->
+      </div><!-- /ops-content -->
+    </main>
+
+  </div>
+</div>
+
+<script>
+// ── Auth ──────────────────────────────────────────
+let isLoggedIn = false;
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/admin/me', { credentials: 'include' });
+    if (res.ok) {
+      isLoggedIn = true;
+      document.getElementById('ash-login').style.display = 'none';
+      document.getElementById('ash-app').style.display = 'block';
+      loadData();
+      startAutoRefresh();
+    }
+  } catch {}
+}
+
+document.getElementById('ash-login-btn').addEventListener('click', async () => {
+  const email    = document.getElementById('ash-email-input').value.trim();
+  const password = document.getElementById('ash-password-input').value;
+  const errEl    = document.getElementById('ash-login-error');
+  errEl.classList.add('hidden');
+  if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.classList.remove('hidden'); return; }
+  try {
+    const res = await fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include'
+    });
+    const data = await res.json();
+    if (res.ok) {
+      isLoggedIn = true;
+      document.getElementById('ash-login').style.display = 'none';
+      document.getElementById('ash-app').style.display = 'block';
+      loadData();
+      startAutoRefresh();
+    } else {
+      errEl.textContent = data.error || 'Login failed';
+      errEl.classList.remove('hidden');
+    }
+  } catch {
+    errEl.textContent = 'Request failed — check connection';
+    errEl.classList.remove('hidden');
+  }
+});
+
+// Allow enter key on password field
+document.getElementById('ash-password-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('ash-login-btn').click();
+});
+
+// ── Data Loading ──────────────────────────────────
+let azureOverride = null;
+
+async function loadData() {
+  try {
+    const res = await fetch('/admin/ash-ops/data', { credentials: 'include' });
+    if (res.status === 401) { location.reload(); return; }
+    const d = await res.json();
+
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = 'block';
+
+    renderCostOverview(d);
+    renderJobStatus(d);
+    renderScheduler(d);
+    renderDocs(d.docs);
+    renderMemory(d);
+    renderGitHub(d.git);
+
+    document.getElementById('last-refresh-label').textContent = 'Last refreshed ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error('Failed to load ash-ops data:', err);
+  }
+}
+
+// ── Cost Overview ──
+function renderCostOverview(d) {
+  const azureVmCost = azureOverride !== null ? azureOverride : (d.azureVmCost || 0);
+  document.getElementById('azure-override-input').placeholder = azureVmCost;
+
+  let orBalance = null;
+  let orText = 'N/A';
+  if (d.openrouter && !d.openrouter.error) {
+    // OpenRouter credits response shape: { data: { total_credits, usage, ... } }
+    const credits = d.openrouter?.data;
+    if (credits) {
+      orBalance = credits.total_credits !== undefined ? parseFloat(credits.total_credits) : null;
+      orText = orBalance !== null ? '$' + orBalance.toFixed(2) : 'N/A';
+      document.getElementById('or-source').textContent = 'Auto — openrouter.ai/api/v1/credits';
+    }
+  } else if (d.openrouter?.error) {
+    orText = 'N/A';
+    document.getElementById('or-source').textContent = d.openrouter.error;
+  }
+
+  document.getElementById('or-balance').textContent = orText;
+  document.getElementById('azure-cost').textContent = '$' + azureVmCost.toFixed(2) + '/mo';
+
+  const total = (orBalance !== null ? 0 : 0) + azureVmCost; // OpenRouter shows remaining credits, not monthly cost
+  document.getElementById('cost-total').textContent = '$' + total.toFixed(2) + '/mo (est.)';
+
+  // KPIs
+  document.getElementById('cost-kpis').innerHTML = `
+    <div class="ops-kpi highlight">
+      <div class="ops-kpi-label">OpenRouter Balance</div>
+      <div class="ops-kpi-value">${orText}</div>
+      <div class="ops-kpi-sub">Remaining credits</div>
+    </div>
+    <div class="ops-kpi">
+      <div class="ops-kpi-label">Azure VM Cost</div>
+      <div class="ops-kpi-value">$${azureVmCost.toFixed(0)}</div>
+      <div class="ops-kpi-sub">Per month</div>
+    </div>
+    <div class="ops-kpi">
+      <div class="ops-kpi-label">Est. Monthly AI Cost</div>
+      <div class="ops-kpi-value">$${azureVmCost.toFixed(0)}</div>
+      <div class="ops-kpi-sub">VM + OpenRouter</div>
+    </div>
+  `;
+}
+
+function applyAzureOverride() {
+  const val = parseFloat(document.getElementById('azure-override-input').value);
+  if (!isNaN(val) && val >= 0) azureOverride = val;
+  loadData();
+}
+
+// ── Job Status ──
+function renderJobStatus(d) {
+  const counts = d.jobCounts;
+  if (counts && !counts.error) {
+    document.getElementById('job-counts-grid').innerHTML = `
+      <div class="ops-kpi"><div class="ops-kpi-label">Queued</div><div class="ops-kpi-value">${counts.queued}</div></div>
+      <div class="ops-kpi"><div class="ops-kpi-label">Active</div><div class="ops-kpi-value" style="color:var(--warning)">${counts.active}</div></div>
+      <div class="ops-kpi"><div class="ops-kpi-label">Completed Today</div><div class="ops-kpi-value" style="color:var(--success)">${counts.completedToday}</div></div>
+      <div class="ops-kpi"><div class="ops-kpi-label">Failed Today</div><div class="ops-kpi-value" style="color:var(--danger)">${counts.failedToday}</div></div>
+    `;
+  } else if (counts?.error) {
+    document.getElementById('job-counts-grid').innerHTML = `<div class="err-text">${counts.error}</div>`;
+  }
+
+  const jobs = d.recentJobs;
+  const tbody = document.getElementById('jobs-tbody');
+  if (!jobs || jobs.error) {
+    tbody.innerHTML = `<tr><td colspan="6" class="err-text" style="padding:14px">${jobs?.error || 'No data'}</td></tr>`;
+    return;
+  }
+  if (!jobs.length) { tbody.innerHTML = `<tr><td colspan="6" class="err-text" style="padding:14px">No jobs found</td></tr>`; return; }
+
+  tbody.innerHTML = jobs.map(j => {
+    const pillClass = j.status === 'success' ? 'pill-success' : j.status === 'failed' ? 'pill-failed' : j.status === 'running' ? 'pill-running' : 'pill-queued';
+    return `<tr>
+      <td style="font-family:monospace;font-size:11px">${esc(j.clientId || '—')}</td>
+      <td>${esc(j.jobType || '—')}</td>
+      <td><span class="pill ${pillClass}">${esc(j.status || '—')}</span></td>
+      <td>${j.recordsWritten !== null && j.recordsWritten !== undefined ? Number(j.recordsWritten).toLocaleString() : '—'}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${fmtDate(j.startedAt)}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${fmtDate(j.completedAt)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Scheduler ──
+function renderScheduler(d) {
+  const nextRun = d.nextScheduledRun;
+  document.getElementById('next-run').textContent = nextRun ? new Date(nextRun).toLocaleString() : 'N/A';
+
+  const syncs = d.lastSyncPerClient;
+  const tbody = document.getElementById('sync-tbody');
+  if (!syncs || syncs.error) {
+    tbody.innerHTML = `<tr><td colspan="2" class="err-text" style="padding:14px">${syncs?.error || 'No data'}</td></tr>`;
+    return;
+  }
+  if (!syncs.length) { tbody.innerHTML = `<tr><td colspan="2" class="err-text" style="padding:14px">No sync history found</td></tr>`; return; }
+
+  tbody.innerHTML = syncs.map(s => `
+    <tr>
+      <td style="font-family:monospace;font-size:11px">${esc(s.clientId || '—')}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${fmtDate(s.lastSync)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Docs ──
+function renderDocs(docs) {
+  const grid = document.getElementById('docs-grid');
+  const countEl = document.getElementById('doc-count');
+  if (!docs || docs.error) {
+    grid.innerHTML = `<div class="err-text">${docs?.error || 'Could not load docs'}</div>`;
+    return;
+  }
+  countEl.textContent = `${docs.length} files in docs/`;
+  if (!docs.length) { grid.innerHTML = `<div class="err-text">No .md files found</div>`; return; }
+
+  grid.innerHTML = docs.map(doc => `
+    <div class="doc-card">
+      <div class="doc-card-name">📄 ${esc(doc.filename)}</div>
+      <div class="doc-card-meta">
+        ${doc.lastModified ? new Date(doc.lastModified).toLocaleDateString() : 'N/A'}
+        &bull; ${doc.size ? fmtBytes(doc.size) : 'N/A'}
+      </div>
+      ${doc.viewUrl ? `<a href="${esc(doc.viewUrl)}" target="_blank">View →</a>` : ''}
+    </div>
+  `).join('');
+}
+
+// ── Memory ──
+function renderMemory(d) {
+  // Memory files table
+  const memFiles = d.memoryFiles;
+  const tbody = document.getElementById('memory-tbody');
+  if (!memFiles || memFiles.error) {
+    tbody.innerHTML = `<tr><td colspan="3" class="err-text" style="padding:10px">${memFiles?.error || 'No data'}</td></tr>`;
+  } else if (!memFiles.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="err-text" style="padding:10px">No memory files</td></tr>`;
+  } else {
+    tbody.innerHTML = memFiles.map(f => `
+      <tr>
+        <td style="font-size:12px">${esc(f.filename)}</td>
+        <td style="font-size:12px;color:var(--gray-600)">${f.lastModified ? new Date(f.lastModified).toLocaleDateString() : 'N/A'}</td>
+        <td style="font-size:12px;color:var(--gray-600)">${f.size ? fmtBytes(f.size) : 'N/A'}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Disk usage in card header
+  if (d.git?.diskUsage) document.getElementById('disk-usage').textContent = `Workspace: ${d.git.diskUsage}`;
+
+  // Git commits
+  const commits = d.git?.commits || [];
+  document.getElementById('git-commits').textContent = commits.length ? commits.join('\n') : 'No commits found';
+}
+
+// ── GitHub ──
+function renderGitHub(git) {
+  if (!git) return;
+  document.getElementById('git-branch').textContent = git.branch || 'unknown';
+  document.getElementById('git-branch-label').textContent = `Branch: ${git.branch || 'unknown'}`;
+  document.getElementById('git-last-push').textContent = git.lastPush || 'N/A';
+
+  const statusEl = document.getElementById('git-status-output');
+  if (!git.status || git.status.trim() === '') {
+    statusEl.textContent = '✓ Working tree clean';
+    statusEl.className = 'git-log git-clean';
+  } else {
+    statusEl.textContent = git.status;
+    statusEl.className = 'git-log git-changed';
+  }
+}
+
+// ── Helpers ──
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString(); } catch { return '—'; }
+}
+function fmtBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+// ── Auto-refresh ──
+let refreshTimer = null;
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(loadData, 60000);
+}
+
+// ── Init ──
+checkAuth();
+</script>
+</body>
+</html>
