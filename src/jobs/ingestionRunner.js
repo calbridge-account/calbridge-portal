@@ -61,7 +61,11 @@ async function runJob(clientId, connectionType, jobType, jobFn) {
     WHERE log_id = ?
   `, [lastError?.message?.substring(0, 4999) || 'Unknown error', logId]);
 
-  await sendFailureAlert({ clientId, connectionType, jobType, error: lastError });
+  // Skip alert emails for test/demo accounts — failures are expected
+  const isTestClient = clientId.startsWith('test-') || clientId.startsWith('demo-');
+  if (!isTestClient) {
+    await sendFailureAlert({ clientId, connectionType, jobType, error: lastError });
+  }
   return { success: false, error: lastError };
 }
 
