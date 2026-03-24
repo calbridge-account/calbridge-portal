@@ -29,14 +29,14 @@ async function buildChatContext(clientId) {
         SUM(revenue)              AS total_revenue,
         SUM(ad_spend)             AS total_ad_spend,
         SUM(fba_fees)             AS total_fba_fees,
-        SUM(cogs_total)           AS total_cogs,
-        SUM(cm3)                  AS total_cm3,
+        SUM(cogs)           AS total_cogs,
+        SUM(contribution_margin)                  AS total_cm3,
         AVG(acos)                 AS avg_acos,
-        AVG(cm3_pct)              AS avg_cm3_pct,
+        AVG(cm_percent)              AS avg_cm3_pct,
         COUNT(DISTINCT asin)      AS asin_count
-      FROM cm_daily
+      FROM contribution_margin
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -30, CURRENT_DATE)
+        AND calc_date >= DATEADD(day, -30, CURRENT_DATE)
     `, [clientId]);
 
     if (cmRows && cmRows.length > 0 && cmRows[0].TOTAL_REVENUE != null) {
@@ -63,13 +63,13 @@ async function buildChatContext(clientId) {
         asin,
         SUM(revenue)  AS revenue,
         SUM(ad_spend) AS ad_spend,
-        SUM(cm3)      AS cm3,
-        AVG(cm3_pct)  AS cm3_pct
-      FROM cm_daily
+        SUM(contribution_margin)      AS cm3,
+        AVG(cm_percent)  AS cm3_pct
+      FROM contribution_margin
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -30, CURRENT_DATE)
+        AND calc_date >= DATEADD(day, -30, CURRENT_DATE)
       GROUP BY asin
-      ORDER BY SUM(cm3) DESC
+      ORDER BY SUM(contribution_margin) DESC
       LIMIT 5
     `, [clientId]);
 
@@ -89,13 +89,13 @@ async function buildChatContext(clientId) {
         asin,
         SUM(revenue)  AS revenue,
         SUM(ad_spend) AS ad_spend,
-        SUM(cm3)      AS cm3,
-        AVG(cm3_pct)  AS cm3_pct
-      FROM cm_daily
+        SUM(contribution_margin)      AS cm3,
+        AVG(cm_percent)  AS cm3_pct
+      FROM contribution_margin
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -30, CURRENT_DATE)
+        AND calc_date >= DATEADD(day, -30, CURRENT_DATE)
       GROUP BY asin
-      ORDER BY SUM(cm3) ASC
+      ORDER BY SUM(contribution_margin) ASC
       LIMIT 3
     `, [clientId]);
 
@@ -121,7 +121,7 @@ async function buildChatContext(clientId) {
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END   AS roas
       FROM ad_performance
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -30, CURRENT_DATE)
+        AND calc_date >= DATEADD(day, -30, CURRENT_DATE)
     `, [clientId]);
 
     if (adRows && adRows.length > 0 && adRows[0].SPEND != null) {
