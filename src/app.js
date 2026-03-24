@@ -5,6 +5,8 @@ const cors = require('cors');
 const session = require('express-session');
 
 const path = require('path');
+const rateLimit = require('express-rate-limit');
+const SnowflakeStore = require('./services/snowflakeSessionStore');
 const authRoutes = require('./routes/auth');
 const amazonRoutes = require('./routes/amazon');
 const dashboardRoutes = require('./routes/dashboard');
@@ -35,6 +37,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
   resave: false,
   saveUninitialized: false,
+  store: new SnowflakeStore(),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -45,6 +48,28 @@ app.use(session({
 
 // Serve static frontend
 app.use(express.static(path.join(__dirname, '../public')));
+
+// Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' }
+});
+
+app.use('/api', apiLimiter);
+app.use('/auth/login', authLimiter);
+app.use('/auth/signup', authLimiter);
+app.use('/auth/forgot-password', authLimiter);
 
 // Routes
 app.use('/auth', authRoutes);

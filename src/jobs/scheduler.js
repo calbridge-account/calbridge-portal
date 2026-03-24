@@ -10,6 +10,7 @@
  * - Contribution Margin:  Every 6 hours (after sales + ads sync)
  */
 require('dotenv').config();
+const { Resend } = require('resend');
 const { ingestCampaigns, ingestPerformance } = require('./adsIngestion');
 const { ingestProducts, ingestSales } = require('./spIngestion');
 const { calculateContributionMargin } = require('./contributionMargin');
@@ -49,6 +50,9 @@ async function syncClient(clientId, connections) {
   }
 
   console.log(`[Scheduler] ✅ Client ${clientId} sync complete`);
+
+  // Trigger first-real-client notification if applicable
+  await checkFirstRealClient(clientId);
 }
 
 /**
@@ -103,6 +107,67 @@ function startScheduler() {
 
   // Then every 6 hours
   setInterval(runFullSync, SIX_HOURS);
+}
+
+/**
+ * Check if this is the first real (non-demo/non-test) client sync ever,
+ * and if so, send a notification email to Abe and mark the flag in admin_config.
+ */
+async function checkFirstRealClient(clientId) {
+  const { query } = require('../services/snowflakeService');
+
+  // Skip demo and test clients
+  if (clientId.startsWith('test-') || clientId.startsWith('demo-')) return;
+
+  try {
+    // Check if we've already sent the first-client notification
+    const flag = await query(
+      "SELECT value FROM admin_config WHERE key = 'first_real_client_notified'",
+      []
+    ).catch(() => []);
+
+    if (flag && flag.length > 0) return; // already notified
+
+    // Send notification to Abe
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    await resend.emails.send({
+      from: `Ash <${process.env.EMAIL_FROM}>`,
+      to: [process.env.EMAIL_CC],
+      subject: '🎉 First real client connected — CalBridge',
+      html: `
+        <h2>First real client just synced!</h2>
+        <p>Client <strong>${clientId}</strong> just completed their first real Amazon data sync.</p>
+        <p>This is the moment to tackle the post-launch tech debt list:</p>
+        <ol>
+          <li><strong>Session store → Snowflake</strong> (prevent logouts on restart)</li>
+          <li><strong>Snowflake connection pooling</strong></li>
+          <li><strong>Schema migration runner</strong></li>
+          <li><strong>Basic integration test suite</strong></li>
+          <li><strong>Structured logging</strong> (replace console.log)</li>
+          <li><strong>Sanitize error responses</strong> in production</li>
+          <li><strong>Split scheduler</strong> into separate process when &gt;10 clients</li>
+          <li><strong>Multi-marketplace brand grouping</strong></li>
+        </ol>
+        <p>Reply to this email or message Ash to get started on any of these.</p>
+      `
+    });
+
+    console.log(`[Scheduler] 🎉 First real client notification sent for ${clientId}`);
+
+    // Mark as notified (best effort)
+    await query(
+      `MERGE INTO admin_config USING (SELECT ? AS key, ? AS value) AS src
+       ON admin_config.key = src.key
+       WHEN MATCHED THEN UPDATE SET value = src.value
+       WHEN NOT MATCHED THEN INSERT (key, value) VALUES (src.key, src.value)`,
+      ['first_real_client_notified', new Date().toISOString()]
+    ).catch(err => {
+      console.warn('[Scheduler] Could not mark first-client flag (non-fatal):', err.message);
+    });
+  } catch (err) {
+    console.warn('[Scheduler] checkFirstRealClient error (non-fatal):', err.message);
+  }
 }
 
 module.exports = { startScheduler, runFullSync, syncClient };

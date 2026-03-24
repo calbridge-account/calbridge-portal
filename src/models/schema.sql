@@ -229,6 +229,23 @@ CREATE TABLE IF NOT EXISTS brands (
 );
 
 -- ============================================================
+-- SESSIONS (express-session store)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sessions (
+  sid        VARCHAR NOT NULL PRIMARY KEY,
+  sess       VARIANT NOT NULL,
+  expired_at TIMESTAMP NOT NULL
+);
+
+-- ============================================================
+-- ADMIN CONFIG (key/value store for internal flags)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_config (
+  key   VARCHAR NOT NULL PRIMARY KEY,
+  value VARCHAR
+);
+
+-- ============================================================
 -- INGESTION LOG (pipeline monitoring)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS ingestion_log (

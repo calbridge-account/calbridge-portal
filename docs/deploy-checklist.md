@@ -6,7 +6,12 @@
 # Standard restart (use this for code deploys):
 pm2 restart calbridge-portal --update-env
 
-# First-time start (if process doesn't exist):
+# First-time start using ecosystem file (preferred):
+cd /home/azureuser/.openclaw/workspace
+pm2 start ecosystem.config.js --env production
+pm2 save
+
+# First-time start (legacy — if ecosystem file not yet deployed):
 cd /home/azureuser/.openclaw/workspace
 pm2 start src/server.js --name calbridge-portal --env production
 pm2 save
@@ -21,10 +26,11 @@ For a full environment rebuild or schema migration:
 cd /home/azureuser/.openclaw/workspace
 GIT_ASKPASS=/bin/true git -c credential.helper='' pull https://$(grep GITHUB_TOKEN .env | cut -d= -f2)@github.com/calbridge-account/calbridge-portal.git main
 
-# 2. Install dependencies (if package.json changed)
+# 2. Install dependencies (always run — express-rate-limit was added)
 npm install --production
 
-# 3. Run schema migration (safe to re-run — idempotent after fix)
+# 3. Run schema migration (safe to re-run — idempotent)
+#    This now also creates: sessions, admin_config tables
 node src/models/initSchema.js
 
 # 4. [OPTIONAL] Seed test data (SANDBOX only — never run in PROD schema)
@@ -100,9 +106,14 @@ Critical values:
 
 ## Notes
 
-- **Session store**: Currently uses in-memory MemoryStore (default express-session).
-  Acceptable for single-instance deployment. For multi-instance scaling, migrate to
-  `connect-pg-simple` or Redis. Package `connect-pg-simple` is already in package.json.
+- **Session store**: Now uses `SnowflakeStore` (Snowflake-backed). Sessions persist across
+  restarts and server reboots. The `sessions` table is auto-created on startup. No manual
+  migration needed. **Schema migration** (`node src/models/initSchema.js`) creates the table
+  explicitly; safe to run before first deploy with this change.
+
+- **Rate limiting**: `express-rate-limit` was added to package.json. Run `npm install` before
+  restarting. General API routes: 200 req/15min. Auth endpoints: 20 req/15min. Static files
+  (HTML/CSS/JS) are NOT rate-limited.
 
 - **Scheduler**: Runs in the same process as the web server. If `ENABLE_SCHEDULER=false`
   is set in `.env`, the scheduler is disabled (useful for maintenance windows).
