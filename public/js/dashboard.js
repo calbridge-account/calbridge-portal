@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   setupNav();
   setupFilters();
+  setupBell();
   await loadAll();
   await loadDecisions();
 });
@@ -304,59 +305,71 @@ async function loadConnections() {
   } catch (err) { console.error('Connections error:', err); }
 }
 
-// ---- Decisions Banner ----
+// ---- Bell + Insights Panel ----
+let insightsData = [];
+
 async function loadDecisions() {
   try {
     const res = await fetch(`/decisions?days=${currentDays}`, { credentials: 'include' });
-    const { summary, insights } = await res.json();
-    const banner = $('decisions-banner');
-    if (!insights || !insights.length) { banner.classList.add('hidden'); return; }
+    const { insights } = await res.json();
+    insightsData = (insights || []).slice(0, 3); // top 3 only
 
-    const dangers  = insights.filter(i => i.type === 'danger');
-    const warnings = insights.filter(i => i.type === 'warning');
-    const opps     = insights.filter(i => i.type === 'opportunity');
-
-    let html = `<div class="decisions-header">
-      <span class="decisions-title">📊 Insights & Recommendations</span>
-      <span class="decisions-counts">
-        ${dangers.length  ? `<span class="insight-count count-danger">${dangers.length} critical</span>` : ''}
-        ${warnings.length ? `<span class="insight-count count-warning">${warnings.length} warnings</span>` : ''}
-        ${opps.length     ? `<span class="insight-count count-opp">${opps.length} opportunities</span>` : ''}
-      </span>
-    </div>
-    <div class="decisions-list">`;
-
-    insights.slice(0, 6).forEach(i => {
-      html += `<div class="decision-item decision-${i.type}">
-        <div class="decision-content">
-          <div class="decision-title">${i.title}</div>
-          <div class="decision-msg">${i.message}</div>
-        </div>
-        ${i.action ? `<button class="decision-action" onclick="handleDecisionAction('${i.action.type}', ${JSON.stringify(i.action).replace(/"/g, '&quot;')})">${i.action.label}</button>` : ''}
-      </div>`;
-    });
-
-    html += '</div>';
-    if (insights.length > 6) {
-      html += `<div class="decisions-more">${insights.length - 6} more insights — full analysis coming soon</div>`;
+    // Update bell badge
+    const badge = $('bell-badge');
+    const count = insightsData.length;
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
     }
-
-    banner.innerHTML = html;
-    banner.classList.remove('hidden');
   } catch (err) { console.error('Decisions error:', err); }
 }
 
-function handleDecisionAction(type, action) {
-  // Placeholder — will connect to Advertising API in Phase 5
-  const messages = {
-    pause_campaign:  `Pausing campaign ${action.campaignId} — one-click ad actions coming soon!`,
-    reduce_budget:   `Reducing budget for ${action.asin} — one-click ad actions coming soon!`,
-    increase_budget: `Increasing budget for ${action.asin} — one-click ad actions coming soon!`,
-    reduce_bids:     `Optimizing bids for ${action.asin} — one-click ad actions coming soon!`,
-    review:          null
-  };
+function setupBell() {
+  const btn     = $('bell-btn');
+  const panel   = $('insights-panel');
+  const overlay = $('insights-overlay');
+  const close   = $('insights-close');
+
+  function openPanel() {
+    renderInsights();
+    panel.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+  }
+
+  function closePanel() {
+    panel.classList.remove('open');
+    setTimeout(() => {
+      panel.classList.add('hidden');
+      overlay.classList.add('hidden');
+    }, 250);
+  }
+
+  btn.addEventListener('click', openPanel);
+  overlay.addEventListener('click', closePanel);
+  close.addEventListener('click', closePanel);
+}
+
+function renderInsights() {
+  const list = $('insights-list');
+  if (!insightsData.length) {
+    list.innerHTML = `<div class="insights-empty"><div class="insights-check">✅</div><strong>All clear!</strong><p style="margin-top:8px;font-size:13px">No critical issues detected.<br>Your account is looking healthy.</p></div>`;
+    return;
+  }
+  list.innerHTML = insightsData.map(i => `
+    <div class="insight-card ${i.type}">
+      <div class="insight-card-title">${i.title}</div>
+      <div class="insight-card-msg">${i.message}</div>
+      ${i.action ? `<button class="insight-card-action" onclick="handleInsightAction('${i.action.type}', ${JSON.stringify(i.action).replace(/"/g, '&quot;')})">${i.action.label} →</button>` : ''}
+    </div>
+  `).join('');
+}
+
+function handleInsightAction(type, action) {
   if (action.link) { window.location.href = action.link; return; }
-  if (messages[type]) alert(messages[type]);
+  alert(`${action.label} — one-click ad actions coming soon!`);
 }
 
 // ---- Helpers ----

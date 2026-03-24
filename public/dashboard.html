@@ -31,15 +31,15 @@
   <main class="main-content">
 
     <!-- Header -->
-    <!-- Decisions Banner -->
-    <div id="decisions-banner" class="decisions-banner hidden"></div>
-
     <header class="dashboard-header">
       <div>
         <h1 id="section-title">Overview</h1>
         <p id="section-sub">Last 30 days</p>
       </div>
       <div class="header-actions">
+        <button class="bell-btn" id="bell-btn" title="Insights &amp; Alerts">
+          🔔 <span class="bell-badge hidden" id="bell-badge">0</span>
+        </button>
         <select id="days-filter" class="days-select">
           <option value="7">Last 7 days</option>
           <option value="30" selected>Last 30 days</option>
@@ -178,6 +178,18 @@
     </section>
 
   </main>
+
+  <!-- Insights Panel -->
+  <div id="insights-overlay" class="insights-overlay hidden"></div>
+  <div id="insights-panel" class="insights-panel hidden">
+    <div class="insights-panel-header">
+      <h3>Insights &amp; Alerts</h3>
+      <button id="insights-close" class="insights-close">✕</button>
+    </div>
+    <div id="insights-list" class="insights-list">
+      <div class="loading-cell" style="padding:32px;text-align:center;color:var(--gray-400)">Loading...</div>
+    </div>
+  </div>
 
   <script src="/js/dateUtils.js"></script>
   <script src="/js/dashboard.js"></script>
