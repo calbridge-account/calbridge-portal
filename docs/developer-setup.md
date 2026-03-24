@@ -69,12 +69,12 @@ npm start
 Server runs on `http://localhost:3000`
 
 **Test login:**
-- Email: `demo@teamcalbridge.com`
+- Email: `<test account — see .env or ask Abe>`
 - Password: `<see .env or ask Abe>`
 
 **Admin panel:**
 - URL: `http://localhost:3000/admin.html`
-- Email: `abe@teamcalbridge.com`
+- Email: `<admin account — see .env or ask Abe>`
 - Password: `<see .env or ask Abe>`
 
 ---
@@ -114,16 +114,16 @@ SESSION_SECRET=<64-char random hex>
 ENABLE_SCHEDULER=true   # set to false to disable background sync
 
 # Amazon LWA (Advertising API)
-LWA_CLIENT_ID=amzn1.application-oa2-client.6dd6919d58f146128c7c5c1a393ae43f
-LWA_CLIENT_SECRET=<secret>
+LWA_CLIENT_ID=<your-lwa-client-id>
+LWA_CLIENT_SECRET=<your-lwa-client-secret>
 
 # Amazon SP-API — Sandbox
-SPAPI_CLIENT_ID=amzn1.application-oa2-client.26f218aef57945bf95d0b0930a6f7fac
-SPAPI_CLIENT_SECRET=<secret>
+SPAPI_CLIENT_ID=<your-spapi-sandbox-client-id>
+SPAPI_CLIENT_SECRET=<your-spapi-sandbox-client-secret>
 
-# Amazon SP-API — Production (pending Amazon review)
-SPAPI_PROD_CLIENT_ID=amzn1.application-oa2-client.72192d0cf9bc405daaffb1d3cef78051
-SPAPI_PROD_CLIENT_SECRET=<secret>
+# Amazon SP-API — Production
+SPAPI_PROD_CLIENT_ID=<your-spapi-prod-client-id>
+SPAPI_PROD_CLIENT_SECRET=<your-spapi-prod-client-secret>
 
 # Snowflake
 SNOWFLAKE_ACCOUNT=<SNOWFLAKE_ACCOUNT>
@@ -164,8 +164,8 @@ The app switches between sandbox and production Amazon endpoints based on `NODE_
 
 No automated test suite yet. Manual testing flow:
 
-1. Log in as `demo@teamcalbridge.com` — full dashboard with seed data
-2. Log in as `abe@teamcalbridge.com` — empty dashboard (no Amazon connections)
+1. Log in as the demo account (see `.env`) — full dashboard with seed data
+2. Log in as the admin account (see `.env`) — empty dashboard (no Amazon connections)
 3. Admin panel at `/admin.html` — client management
 
 To test OAuth flows, Amazon connections require registered redirect URIs. Local testing redirects to `http://localhost:3000/amazon/callback/:type`.
