@@ -20,14 +20,29 @@ async function initSchema() {
   console.log(`Running ${statements.length} schema statements...`);
 
   for (const stmt of statements) {
+    const firstLine = stmt.split('\n')[0].substring(0, 80);
+    const isAlter = /^ALTER\s+TABLE/i.test(stmt.trim());
+
     try {
       await query(stmt);
-      // Print first line of each statement for progress
-      console.log(`✅ ${stmt.split('\n')[0].substring(0, 80)}`);
+      console.log(`✅ ${firstLine}`);
     } catch (err) {
-      console.error(`❌ Failed: ${stmt.split('\n')[0]}`);
-      console.error(`   Error: ${err.message}`);
-      process.exit(1);
+      const msg = err.message || '';
+      // For ALTER TABLE statements, ignore "already exists" / ambiguous column errors
+      // (means the migration was already applied — idempotent)
+      const isAlreadyApplied =
+        msg.includes('already exists') ||
+        msg.includes('duplicate') ||
+        msg.includes('ambiguous column name') ||
+        msg.includes('Column') && msg.includes('already exists');
+
+      if (isAlter && isAlreadyApplied) {
+        console.log(`⚠️  Skipped (already applied): ${firstLine}`);
+      } else {
+        console.error(`❌ Failed: ${firstLine}`);
+        console.error(`   Error: ${msg}`);
+        process.exit(1);
+      }
     }
   }
 

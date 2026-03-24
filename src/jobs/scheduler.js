@@ -69,11 +69,10 @@ async function runFullSync() {
         const { getConnectionStatus } = require('../services/amazonAuthService');
         const connections = await getConnectionStatus(clientId);
 
-        // Skip clients with demo/fake tokens
-        const hasRealTokens = Object.values(connections).some(c =>
-          c.connected && c.accessToken && !c.accessToken.startsWith('demo-')
-        );
-        if (!hasRealTokens) {
+        // Skip clients with no real Amazon connections
+        // getConnectionStatus returns { connected: bool } — check connected flag
+        const hasRealConnections = Object.values(connections).some(c => c.connected);
+        if (!hasRealConnections) {
           console.log(`[Scheduler] Skipping ${clientId} — no real Amazon connections`);
           continue;
         }
