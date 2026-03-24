@@ -170,14 +170,17 @@ async function loadOverview() {
     $('kpi-roas').textContent       = summary.totalRoas ? `${summary.totalRoas.toFixed(2)}x` : '—';
     $('kpi-ad-roas').textContent    = summary.adRoas    ? `${summary.adRoas.toFixed(2)}x`    : '—';
 
-    // CM from performers
-    const totals = topPerformers.reduce((acc, r) => {
-      acc.cm  += Number(r.TOTAL_CM  || 0);
-      return acc;
-    }, { cm: 0 });
-    const cmPct = summary.totalRetailSales > 0 ? (totals.cm / summary.totalRetailSales) * 100 : 0;
-    $('kpi-cm').textContent     = fmt$(totals.cm);
-    $('kpi-cm-sub').textContent = `${cmPct.toFixed(1)}% of retail sales`;
+    // CM3 (True Profitability) from cmBreakdown or performers aggregate
+    const cm = summary.cmBreakdown;
+    let cm3Total = cm?.cm3 != null ? cm.cm3 : null;
+    if (cm3Total == null) {
+      // Fallback: sum CM3 from performers
+      cm3Total = topPerformers.reduce((acc, r) => acc + (r.cm3 != null ? r.cm3 : Number(r.TOTAL_CM3 || r.TOTAL_CM || 0)), 0);
+    }
+    const cmPct = summary.totalRetailSales > 0 && cm3Total != null ? (cm3Total / summary.totalRetailSales) * 100 : 0;
+    $('kpi-cm').textContent     = cm3Total != null ? fmt$(cm3Total) : '—';
+    $('kpi-cm').style.color     = cm3Total != null && cm3Total < 0 ? 'var(--danger)' : '';
+    $('kpi-cm-sub').textContent = cm3Total != null ? `${cmPct.toFixed(1)}% of retail sales` : 'COGS not set';
     $('kpi-acos').textContent   = summary.acos ? `${(summary.acos * 100).toFixed(1)}%` : '—';
 
     // CM Waterfall
@@ -212,27 +215,50 @@ async function loadCmTrend() {
     const { topPerformers } = await asinRes.json();
     if (!topPerformers.length) return;
 
-    const trendRes = await fetch(`/dashboard/asin/${topPerformers[0].ASIN}?days=${currentDays}`, { credentials: 'include' });
-    const { trend } = await trendRes.json();
+    const topAsin = topPerformers[0].ASIN || topPerformers[0].asin;
+    const trendRes = await fetch(`/dashboard/asin/${topAsin}?days=${currentDays}`, { credentials: 'include' });
+    const { trend, summary: trendSummary } = await trendRes.json();
 
-    const labels = trend.map(r => {
+    if (!trend?.length) return;
+
+    // Use calcDate from the enriched trend response
+    const labels  = trend.map(r => r.calcDate || ((() => {
       const d = r.CALC_DATE?.value || r.CALC_DATE;
       return typeof d === 'string' ? d.substring(0, 10) : new Date(d).toISOString().substring(0, 10);
-    });
-    const cmData = trend.map(r => parseFloat(r.CONTRIBUTION_MARGIN || 0).toFixed(2));
-    const revData = trend.map(r => parseFloat(r.REVENUE || 0).toFixed(2));
+    })()));
+    const revData = trend.map(r => parseFloat(r.revenue || r.REVENUE || 0));
+    const cm1Data = trend.map(r => r.cm1 != null ? parseFloat(r.cm1) : parseFloat(r.CONTRIBUTION_MARGIN || 0));
+    const cm2Data = trend.map(r => r.cm2 != null ? parseFloat(r.cm2) : null);
+    const cm3Data = trend.map(r => r.cm3 != null ? parseFloat(r.cm3) : null);
+
+    const datasets = [
+      { label: 'Revenue', data: revData, borderColor: '#1a56db', backgroundColor: 'rgba(26,86,219,.06)', tension: .4, fill: true, pointRadius: 2 },
+      { label: 'CM1 – Net Amazon Proceeds', data: cm1Data, borderColor: '#0694a2', backgroundColor: 'transparent', tension: .4, borderWidth: 2, pointRadius: 2 },
+    ];
+    if (cm2Data.some(v => v != null)) {
+      datasets.push({ label: 'CM2 – Gross Profit', data: cm2Data, borderColor: '#057a55', backgroundColor: 'transparent', tension: .4, borderWidth: 2, pointRadius: 2 });
+    }
+    if (cm3Data.some(v => v != null)) {
+      datasets.push({ label: 'CM3 – True Profitability', data: cm3Data, borderColor: '#059669', backgroundColor: 'rgba(5,150,105,.06)', tension: .4, fill: true, borderWidth: 2.5, pointRadius: 2 });
+    }
+
+    // Update chart title to show which ASIN + vendor caveat if applicable
+    const chartTitle = $('cm-trend-chart')?.closest('.chart-card')?.querySelector('h3');
+    if (chartTitle) {
+      const vendorNote = trendSummary?.vendorCm1IsEstimate ? ' ⚠️' : '';
+      chartTitle.textContent = `CM Trend — ${topAsin}${vendorNote}`;
+      if (vendorNote) chartTitle.title = 'Vendor CM1 is an estimate. Excludes Amazon deductions.';
+    }
 
     if (cmTrendChart) cmTrendChart.destroy();
     cmTrendChart = new Chart($('cm-trend-chart'), {
       type: 'line',
-      data: {
-        labels,
-        datasets: [
-          { label: 'Revenue', data: revData, borderColor: '#1a56db', backgroundColor: 'rgba(26,86,219,.08)', tension: .4, fill: true },
-          { label: 'Contribution Margin', data: cmData, borderColor: '#057a55', backgroundColor: 'rgba(5,122,85,.08)', tension: .4, fill: true }
-        ]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => '$' + Number(v).toFixed(0) } } } }
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'top' } },
+        scales: { y: { ticks: { callback: v => '$' + Number(v).toFixed(0) } } }
+      }
     });
   } catch (err) { console.error('CM trend error:', err); }
 }
@@ -300,44 +326,70 @@ async function loadCampaignData() {
 
 function renderTopAsins(rows) {
   const tbody = $('top-asins-body');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">No data yet</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No data yet</td></tr>'; return; }
   tbody.innerHTML = rows.slice(0, 10).map(r => {
-    const cm      = parseFloat(r.TOTAL_CM         || 0);
-    const pct     = parseFloat(r.AVG_CM_PERCENT   || 0);
-    const unitCm  = r.AVG_UNIT_CM        != null ? parseFloat(r.AVG_UNIT_CM)        : null;
-    const unitPct = r.AVG_UNIT_CM_PERCENT != null ? parseFloat(r.AVG_UNIT_CM_PERCENT) : null;
-    const cls = cm > 0 ? 'cm-positive' : cm < 0 ? 'cm-negative' : 'cm-neutral';
-    const title = r.PRODUCT_TITLE ? `<div style="font-weight:600;font-size:12px">${r.PRODUCT_TITLE}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || ''}</div>` : r.ASIN;
+    // Use enriched CM1/CM2/CM3 fields (set by enrichPerformer in route)
+    const cm1     = r.cm1     != null ? r.cm1     : (r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null);
+    const cm2     = r.cm2     != null ? r.cm2     : (r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null);
+    const cm3     = r.cm3     != null ? r.cm3     : (r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null);
+    const cm3Unit = r.cm3PerUnit != null ? r.cm3PerUnit : (r.AVG_CM3_PER_UNIT != null ? Number(r.AVG_CM3_PER_UNIT) : null);
+    const profitable = r.profitable != null ? r.profitable : (cm3 != null ? cm3 >= 0 : null);
+
+    const cm3Cls = cm3 == null ? 'cm-neutral' : cm3 < 0 ? 'cm-negative' : cm3 > 0 ? 'cm-positive' : 'cm-neutral';
+    const profitBadge = cm3 != null && cm3 < 0
+      ? ' <span style="font-size:10px;color:var(--danger);font-weight:700">⚠ LOSING</span>'
+      : '';
+    const vendorBadge = r.vendorCm1IsEstimate || r.VENDOR_CM1_IS_ESTIMATE
+      ? ' <span style="font-size:10px;color:#b45309" title="Excludes Amazon deductions. Full remittance data coming soon.">⚠️</span>'
+      : '';
+    const cogsNote = cm2 == null
+      ? '<span style="color:var(--gray-400);font-size:11px">COGS not set</span>'
+      : `<span class="${cm3Cls}">${fmt$(cm2)}</span>`;
+
+    const title = r.PRODUCT_TITLE || r.product_title
+      ? `<div style="font-weight:600;font-size:12px">${(r.PRODUCT_TITLE || r.product_title || '').substring(0, 60)}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || r.sku || ''}</div>`
+      : r.ASIN || r.asin;
+
     return `<tr>
       <td style="max-width:180px">${title}</td>
-      <td style="font-size:11px;color:var(--gray-400)">${r.ASIN}</td>
-      <td>${Number(r.TOTAL_UNITS || 0).toLocaleString()}</td>
-      <td>${fmt$(r.TOTAL_REVENUE)}</td>
-      <td>${fmt$(r.TOTAL_AD_SPEND)}</td>
-      <td class="${cls}">${fmt$(cm)}</td>
-      <td class="${cls}">${pct.toFixed(1)}%</td>
-      <td class="${cls}">${unitCm != null ? fmt$(unitCm) : '—'}</td>
-      <td class="${cls}">${unitPct != null ? unitPct.toFixed(1) + '%' : '—'}</td>
+      <td style="font-size:11px;color:var(--gray-400)">${r.ASIN || r.asin}</td>
+      <td>${Number(r.TOTAL_UNITS || r.total_units || 0).toLocaleString()}</td>
+      <td>${fmt$(r.TOTAL_REVENUE || r.total_revenue)}</td>
+      <td>${cm1 != null ? fmt$(cm1) + vendorBadge : '—'}</td>
+      <td>${cogsNote}</td>
+      <td class="${cm3Cls}">${cm3 != null ? fmt$(cm3) : '—'}${profitBadge}</td>
+      <td class="${cm3Cls}">${cm3Unit != null ? fmt$(cm3Unit) : '—'}</td>
     </tr>`;
   }).join('');
 }
 
 function renderBottomAsins(rows) {
   const tbody = $('bottom-asins-body');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No data yet</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No data yet</td></tr>'; return; }
   tbody.innerHTML = rows.slice(0, 10).map(r => {
-    const cm     = parseFloat(r.TOTAL_CM       || 0);
-    const pct    = parseFloat(r.AVG_CM_PERCENT || 0);
-    const unitCm = r.AVG_UNIT_CM != null ? parseFloat(r.AVG_UNIT_CM) : null;
-    const cls    = cm < 0 ? 'cm-negative' : 'cm-neutral';
-    const title  = r.PRODUCT_TITLE ? `<div style="font-weight:600;font-size:12px">${r.PRODUCT_TITLE}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || ''}</div>` : r.ASIN;
+    const cm1     = r.cm1     != null ? r.cm1     : (r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null);
+    const cm2     = r.cm2     != null ? r.cm2     : (r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null);
+    const cm3     = r.cm3     != null ? r.cm3     : (r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null);
+    const cm3Unit = r.cm3PerUnit != null ? r.cm3PerUnit : (r.AVG_CM3_PER_UNIT != null ? Number(r.AVG_CM3_PER_UNIT) : null);
+    const profitable = r.profitable != null ? r.profitable : (cm3 != null ? cm3 >= 0 : null);
+
+    const cm3Cls   = cm3 == null ? 'cm-neutral' : cm3 < 0 ? 'cm-negative' : cm3 > 0 ? 'cm-positive' : 'cm-neutral';
+    const urgency  = cm3 != null && cm3 < 0 ? '🔴 Losing money' : (cm3 != null && cm3 < 10 ? '🟡 Marginal' : '');
+    const cogsNote = cm2 == null ? '<span style="color:var(--gray-400);font-size:11px">COGS not set</span>' : `<span class="${cm3Cls}">${fmt$(cm2)}</span>`;
+    const vendorBadge = r.vendorCm1IsEstimate || r.VENDOR_CM1_IS_ESTIMATE
+      ? ' <span style="font-size:10px;color:#b45309" title="Excludes Amazon deductions. Full remittance data coming soon.">⚠️</span>'
+      : '';
+    const title  = r.PRODUCT_TITLE || r.product_title
+      ? `<div style="font-weight:600;font-size:12px">${(r.PRODUCT_TITLE || r.product_title || '').substring(0, 60)}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || r.sku || ''}</div>`
+      : r.ASIN || r.asin;
     return `<tr>
       <td style="max-width:180px">${title}</td>
-      <td>${fmt$(r.TOTAL_REVENUE)}</td>
-      <td>${fmt$(r.TOTAL_AD_SPEND)}</td>
-      <td class="${cls}">${fmt$(cm)}</td>
-      <td class="${cls}">${pct.toFixed(1)}%</td>
-      <td class="${cls}">${unitCm != null ? fmt$(unitCm) : '—'}</td>
+      <td>${fmt$(r.TOTAL_REVENUE || r.total_revenue)}</td>
+      <td>${fmt$(r.TOTAL_AD_SPEND || r.total_ad_spend)}</td>
+      <td>${cm1 != null ? fmt$(cm1) + vendorBadge : '—'}</td>
+      <td>${cogsNote}</td>
+      <td class="${cm3Cls}">${cm3 != null ? fmt$(cm3) : '—'} ${urgency ? `<small>${urgency}</small>` : ''}</td>
+      <td class="${cm3Cls}">${cm3Unit != null ? fmt$(cm3Unit) : '—'}</td>
       <td><button class="btn-connect" onclick="alert('Decisioning coming soon!')">Review</button></td>
     </tr>`;
   }).join('');
@@ -450,40 +502,72 @@ function handleInsightAction(type, action) {
 }
 
 // ---- CM Waterfall ----
+// Correct model:
+//   Revenue (gross)
+//   − Amazon fees (FBA + referral for seller; ≈0 for vendor Option A)
+//   = CM1: Net Amazon Proceeds   ← "net cash from Amazon"
+//   − COGS (brand's internal cost)
+//   = CM2: Gross Profit          ← "is this product worth selling?"
+//   − Ad Spend (direct ASIN attribution)
+//   = CM3: True Profitability    ← "is advertising this product profitable?"
 function renderCmWaterfall(cm) {
-  const card = $('cm-waterfall-card');
-  const body = $('cm-waterfall-body');
+  const card     = $('cm-waterfall-card');
+  const body     = $('cm-waterfall-body');
+  const vendNote = $('cm-waterfall-vendor-note');
   if (!card || !body) return;
   if (!cm || cm.revenue <= 0) { card.style.display = 'none'; return; }
   card.style.display = '';
 
+  // Show vendor caveat if applicable
+  if (vendNote) {
+    vendNote.style.display = cm.vendorCm1IsEstimate ? '' : 'none';
+  }
+
   const rev = cm.revenue;
   function bar(value, cls) {
-    const pct = rev > 0 ? Math.max(0, Math.min(100, (value / rev) * 100)) : 0;
+    const pct = rev > 0 ? Math.max(0, Math.min(100, (Math.abs(value) / rev) * 100)) : 0;
     const isNeg = value < 0;
     return `<div class="cm-waterfall-bar-wrap"><div class="cm-waterfall-bar ${isNeg ? 'bar-negative' : cls}" style="width:${pct}%"></div></div>`;
   }
   function pctStr(v) {
     return rev > 0 ? `<span class="cm-wf-pct">${((v/rev)*100).toFixed(1)}%</span>` : '';
   }
+  function nullFmt(v) { return v != null ? fmt$(v) : '<span style="color:var(--gray-400);font-size:12px">COGS not set</span>'; }
+
+  // CM1 from API (pre-computed correctly)
+  const cm1 = cm.cm1 != null ? cm.cm1 : (cm.revenue - (cm.amazonFees || (cm.fbaFees + cm.referralFees)));
+  const amazonFees = cm.amazonFees || ((cm.fbaFees || 0) + (cm.referralFees || 0));
+
+  // Vendor label adjustment
+  const cm1Label = cm.vendorCm1IsEstimate
+    ? 'CM1 – Net Amazon Proceeds ⚠️ <span style="font-size:11px;font-weight:400">(estimate — excl. deductions)</span>'
+    : 'CM1 – Net Amazon Proceeds';
+  const amazonFeesLabel = cm.vendorCm1IsEstimate
+    ? '− Amazon Fees <span style="font-size:11px;font-weight:400">(N/A — vendor remittance)</span>'
+    : '− Amazon Fees (FBA + Referral)';
 
   const rows = [
-    { label: 'Revenue',                    value: cm.revenue,  cls: 'bar-revenue', style: '' },
-    { label: '− COGS',                     value: -cm.cogs,    cls: 'bar-negative', style: 'color:var(--danger)' },
-    { label: '= CM1 (Gross Margin)',        value: cm.cm1,      cls: 'bar-cm1', style: 'font-weight:700' },
-    { label: '− FBA &amp; Referral Fees',  value: -cm.fbaFees, cls: 'bar-negative', style: 'color:var(--danger)' },
-    { label: '= CM2 (After Amazon Fees)',   value: cm.cm2,      cls: 'bar-cm2', style: 'font-weight:700' },
-    { label: '− Ad Spend',                 value: -cm.adSpend, cls: 'bar-negative', style: 'color:var(--danger)' },
-    { label: '= CM3 (True Profit)',         value: cm.cm3,      cls: 'bar-cm3', style: 'font-weight:700;font-size:14px' },
+    { label: 'Revenue (gross)',           value: rev,          cls: 'bar-revenue', style: '' },
+    { label: amazonFeesLabel,             value: -amazonFees,  cls: 'bar-negative', style: 'color:var(--danger)', skip: cm.vendorCm1IsEstimate && amazonFees === 0 },
+    { label: cm1Label,                    value: cm1,          cls: 'bar-cm1', style: 'font-weight:700' },
+    { label: '− COGS (your product cost)',value: -(cm.cogs || 0), cls: 'bar-negative', style: 'color:var(--danger)' },
+    { label: 'CM2 – Gross Profit',        value: cm.cm2,       cls: 'bar-cm2', style: 'font-weight:700', nullable: true },
+    { label: '− Ad Spend (direct ASIN)',  value: -(cm.adSpend || 0), cls: 'bar-negative', style: 'color:var(--danger)' },
+    { label: 'CM3 – True Profitability',  value: cm.cm3,       cls: cm.cm3 != null && cm.cm3 < 0 ? 'bar-negative' : 'bar-cm3', style: 'font-weight:700;font-size:14px' + (cm.cm3 != null && cm.cm3 < 0 ? ';color:var(--danger)' : ''), nullable: true },
   ];
 
-  body.innerHTML = `<div class="cm-waterfall">` + rows.map(r => `
-    <div class="cm-waterfall-row">
+  body.innerHTML = `<div class="cm-waterfall">` + rows
+    .filter(r => !r.skip)
+    .map(r => {
+      const displayVal = r.nullable ? nullFmt(r.value) : fmt$(r.value);
+      const barVal     = r.value != null ? r.value : 0;
+      const pct        = r.value !== rev && r.value != null && r.value >= 0 ? pctStr(r.value) : '';
+      return `<div class="cm-waterfall-row">
       <div class="cm-waterfall-label" style="${r.style}">${r.label}</div>
-      ${bar(Math.abs(r.value), r.cls)}
-      <div class="cm-waterfall-value" style="${r.style}">${fmt$(r.value)}${r.value !== cm.revenue && r.value >= 0 ? pctStr(r.value) : ''}</div>
-    </div>
-  `).join('') + `</div>`;
+      ${bar(barVal, r.cls)}
+      <div class="cm-waterfall-value" style="${r.style}">${displayVal}${pct}</div>
+    </div>`;
+    }).join('') + `</div>`;
 }
 
 // ---- TACOS KPI ----

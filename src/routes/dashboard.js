@@ -127,17 +127,25 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const totalRoas = totalAdSpend > 0 ? totalRetailSales / totalAdSpend : null;
 
     // CM Breakdown from contribution_margin table
+    // Uses correct CM1/CM2/CM3 model:
+    //   CM1 = Net Amazon Proceeds (revenue - Amazon fees; or shipped_cogs for vendor)
+    //   CM2 = Gross Profit (CM1 - brand COGS)
+    //   CM3 = True Profitability (CM2 - ad spend)
     let cmBreakdown = null;
     try {
       const cmRows = await query(`
         SELECT
-          COALESCE(SUM(revenue), 0)                    AS revenue,
-          COALESCE(SUM(cogs), 0)                       AS cogs,
-          COALESCE(SUM(fba_fees), 0)                   AS fba_fees,
-          COALESCE(SUM(ad_spend), 0)                   AS ad_spend,
-          COALESCE(SUM(revenue - cogs), 0)             AS cm1,
-          COALESCE(SUM(revenue - cogs - fba_fees), 0)  AS cm2,
-          COALESCE(SUM(contribution_margin), 0)        AS cm3
+          COALESCE(SUM(revenue), 0)                             AS revenue,
+          COALESCE(SUM(amazon_fees), 0)                         AS amazon_fees,
+          COALESCE(SUM(fba_fees), 0)                            AS fba_fees,
+          COALESCE(SUM(referral_fees), 0)                       AS referral_fees,
+          COALESCE(SUM(cogs), 0)                                AS cogs,
+          COALESCE(SUM(ad_spend), 0)                            AS ad_spend,
+          -- Use pre-computed cm1/cm2/cm3 columns; fall back gracefully if not yet populated
+          COALESCE(SUM(cm1), SUM(revenue - fba_fees - referral_fees)) AS cm1,
+          SUM(cm2)                                               AS cm2,
+          SUM(cm3)                                               AS cm3,
+          BOOLOR_AGG(vendor_cm1_is_estimate)                    AS vendor_cm1_is_estimate
         FROM contribution_margin
         WHERE client_id = ?
           AND calc_date >= DATEADD(day, -?, CURRENT_DATE)
@@ -145,14 +153,37 @@ router.get('/summary', requireAuth, async (req, res, next) => {
 
       if (cmRows.length) {
         const cm = cmRows[0];
+        const cm1 = Number(cm.CM1 || 0);
+        const cm2 = cm.CM2 != null ? Number(cm.CM2) : null;
+        const cm3 = cm.CM3 != null ? Number(cm.CM3) : null;
         cmBreakdown = {
-          revenue:  Number(cm.REVENUE  || 0),
-          cogs:     Number(cm.COGS     || 0),
-          fbaFees:  Number(cm.FBA_FEES || 0),
-          adSpend:  Number(cm.AD_SPEND || 0),
-          cm1:      Number(cm.CM1      || 0),
-          cm2:      Number(cm.CM2      || 0),
-          cm3:      Number(cm.CM3      || 0)
+          revenue:    Number(cm.REVENUE     || 0),
+          amazonFees: Number(cm.AMAZON_FEES || 0),
+          fbaFees:    Number(cm.FBA_FEES    || 0),
+          referralFees: Number(cm.REFERRAL_FEES || 0),
+          cogs:       Number(cm.COGS        || 0),
+          adSpend:    Number(cm.AD_SPEND    || 0),
+          cm1,
+          cm2,
+          cm3,
+          // Human-readable labels
+          labels: {
+            cm1: 'Net Amazon Proceeds',
+            cm2: 'Gross Profit',
+            cm3: 'True Profitability',
+          },
+          tooltips: {
+            cm1: 'Revenue after all Amazon fees, before your product costs',
+            cm2: 'Net Amazon proceeds minus your cost of goods',
+            cm3: 'Gross profit minus advertising spend',
+          },
+          // Vendor caveat flag
+          vendorCm1IsEstimate: Boolean(cm.VENDOR_CM1_IS_ESTIMATE),
+          vendorCm1Caveat: Boolean(cm.VENDOR_CM1_IS_ESTIMATE)
+            ? 'Excludes Amazon deductions (damages, co-op, chargebacks). Full remittance data coming soon.'
+            : null,
+          // Profitability flag
+          profitable: cm3 != null ? cm3 >= 0 : null,
         };
       }
     } catch { /* CM data not available yet */ }
@@ -182,7 +213,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
 });
 
 // GET /dashboard/performance
-// Top/bottom performers by contribution margin
+// Top/bottom performers by contribution margin (CM3, or CM1 fallback)
 router.get('/performance', requireAuth, async (req, res, next) => {
   try {
     const { days = 30, limit = 10 } = req.query;
@@ -190,19 +221,104 @@ router.get('/performance', requireAuth, async (req, res, next) => {
       getTopPerformers(req.session.clientId, { days: Number(days), limit: Number(limit), order: 'DESC' }),
       getTopPerformers(req.session.clientId, { days: Number(days), limit: Number(limit), order: 'ASC' })
     ]);
-    res.json({ topPerformers, bottomPerformers, days: Number(days) });
+
+    // Enrich rows with CM labels and profitability flags
+    function enrichPerformer(r) {
+      const cm1     = r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null;
+      const cm2     = r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null;
+      const cm3     = r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null;
+      const cm1Unit = r.AVG_CM1_PER_UNIT != null ? Number(r.AVG_CM1_PER_UNIT) : null;
+      const cm2Unit = r.AVG_CM2_PER_UNIT != null ? Number(r.AVG_CM2_PER_UNIT) : null;
+      const cm3Unit = r.AVG_CM3_PER_UNIT != null ? Number(r.AVG_CM3_PER_UNIT) : null;
+      return {
+        ...r,
+        // Structured CM breakdown
+        cm1, cm2, cm3,
+        cm1PerUnit: cm1Unit,
+        cm2PerUnit: cm2Unit,
+        cm3PerUnit: cm3Unit,
+        // Labels
+        cm1Label: 'Net Amazon Proceeds',
+        cm2Label: 'Gross Profit',
+        cm3Label: 'True Profitability',
+        // Profitability flag — if CM3 < 0, brand is paying to lose money
+        profitable: cm3 != null ? cm3 >= 0 : null,
+        cogsSet:    cm2 != null,  // false means COGS not uploaded yet
+        vendorCm1IsEstimate: Boolean(r.VENDOR_CM1_IS_ESTIMATE),
+      };
+    }
+
+    res.json({
+      topPerformers:    topPerformers.map(enrichPerformer),
+      bottomPerformers: bottomPerformers.map(enrichPerformer),
+      days: Number(days),
+      labels: {
+        cm1: 'Net Amazon Proceeds',
+        cm2: 'Gross Profit',
+        cm3: 'True Profitability',
+      },
+    });
   } catch (err) {
     next(err);
   }
 });
 
 // GET /dashboard/asin/:asin
-// Contribution margin trend for a specific ASIN
+// Contribution margin trend for a specific ASIN (CM1/CM2/CM3 per day)
 router.get('/asin/:asin', requireAuth, async (req, res, next) => {
   try {
     const { days = 90 } = req.query;
-    const trend = await getAsinTrend(req.session.clientId, req.params.asin, Number(days));
-    res.json({ asin: req.params.asin, days: Number(days), trend });
+    const rows = await getAsinTrend(req.session.clientId, req.params.asin, Number(days));
+
+    const trend = rows.map(r => ({
+      calcDate:    r.CALC_DATE?.value
+        ? (r.CALC_DATE.value instanceof Date ? r.CALC_DATE.value.toISOString().substring(0, 10) : String(r.CALC_DATE.value).substring(0, 10))
+        : (r.CALC_DATE instanceof Date ? r.CALC_DATE.toISOString().substring(0, 10) : String(r.CALC_DATE).substring(0, 10)),
+      revenue:     Number(r.REVENUE    || 0),
+      adSpend:     Number(r.AD_SPEND   || 0),
+      fbaFees:     Number(r.FBA_FEES   || 0),
+      referralFees: Number(r.REFERRAL_FEES || 0),
+      amazonFees:  Number(r.AMAZON_FEES || 0),
+      cogs:        r.COGS != null ? Number(r.COGS) : null,
+      cm1:         r.CM1 != null ? Number(r.CM1) : null,
+      cm2:         r.CM2 != null ? Number(r.CM2) : null,
+      cm3:         r.CM3 != null ? Number(r.CM3) : null,
+      cm1PerUnit:  r.CM1_PER_UNIT != null ? Number(r.CM1_PER_UNIT) : null,
+      cm2PerUnit:  r.CM2_PER_UNIT != null ? Number(r.CM2_PER_UNIT) : null,
+      cm3PerUnit:  r.CM3_PER_UNIT != null ? Number(r.CM3_PER_UNIT) : null,
+      vendorCm1IsEstimate: Boolean(r.VENDOR_CM1_IS_ESTIMATE),
+      // Legacy
+      contributionMargin: Number(r.CONTRIBUTION_MARGIN || 0),
+      cmPercent:   Number(r.CM_PERCENT || 0),
+    }));
+
+    // Profitability summary for this ASIN over the period
+    const hasData      = trend.length > 0;
+    const latestCm3    = hasData ? trend[trend.length - 1].cm3 : null;
+    const totalCm3     = hasData ? trend.reduce((s, d) => d.cm3 != null ? s + d.cm3 : s, 0) : null;
+    const cm3Days      = hasData ? trend.filter(d => d.cm3 != null).length : 0;
+    const profitableDays = hasData ? trend.filter(d => d.cm3 != null && d.cm3 >= 0).length : 0;
+
+    res.json({
+      asin: req.params.asin,
+      days: Number(days),
+      trend,
+      summary: hasData ? {
+        totalCm3,
+        cm3Days,
+        profitableDays,
+        profitable: totalCm3 != null ? totalCm3 >= 0 : null,
+        vendorCm1IsEstimate: trend.some(d => d.vendorCm1IsEstimate),
+        vendorCm1Caveat: trend.some(d => d.vendorCm1IsEstimate)
+          ? 'Excludes Amazon deductions (damages, co-op, chargebacks). Full remittance data coming soon.'
+          : null,
+      } : null,
+      labels: {
+        cm1: 'Net Amazon Proceeds',
+        cm2: 'Gross Profit',
+        cm3: 'True Profitability',
+      },
+    });
   } catch (err) {
     next(err);
   }

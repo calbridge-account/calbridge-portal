@@ -152,6 +152,35 @@ CREATE TABLE IF NOT EXISTS contribution_margin (
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'starter';
 
 -- ============================================================
+-- PRODUCTS — referral_fees (Amazon takes ~15% of revenue)
+-- ============================================================
+ALTER TABLE products ADD COLUMN IF NOT EXISTS referral_fees NUMBER(18,2) DEFAULT 0;
+
+-- ============================================================
+-- SALES — shipped_cogs (vendor accounts: what Amazon paid)
+-- For seller accounts this is 0. For vendor accounts this is
+-- the actual remittance from Amazon (pre-deductions, Option A).
+-- ============================================================
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS shipped_cogs NUMBER(18,4) DEFAULT 0;
+
+-- ============================================================
+-- CONTRIBUTION MARGIN — correct CM1/CM2/CM3 columns
+--   OLD model was all-in-one "contribution_margin" field.
+--   NEW model separates CM1 (net Amazon proceeds),
+--   CM2 (gross profit after brand COGS), and
+--   CM3 (true profitability after ad spend).
+-- ============================================================
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS referral_fees        NUMBER(18,4) DEFAULT 0;
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS amazon_fees          NUMBER(18,4) DEFAULT 0;  -- fba_fees + referral_fees (0 for vendor Option A)
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm1                  NUMBER(18,4);            -- net cash from Amazon
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm2                  NUMBER(18,4);            -- cm1 - cogs (null if COGS not set)
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm3                  NUMBER(18,4);            -- cm2 - ad_spend (null if CM2 null)
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm1_per_unit         NUMBER(18,4);
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm2_per_unit         NUMBER(18,4);
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS cm3_per_unit         NUMBER(18,4);
+ALTER TABLE contribution_margin ADD COLUMN IF NOT EXISTS vendor_cm1_is_estimate BOOLEAN DEFAULT FALSE; -- true for vendor until remittance data available
+
+-- ============================================================
 -- AD PROFILES (discovered via GET /v2/profiles after OAuth)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS ad_profiles (

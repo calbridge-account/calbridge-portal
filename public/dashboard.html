@@ -92,7 +92,7 @@
           <div class="kpi-sub">Ad Sales ÷ Ad Spend</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Contribution Margin</div>
+          <div class="kpi-label">True Profitability (CM3) <span class="tooltip-icon" title="Gross profit minus advertising spend. Negative = paying to lose money.">ⓘ</span></div>
           <div class="kpi-value" id="kpi-cm">—</div>
           <div class="kpi-sub" id="kpi-cm-sub"></div>
         </div>
@@ -123,6 +123,9 @@
       <!-- CM Waterfall Breakdown -->
       <div class="table-card" id="cm-waterfall-card" style="display:none">
         <h3>💰 Contribution Margin Waterfall</h3>
+        <p id="cm-waterfall-vendor-note" style="display:none;font-size:12px;color:#b45309;margin:0 0 8px;padding:6px 10px;background:#fef3c7;border-radius:6px">
+          ⚠️ <strong>Vendor CM1 estimate:</strong> Excludes Amazon deductions (damages, co-op, chargebacks). Full remittance data coming soon.
+        </p>
         <div id="cm-waterfall-body" style="padding:4px 0">
           <!-- Populated by JS -->
         </div>
@@ -138,15 +141,14 @@
               <th>ASIN</th>
               <th>Units</th>
               <th>Revenue</th>
-              <th>Ad Spend</th>
-              <th>Total CM</th>
-              <th>CM %</th>
-              <th>Unit CM</th>
-              <th>Unit CM %</th>
+              <th>CM1 – Net Amazon Proceeds <span class="tooltip-icon" title="Revenue after all Amazon fees, before your product costs">ⓘ</span></th>
+              <th>CM2 – Gross Profit <span class="tooltip-icon" title="Net Amazon proceeds minus your cost of goods">ⓘ</span></th>
+              <th>CM3 – True Profitability <span class="tooltip-icon" title="Gross profit minus advertising spend">ⓘ</span></th>
+              <th>CM3/Unit</th>
             </tr>
           </thead>
           <tbody id="top-asins-body">
-            <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+            <tr><td colspan="8" class="loading-cell">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -348,14 +350,15 @@
               <th>Product</th>
               <th>Revenue</th>
               <th>Ad Spend</th>
-              <th>Total CM</th>
-              <th>CM %</th>
-              <th>Unit CM</th>
+              <th>CM1 – Net Amazon Proceeds</th>
+              <th>CM2 – Gross Profit</th>
+              <th>CM3 – True Profitability</th>
+              <th>CM3/Unit</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody id="bottom-asins-body">
-            <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
+            <tr><td colspan="8" class="loading-cell">Loading...</td></tr>
           </tbody>
         </table>
       </div>
