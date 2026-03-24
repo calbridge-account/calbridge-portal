@@ -14,8 +14,8 @@ const { query } = require('./snowflakeService');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL  = 'ash@teamcalbridge.com';
-const CC_EMAIL    = 'abe@teamcalbridge.com';
+const FROM_EMAIL  = process.env.EMAIL_FROM || 'ash@teamcalbridge.com';
+const CC_EMAIL    = process.env.EMAIL_CC   || 'abe@teamcalbridge.com';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -244,13 +244,13 @@ router.post('/test-weekly-report/:clientId', requireAdmin, async (req, res, next
     const rows = await query(`SELECT client_id, email, name FROM clients WHERE client_id = ?`, [clientId]);
     if (!rows.length) return res.status(404).json({ error: 'Client not found' });
 
-    const result = await generateAndSend(clientId, { overrideEmail: 'abe@teamcalbridge.com' });
+    const result = await generateAndSend(clientId, { overrideEmail: process.env.EMAIL_CC });
 
     if (result.skipped) {
       return res.json({ message: `Test skipped: ${result.reason}`, skipped: true });
     }
 
-    res.json({ message: `Test report sent to abe@teamcalbridge.com for client ${rows[0].EMAIL}` });
+    res.json({ message: `Test report sent to ${process.env.EMAIL_CC} for client ${rows[0].EMAIL}` });
   } catch (err) { next(err); }
 });
 
