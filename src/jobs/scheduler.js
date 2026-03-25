@@ -35,9 +35,12 @@ async function syncClient(clientId, connections) {
   const jobs = [];
 
   if (connections.ads?.connected) {
-    jobs.push(ingestCampaigns(clientId, 'ads'), ingestPerformance(clientId, 'ads', 2));
-    jobs.push(ingestDsp(clientId, 'ads', 2));           // DSP uses ads connection
-    jobs.push(processReportQueue(clientId, 'ads'));     // process completed reports
+    jobs.push(ingestCampaigns(clientId, 'ads'));
+    // Re-pull 30 days for SP (30d attribution window), 14 days for SB/SD/DSP
+    // MERGE upsert ensures updated attribution values overwrite stale data
+    jobs.push(ingestPerformance(clientId, 'ads', 30));
+    jobs.push(ingestDsp(clientId, 'ads', 14));
+    jobs.push(processReportQueue(clientId, 'ads'));
   }
   if (connections.dsp?.connected)    jobs.push(ingestCampaigns(clientId, 'dsp'), ingestPerformance(clientId, 'dsp', 2));
   if (connections.seller?.connected) jobs.push(ingestProducts(clientId, 'seller'), ingestSales(clientId, 'seller', 7));
