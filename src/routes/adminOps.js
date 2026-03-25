@@ -333,28 +333,35 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
       results.snowflakeStorage = { error: err.message };
     }
 
-    // ── OpenRouter — chatbot API key spend ──
+    // ── OpenRouter — per-key spend via management key ──
     try {
-      const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_CHATBOT_KEY;
-      if (!openrouterKey) throw new Error('No OpenRouter API key configured');
+      const mgmtKey = process.env.OPENROUTER_MANAGEMENT_KEY;
+      if (!mgmtKey) throw new Error('No OPENROUTER_MANAGEMENT_KEY configured');
 
-      const credRes = await safeFetch('https://openrouter.ai/api/v1/credits', {
-        headers: { Authorization: `Bearer ${openrouterKey}` }
-      });
-      if (!credRes.ok) throw new Error(`OpenRouter API returned ${credRes.status}`);
-      const credData = await credRes.json();
+      // Fetch all keys + account credits in parallel
+      const [keysRes, creditsRes] = await Promise.all([
+        safeFetch('https://openrouter.ai/api/v1/keys',    { headers: { Authorization: `Bearer ${mgmtKey}` } }),
+        safeFetch('https://openrouter.ai/api/v1/credits', { headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } })
+      ]);
 
-      // total_credits = purchased credits, total_usage = all-time spend on this key
-      const totalCredits = parseFloat(credData?.data?.total_credits || 0);
-      const totalUsage   = parseFloat(credData?.data?.total_usage   || 0);
-      const remaining    = totalCredits - totalUsage;
+      if (!keysRes.ok) throw new Error(`OpenRouter keys API returned ${keysRes.status}`);
+      const keysData    = await keysRes.json();
+      const creditsData = creditsRes.ok ? await creditsRes.json() : null;
 
-      results.openrouter = {
-        totalCredits,
-        totalUsage,      // all-time spend on this specific chatbot key
-        remaining,
-        source:          'OPENROUTER_API_KEY (chatbot)'
-      };
+      const keys = (keysData.data || []).map(k => ({
+        name:         k.name,
+        usageMonthly: parseFloat(k.usage_monthly || 0),
+        usageDaily:   parseFloat(k.usage_daily   || 0),
+        usageAllTime: parseFloat(k.usage         || 0),
+        disabled:     k.disabled
+      }));
+
+      const totalMonthly  = keys.reduce((sum, k) => sum + k.usageMonthly, 0);
+      const totalCredits  = parseFloat(creditsData?.data?.total_credits || 0);
+      const totalUsed     = parseFloat(creditsData?.data?.total_usage   || 0);
+      const remaining     = totalCredits - totalUsed;
+
+      results.openrouter = { keys, totalMonthly, totalCredits, totalUsed, remaining };
     } catch (err) {
       results.openrouter = { error: err.message };
     }

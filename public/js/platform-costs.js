@@ -110,16 +110,24 @@ function renderCostSummary(d) {
       source: 'auto',
       period: 'This month'
     },
-    {
-      service: 'OpenRouter (AI chatbot)',
-      cost:    openrouter?.error ? null : openrouter?.totalUsage,
-      error:   openrouter?.error,
-      source:  'auto',
-      period:  'All-time (this key)',
-      sub:     openrouter && !openrouter.error
-        ? `Credits remaining: $${openrouter.remaining?.toFixed(2)} of $${openrouter.totalCredits?.toFixed(2)}`
-        : null
-    },
+    // OpenRouter — one row per key, plus a credits-remaining summary
+    ...(openrouter && !openrouter.error
+      ? openrouter.keys.map(k => ({
+          service: `OpenRouter — ${k.name}`,
+          cost:    k.usageMonthly,
+          error:   null,
+          source:  'auto',
+          period:  'This month',
+          sub:     `All-time: $${k.usageAllTime.toFixed(2)}`
+        }))
+      : [{
+          service: 'OpenRouter (AI)',
+          cost:    null,
+          error:   openrouter?.error || 'Not configured',
+          source:  'auto',
+          period:  'This month'
+        }]
+    ),
     {
       service: 'Resend (Email)',
       cost:   resend?.error ? null : (resend?.estimatedCostUsd || 0),
@@ -202,6 +210,12 @@ function renderCostSummary(d) {
       <div class="ops-kpi-value">$${mrr > 0 ? mrr.toFixed(0) : '—'}</div>
       <div class="ops-kpi-sub">From Stripe</div>
     </div>
+    ${d.openrouter && !d.openrouter.error ? `
+    <div class="ops-kpi ${d.openrouter.remaining < 50 ? 'danger' : ''}">
+      <div class="ops-kpi-label">OpenRouter Credits</div>
+      <div class="ops-kpi-value">$${d.openrouter.remaining.toFixed(2)}</div>
+      <div class="ops-kpi-sub">Remaining of $${d.openrouter.totalCredits.toFixed(0)}</div>
+    </div>` : ''}
   `;
 }
 
