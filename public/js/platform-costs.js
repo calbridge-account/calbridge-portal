@@ -112,12 +112,12 @@ function renderCostSummary(d) {
     },
     {
       service: 'OpenRouter (AI chatbot)',
-      cost:   openrouter?.error ? null : openrouter?.monthlySpendUsd,
-      error:  openrouter?.error,
-      source: 'auto',
-      period: 'This month',
-      sub:    openrouter && !openrouter.error
-        ? `Balance remaining: $${openrouter.balance !== null ? openrouter.balance.toFixed(2) : 'N/A'}`
+      cost:    openrouter?.error ? null : openrouter?.totalUsage,
+      error:   openrouter?.error,
+      source:  'auto',
+      period:  'All-time (this key)',
+      sub:     openrouter && !openrouter.error
+        ? `Credits remaining: $${openrouter.remaining?.toFixed(2)} of $${openrouter.totalCredits?.toFixed(2)}`
         : null
     },
     {

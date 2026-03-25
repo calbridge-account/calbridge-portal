@@ -318,7 +318,7 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
     try {
       const storageRows = await query(`
         SELECT
-          AVERAGE_STAGE_BYTES / (1024.0*1024*1024*1024) * 23 as estimated_storage_cost_usd
+          STAGE_BYTES / (1024.0*1024*1024*1024) * 23 as estimated_storage_cost_usd
         FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE
         WHERE USAGE_DATE >= DATE_TRUNC('month', CURRENT_DATE)
         ORDER BY USAGE_DATE DESC
@@ -333,36 +333,27 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
       results.snowflakeStorage = { error: err.message };
     }
 
-    // ── OpenRouter — monthly spend ──
+    // ── OpenRouter — chatbot API key spend ──
     try {
       const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_CHATBOT_KEY;
       if (!openrouterKey) throw new Error('No OpenRouter API key configured');
 
-      // Fetch credits (balance) and usage in parallel
-      const [credRes, usageRes] = await Promise.all([
-        safeFetch('https://openrouter.ai/api/v1/credits',               { headers: { Authorization: `Bearer ${openrouterKey}` } }),
-        safeFetch('https://openrouter.ai/api/v1/credits/usage?days=30', { headers: { Authorization: `Bearer ${openrouterKey}` } })
-      ]);
+      const credRes = await safeFetch('https://openrouter.ai/api/v1/credits', {
+        headers: { Authorization: `Bearer ${openrouterKey}` }
+      });
+      if (!credRes.ok) throw new Error(`OpenRouter API returned ${credRes.status}`);
+      const credData = await credRes.json();
 
-      const credData  = credRes.ok  ? await credRes.json()  : null;
-      const usageData = usageRes.ok ? await usageRes.json() : null;
-
-      // Credits balance
-      const balance = credData?.data?.total_credits !== undefined
-        ? parseFloat(credData.data.total_credits)
-        : null;
-
-      // Monthly spend from usage endpoint
-      const usageRows = usageData?.data || [];
-      const cutoff = new Date(monthStart);
-      const monthlySpend = usageRows
-        .filter(r => new Date(r.date) >= cutoff)
-        .reduce((sum, r) => sum + parseFloat(r.cost || 0), 0);
+      // total_credits = purchased credits, total_usage = all-time spend on this key
+      const totalCredits = parseFloat(credData?.data?.total_credits || 0);
+      const totalUsage   = parseFloat(credData?.data?.total_usage   || 0);
+      const remaining    = totalCredits - totalUsage;
 
       results.openrouter = {
-        balance,
-        monthlySpendUsd: parseFloat(monthlySpend.toFixed(4)),
-        source: 'openrouter.ai/api/v1/credits + /usage'
+        totalCredits,
+        totalUsage,      // all-time spend on this specific chatbot key
+        remaining,
+        source:          'OPENROUTER_API_KEY (chatbot)'
       };
     } catch (err) {
       results.openrouter = { error: err.message };
