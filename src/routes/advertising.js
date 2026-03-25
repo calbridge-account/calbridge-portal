@@ -57,23 +57,22 @@ router.get('/summary', requireAuth, async (req, res, next) => {
 router.get('/by-channel', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    // SP data from sp_campaign_report; DSP from dsp_campaign_report when available
     const rows = await query(`
       SELECT
-        connection_type,
-        SUM(impressions)  AS impressions,
-        SUM(clicks)       AS clicks,
-        SUM(spend)        AS spend,
-        SUM(sales)        AS sales,
-        SUM(orders)       AS orders,
-        CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM ad_performance
+        'ads'                       AS connection_type,
+        SUM(impressions)            AS impressions,
+        SUM(clicks)                 AS clicks,
+        SUM(cost)                   AS spend,
+        SUM(sales_30_d)             AS sales,
+        SUM(purchases_30_d)         AS orders,
+        CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0 THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas
+      FROM sp_campaign_report
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -?, CURRENT_DATE)
-      GROUP BY connection_type
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
     `, [req.session.clientId, days]);
-
-    res.json(rows);
+    res.json(rows.filter(r => Number(r.SPEND || 0) > 0));
   } catch (err) { next(err); }
 });
 
@@ -87,25 +86,21 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
     const rows = await query(`
       SELECT
         c.campaign_type,
-        ap.connection_type,
-        SUM(ap.impressions)  AS impressions,
-        SUM(ap.clicks)       AS clicks,
-        SUM(ap.spend)        AS spend,
-        SUM(ap.sales)        AS sales,
-        SUM(ap.orders)       AS orders,
-        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas
-      FROM ad_performance ap
-      JOIN ad_campaigns c
-        ON ap.client_id = c.client_id
-        AND ap.campaign_id = c.campaign_id
-        AND ap.connection_type = c.connection_type
-      WHERE ap.client_id = ?
-        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-      GROUP BY c.campaign_type, ap.connection_type
-      ORDER BY SUM(ap.spend) DESC
+        'ads'                         AS connection_type,
+        SUM(r.impressions)            AS impressions,
+        SUM(r.clicks)                 AS clicks,
+        SUM(r.cost)                   AS spend,
+        SUM(r.sales_30_d)             AS sales,
+        SUM(r.purchases_30_d)         AS orders,
+        CASE WHEN SUM(r.sales_30_d) > 0 THEN SUM(r.cost) / SUM(r.sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(r.cost) > 0 THEN SUM(r.sales_30_d) / SUM(r.cost) ELSE NULL END AS roas
+      FROM sp_campaign_report r
+      LEFT JOIN ad_campaigns c ON r.client_id = c.client_id AND r.campaign_id = c.campaign_id
+      WHERE r.client_id = ?
+        AND r.date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY c.campaign_type
+      ORDER BY SUM(r.cost) DESC
     `, [req.session.clientId, days]);
-
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -116,27 +111,23 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
  */
 router.get('/trend', requireAuth, async (req, res, next) => {
   try {
-    const days    = Number(req.query.days) || 30;
-    const channel = req.query.channel;
-    const channelFilter = channel ? `AND connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
+    const days = Number(req.query.days) || 30;
     const rows = await query(`
       SELECT
-        report_date,
-        SUM(impressions)  AS impressions,
-        SUM(clicks)       AS clicks,
-        SUM(spend)        AS spend,
-        SUM(sales)        AS sales,
-        SUM(orders)       AS orders,
-        CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM ad_performance
+        date                          AS report_date,
+        SUM(impressions)              AS impressions,
+        SUM(clicks)                   AS clicks,
+        SUM(cost)                     AS spend,
+        SUM(sales_30_d)               AS sales,
+        SUM(purchases_30_d)           AS orders,
+        CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0 THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas
+      FROM sp_campaign_report
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -?, CURRENT_DATE)
-        ${channelFilter}
-      GROUP BY report_date
-      ORDER BY report_date ASC
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY date
+      ORDER BY date ASC
     `, [req.session.clientId, days]);
-
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -153,31 +144,27 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const channelFilter = channel ? `AND ap.connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
     const rows = await query(`
       SELECT
-        ap.campaign_id,
-        c.campaign_name,
+        r.campaign_id,
+        r.campaign_name,
         c.campaign_type,
-        ap.connection_type,
+        'ads'                           AS connection_type,
         c.status,
         c.budget,
-        SUM(ap.impressions)  AS impressions,
-        SUM(ap.clicks)       AS clicks,
-        SUM(ap.spend)        AS spend,
-        SUM(ap.sales)        AS sales,
-        SUM(ap.orders)       AS orders,
-        CASE WHEN SUM(ap.sales) > 0 THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(ap.spend) > 0 THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas,
-        CASE WHEN SUM(ap.impressions) > 0 THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr,
-        CASE WHEN SUM(ap.clicks) > 0 THEN SUM(ap.spend) / SUM(ap.clicks) ELSE NULL END AS cpc
-      FROM ad_performance ap
-      LEFT JOIN ad_campaigns c
-        ON ap.client_id = c.client_id
-        AND ap.campaign_id = c.campaign_id
-        AND ap.connection_type = c.connection_type
-      WHERE ap.client_id = ?
-        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-        ${channelFilter}
-      GROUP BY ap.campaign_id, c.campaign_name, c.campaign_type, ap.connection_type, c.status, c.budget
-      ORDER BY SUM(ap.spend) DESC
+        SUM(r.impressions)              AS impressions,
+        SUM(r.clicks)                   AS clicks,
+        SUM(r.cost)                     AS spend,
+        SUM(r.sales_30_d)               AS sales,
+        SUM(r.purchases_30_d)           AS orders,
+        CASE WHEN SUM(r.sales_30_d) > 0 THEN SUM(r.cost) / SUM(r.sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(r.cost) > 0 THEN SUM(r.sales_30_d) / SUM(r.cost) ELSE NULL END AS roas,
+        CASE WHEN SUM(r.impressions) > 0 THEN SUM(r.clicks) / SUM(r.impressions) ELSE NULL END AS ctr,
+        CASE WHEN SUM(r.clicks) > 0 THEN SUM(r.cost) / SUM(r.clicks) ELSE NULL END AS cpc
+      FROM sp_campaign_report r
+      LEFT JOIN ad_campaigns c ON r.client_id = c.client_id AND r.campaign_id = c.campaign_id
+      WHERE r.client_id = ?
+        AND r.date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY r.campaign_id, r.campaign_name, c.campaign_type, c.status, c.budget
+      ORDER BY SUM(r.cost) DESC
       LIMIT ?
     `, [req.session.clientId, days, limit]);
 
