@@ -352,8 +352,11 @@ document.getElementById('pc-login-btn').addEventListener('click', async () => {
   const email    = document.getElementById('pc-email-input').value.trim();
   const password = document.getElementById('pc-password-input').value;
   const errEl    = document.getElementById('pc-login-error');
+  const btn      = document.getElementById('pc-login-btn');
   errEl.classList.add('hidden');
   if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.classList.remove('hidden'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
   try {
     const res = await fetch('/admin/login', {
       method: 'POST',
@@ -363,8 +366,18 @@ document.getElementById('pc-login-btn').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (res.ok) { showApp(); }
-    else { errEl.textContent = data.error || 'Login failed'; errEl.classList.remove('hidden'); }
-  } catch { errEl.textContent = 'Request failed'; errEl.classList.remove('hidden'); }
+    else {
+      errEl.textContent = data.error || 'Login failed';
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  } catch (e) {
+    errEl.textContent = 'Request failed: ' + e.message;
+    errEl.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
 });
 
 document.getElementById('pc-password-input').addEventListener('keydown', e => {

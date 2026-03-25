@@ -428,8 +428,11 @@ document.getElementById('ash-login-btn').addEventListener('click', async () => {
   const email    = document.getElementById('ash-email-input').value.trim();
   const password = document.getElementById('ash-password-input').value;
   const errEl    = document.getElementById('ash-login-error');
+  const btn      = document.getElementById('ash-login-btn');
   errEl.classList.add('hidden');
   if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.classList.remove('hidden'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
   try {
     const res = await fetch('/admin/login', {
       method: 'POST',
@@ -447,10 +450,14 @@ document.getElementById('ash-login-btn').addEventListener('click', async () => {
     } else {
       errEl.textContent = data.error || 'Login failed';
       errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
     }
-  } catch {
-    errEl.textContent = 'Request failed — check connection';
+  } catch (e) {
+    errEl.textContent = 'Request failed: ' + e.message;
     errEl.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
   }
 });
 
