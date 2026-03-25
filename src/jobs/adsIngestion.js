@@ -574,8 +574,8 @@ async function requestV3Report(client, profileId, startDate, reportTypeId, adPro
       }]
     });
 
-    // Throttle: 2s between requests to avoid 429
-    await sleep(2000);
+    // Throttle: 500ms between requests
+    await sleep(500);
 
     return res.data?.reportId;
   } catch (err) {
@@ -1655,19 +1655,15 @@ async function processReportQueue(clientId, connectionType) {
     FROM ads_report_queue
     WHERE client_id = ? AND connection_type = ? AND status = 'pending'
     ORDER BY requested_at ASC
-    LIMIT 50
+    LIMIT 100
   `, [clientId, connectionType]);
 
-  if (!pending.length) {
-    console.log(`[ReportQueue] No pending reports for ${clientId}`);
-    return { processed: 0 };
-  }
+  if (!pending.length) return { processed: 0 };
+  console.log(`[ReportQueue] Processing ${pending.length} pending for ${clientId}`);
 
-  console.log(`[ReportQueue] Processing ${pending.length} pending reports for ${clientId}`);
   let processed = 0;
 
-  for (const row of pending) {
-    // Snowflake returns uppercase column names by default
+  async function processOne(row) {
     const reportId   = row.REPORT_ID   || row.report_id;
     const profileId  = row.PROFILE_ID  || row.profile_id;
     const reportType = row.REPORT_TYPE || row.report_type;
@@ -1675,72 +1671,53 @@ async function processReportQueue(clientId, connectionType) {
 
     try {
       const pollClient = await adsClient(clientId, connectionType);
-
-      const statusRes = await pollClient.get(`/reporting/reports/${reportId}`, {
+      const statusRes  = await pollClient.get(`/reporting/reports/${reportId}`, {
         headers: { 'Amazon-Advertising-API-Scope': profileId }
       });
       const { status, url, failureReason } = statusRes.data;
 
-      if (status === 'PENDING' || status === 'PROCESSING') {
-        console.log(`[ReportQueue] ${reportId} (${reportType}) still ${status} — skipping`);
-        continue;
-      }
+      if (status === 'PENDING' || status === 'PROCESSING') return false;
 
       if (status === 'FAILURE') {
-        await query(`
-          UPDATE ads_report_queue
-          SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
-          WHERE report_id = ?
-        `, [failureReason || 'FAILURE', reportId]);
-        console.warn(`[ReportQueue] ${reportId} (${reportType}) FAILED: ${failureReason}`);
-        continue;
+        await query(`UPDATE ads_report_queue SET status='failed', error_message=?, completed_at=CURRENT_TIMESTAMP WHERE report_id=?`,
+          [failureReason || 'FAILURE', reportId]);
+        return false;
       }
 
       if (status === 'COMPLETED' && url) {
-        // Download and decompress
-        const dl   = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
-        const rows = JSON.parse(zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8'));
-        const data = Array.isArray(rows) ? rows : [];
-
-        // Dispatch to the correct write function
+        const dl     = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
+        const data   = JSON.parse(zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8'));
+        const rows   = Array.isArray(data) ? data : [];
         const writeFn = WRITE_FNS[reportType];
+
         if (!writeFn) {
-          console.warn(`[ReportQueue] No write function for report type: ${reportType}`);
-          await query(`
-            UPDATE ads_report_queue
-            SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
-            WHERE report_id = ?
-          `, [`No write function for type: ${reportType}`, reportId]);
-          continue;
+          await query(`UPDATE ads_report_queue SET status='failed', error_message=?, completed_at=CURRENT_TIMESTAMP WHERE report_id=?`,
+            [`No write function for: ${reportType}`, reportId]);
+          return false;
         }
 
-        const written = await writeFn(clientId, profileId, reportDate, data);
-
-        await query(`
-          UPDATE ads_report_queue
-          SET status = 'completed', records_written = ?, completed_at = CURRENT_TIMESTAMP
-          WHERE report_id = ?
-        `, [written, reportId]);
-
-        console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records written`);
-        processed++;
+        const written = await writeFn(clientId, profileId, reportDate, rows);
+        await query(`UPDATE ads_report_queue SET status='completed', records_written=?, completed_at=CURRENT_TIMESTAMP WHERE report_id=?`,
+          [written, reportId]);
+        console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records`);
+        return true;
       }
     } catch (err) {
-      const msg = err.message?.substring(0, 500) || 'unknown error';
-      console.warn(`[ReportQueue] Error processing ${reportId} (${reportType}): ${msg}`);
-
-      try {
-        await query(`
-          UPDATE ads_report_queue
-          SET error_message = ?
-          WHERE report_id = ?
-        `, [msg, reportId]);
-      } catch (updateErr) {
-        console.warn(`[ReportQueue] Could not update error_message: ${updateErr.message}`);
-      }
+      const msg = err.message?.substring(0, 500) || 'unknown';
+      console.warn(`[ReportQueue] ${reportId} error: ${msg}`);
+      try { await query(`UPDATE ads_report_queue SET error_message=? WHERE report_id=?`, [msg, reportId]); } catch {}
     }
+    return false;
   }
 
+  // Parallel batches of 5
+  const BATCH = 5;
+  for (let i = 0; i < pending.length; i += BATCH) {
+    const results = await Promise.allSettled(pending.slice(i, i + BATCH).map(processOne));
+    processed += results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+  }
+
+  console.log(`[ReportQueue] Completed: ${processed} reports written`);
   return { processed };
 }
 
