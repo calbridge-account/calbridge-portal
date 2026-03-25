@@ -57,14 +57,16 @@ const REPORT_TYPES = [
   {
     key:          'spAdGroups',
     adProduct:    'SPONSORED_PRODUCTS',
-    reportTypeId: 'spAdGroups',
+    reportTypeId: 'spCampaigns',   // SP uses spCampaigns reportTypeId for adGroup groupBy
     groupBy:      ['adGroup'],
     columns:      [
-      'adGroupId', 'adGroupName', 'impressions', 'clicks', 'cost',
+      'adGroupId', 'adGroupName', 'adStatus',
+      'impressions', 'clicks', 'cost', 'costPerClick', 'clickThroughRate',
       'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
-      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d'
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
+      'date'
     ],
     table:      'sp_ad_group_report',
     primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'date']
@@ -75,13 +77,20 @@ const REPORT_TYPES = [
     reportTypeId: 'spTargeting',
     groupBy:      ['targeting'],
     columns:      [
-      'campaignId', 'adGroupId', 'keywordId', 'targeting', 'matchType',
-      'keywordBid', 'adKeywordStatus', 'impressions', 'clicks', 'cost',
+      'campaignId', 'campaignName', 'campaignStatus', 'campaignBudgetAmount',
+      'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName', 'keywordId', 'keyword', 'keywordType',
+      'matchType', 'targeting', 'adKeywordStatus', 'keywordBid',
+      'portfolioId', 'impressions', 'clicks', 'cost', 'costPerClick', 'clickThroughRate',
       'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
-      'topOfSearchImpressionShare'
+      'purchasesSameSku30d', 'unitsSoldSameSku30d',
+      'attributedSalesSameSku30d', 'salesOtherSku7d', 'unitsSoldOtherSku7d',
+      'topOfSearchImpressionShare', 'acosClicks7d', 'acosClicks14d',
+      'roasClicks7d', 'roasClicks14d',
+      'date'
     ],
     table:      'sp_targeting_keyword_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'keyword_id', 'date']
@@ -92,12 +101,18 @@ const REPORT_TYPES = [
     reportTypeId: 'spSearchTerm',
     groupBy:      ['searchTerm'],
     columns:      [
-      'campaignId', 'adGroupId', 'keywordId', 'searchTerm', 'targeting', 'matchType',
-      'impressions', 'clicks', 'cost',
+      'campaignId', 'campaignName', 'campaignStatus', 'campaignBudgetAmount',
+      'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName', 'keywordId', 'keyword', 'keywordType',
+      'matchType', 'targeting', 'searchTerm', 'adKeywordStatus', 'keywordBid',
+      'portfolioId', 'impressions', 'clicks', 'cost', 'costPerClick', 'clickThroughRate',
       'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
-      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d'
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
+      'purchasesSameSku30d', 'attributedSalesSameSku30d', 'salesOtherSku7d',
+      'acosClicks7d', 'acosClicks14d', 'roasClicks7d', 'roasClicks14d',
+      'date'
     ],
     table:      'sp_search_term_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'keyword_id', 'search_term', 'date']
@@ -108,13 +123,20 @@ const REPORT_TYPES = [
     reportTypeId: 'spAdvertisedProduct',
     groupBy:      ['advertiser'],
     columns:      [
-      'campaignId', 'adGroupId', 'adId', 'advertisedAsin', 'advertisedSku',
-      'impressions', 'clicks', 'cost',
+      'campaignId', 'campaignName', 'campaignStatus', 'campaignBudgetAmount',
+      'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName', 'adId', 'advertisedAsin', 'advertisedSku',
+      'portfolioId', 'impressions', 'clicks', 'cost', 'spend', 'costPerClick', 'clickThroughRate',
       'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
-      'purchasesSameSku30d', 'unitsSoldSameSku30d'
+      'purchasesSameSku30d', 'purchasesSameSku1d', 'purchasesSameSku7d', 'purchasesSameSku14d',
+      'unitsSoldSameSku30d', 'unitsSoldSameSku1d', 'unitsSoldSameSku7d', 'unitsSoldSameSku14d',
+      'attributedSalesSameSku30d', 'attributedSalesSameSku1d', 'attributedSalesSameSku7d', 'attributedSalesSameSku14d',
+      'salesOtherSku7d', 'unitsSoldOtherSku7d',
+      'acosClicks7d', 'acosClicks14d', 'roasClicks7d', 'roasClicks14d',
+      'date'
     ],
     table:      'sp_advertised_product_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'ad_id', 'date']
@@ -122,15 +144,40 @@ const REPORT_TYPES = [
   {
     key:          'spCampaignPlacement',
     adProduct:    'SPONSORED_PRODUCTS',
-    reportTypeId: 'spCampaignPlacement',
+    reportTypeId: 'spCampaigns',   // SP placement uses spCampaigns reportTypeId
     groupBy:      ['campaignPlacement'],
     columns:      [
-      'campaignId', 'placement',
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'placementClassification',
       'impressions', 'clicks', 'cost',
-      'purchases30d', 'sales30d', 'unitsSoldClicks30d'
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'topOfSearchImpressionShare', 'date'
     ],
     table:      'sp_campaign_placement_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'placement', 'date']
+  },
+  {
+    key:          'spPurchasedProduct',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spPurchasedProduct',
+    groupBy:      ['asin'],
+    columns:      [
+      'campaignId', 'campaignName', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName', 'keywordId', 'keyword', 'keywordType',
+      'matchType', 'advertisedAsin', 'purchasedAsin', 'advertisedSku',
+      'purchases1d', 'purchases7d', 'purchases14d', 'purchases30d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d', 'unitsSoldClicks30d',
+      'sales1d', 'sales7d', 'sales14d', 'sales30d',
+      'purchasesOtherSku1d', 'purchasesOtherSku7d', 'purchasesOtherSku14d', 'purchasesOtherSku30d',
+      'salesOtherSku1d', 'salesOtherSku7d', 'salesOtherSku14d', 'salesOtherSku30d',
+      'unitsSoldOtherSku1d', 'unitsSoldOtherSku7d', 'unitsSoldOtherSku14d', 'unitsSoldOtherSku30d',
+      'date'
+    ],
+    table:      'sp_purchased_product_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'keyword_id', 'advertised_asin', 'purchased_asin', 'date']
   },
   {
     key:          'sbCampaigns',
@@ -138,26 +185,58 @@ const REPORT_TYPES = [
     reportTypeId: 'sbCampaigns',
     groupBy:      ['campaign'],
     columns:      [
-      'campaignId', 'campaignName', 'impressions', 'clicks', 'cost',
-      'attributedSales14d', 'attributedConversions14d',
-      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
-      'attributedUnitsOrderedNewToBrand14d', 'topOfSearchImpressionShare',
-      'video5SecondViews', 'videoCompleteViews', 'viewableImpressions'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'impressions', 'clicks', 'cost', 'costType',
+      'purchases', 'purchasesClicks', 'purchasesPromoted',
+      'sales', 'salesClicks', 'salesPromoted',
+      'unitsSold', 'unitsSoldClicks',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandPurchasesPercentage', 'newToBrandPurchasesRate',
+      'newToBrandSales', 'newToBrandSalesClicks', 'newToBrandSalesPercentage',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks', 'newToBrandUnitsSoldPercentage',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewsClicks', 'newToBrandDetailPageViewRate', 'newToBrandECPDetailPageView',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks',
+      'qualifiedBorrows', 'qualifiedBorrowsFromClicks',
+      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks',
+      'brandedSearches', 'brandedSearchesClicks',
+      'brandStorePageView', 'topOfSearchImpressionShare',
+      'video5SecondViewRate', 'video5SecondViews',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewableImpressions', 'viewClickThroughRate',
+      'kindleEditionNormalizedPagesRead14d', 'kindleEditionNormalizedPagesRoyalties14d',
+      'date'
     ],
     table:      'sb_campaign_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'report_date']
   },
   {
-    key:          'sbKeywords',
+    key:          'sbTargeting',   // was sbKeywords — correct reportTypeId is sbTargeting
     adProduct:    'SPONSORED_BRANDS',
-    reportTypeId: 'sbKeywords',
-    groupBy:      ['keyword'],
+    reportTypeId: 'sbTargeting',
+    groupBy:      ['targeting'],
+    filters:      [{ field: 'keywordType', values: ['BROAD','PHRASE','EXACT','TARGETING_EXPRESSION','TARGETING_EXPRESSION_PREDEFINED'] }],
     columns:      [
-      'keywordId', 'campaignId', 'adGroupId',
-      'impressions', 'clicks', 'cost',
-      'attributedSales14d', 'attributedConversions14d',
-      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
-      'searchTermImpressionRank', 'searchTermImpressionShare', 'topOfSearchImpressionShare'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName',
+      'keywordId', 'keywordText', 'keywordType', 'matchType', 'keywordBid', 'adKeywordStatus',
+      'targetingExpression', 'targetingId', 'targetingText', 'targetingType',
+      'impressions', 'clicks', 'cost', 'costType',
+      'purchases', 'purchasesClicks', 'purchasesPromoted',
+      'sales', 'salesClicks', 'salesPromoted',
+      'unitsSold',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandPurchasesPercentage', 'newToBrandPurchasesRate',
+      'newToBrandSales', 'newToBrandSalesClicks', 'newToBrandSalesPercentage',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks', 'newToBrandUnitsSoldPercentage',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewsClicks', 'newToBrandDetailPageViewRate', 'newToBrandECPDetailPageView',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks',
+      'brandedSearches', 'brandedSearchesClicks',
+      'topOfSearchImpressionShare',
+      'date'
     ],
     table:      'sb_keyword_report',
     primaryKey: ['client_id', 'profile_id', 'keyword_id', 'report_date']
@@ -165,28 +244,44 @@ const REPORT_TYPES = [
   {
     key:          'sbSearchTerms',
     adProduct:    'SPONSORED_BRANDS',
-    reportTypeId: 'sbSearchTerms',
+    reportTypeId: 'sbSearchTerm',   // correct reportTypeId (no 's')
     groupBy:      ['searchTerm'],
+    filters:      [{ field: 'keywordType', values: ['BROAD','PHRASE','EXACT','TARGETING_EXPRESSION','TARGETING_EXPRESSION_PREDEFINED'] }],
     columns:      [
-      'keywordId', 'queryTerm', 'campaignId', 'adGroupId',
-      'impressions', 'clicks', 'cost',
-      'attributedSales14d', 'attributedConversions14d',
-      'searchTermImpressionRank', 'searchTermImpressionShare'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName',
+      'keywordId', 'keywordText', 'matchType', 'keywordBid',
+      'searchTerm',
+      'impressions', 'clicks', 'cost', 'costType',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks', 'unitsSold',
+      'video5SecondViewRate', 'video5SecondViews',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewableImpressions', 'viewClickThroughRate',
+      'kindleEditionNormalizedPagesRead14d', 'kindleEditionNormalizedPagesRoyalties14d',
+      'date'
     ],
     table:      'sb_search_term_report',
-    primaryKey: ['client_id', 'profile_id', 'keyword_id', 'query_term', 'report_date']
+    primaryKey: ['client_id', 'profile_id', 'keyword_id', 'search_term', 'report_date']
   },
   {
     key:          'sbTargets',
     adProduct:    'SPONSORED_BRANDS',
-    reportTypeId: 'sbTargets',
+    reportTypeId: 'sbTargeting',   // same reportTypeId, different filter
     groupBy:      ['targeting'],
+    filters:      [{ field: 'keywordType', values: ['TARGETING_EXPRESSION','TARGETING_EXPRESSION_PREDEFINED'] }],
     columns:      [
-      'targetId', 'campaignId', 'adGroupId',
-      'impressions', 'clicks', 'cost',
-      'attributedSales14d', 'attributedConversions14d',
-      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
-      'topOfSearchImpressionShare'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'adGroupId', 'adGroupName',
+      'targetingExpression', 'targetingId', 'targetingText', 'targetingType',
+      'impressions', 'clicks', 'cost', 'costType',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks', 'unitsSold',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'newToBrandSales', 'newToBrandSalesClicks',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
+      'topOfSearchImpressionShare',
+      'date'
     ],
     table:      'sb_target_report',
     primaryKey: ['client_id', 'profile_id', 'target_id', 'report_date']
@@ -194,13 +289,26 @@ const REPORT_TYPES = [
   {
     key:          'sbPlacements',
     adProduct:    'SPONSORED_BRANDS',
-    reportTypeId: 'sbPlacements',
-    groupBy:      ['placement'],
+    reportTypeId: 'sbCampaignPlacement',   // correct reportTypeId
+    groupBy:      ['campaignPlacement'],
     columns:      [
-      'campaignId', 'placement',
-      'impressions', 'clicks', 'cost',
-      'attributedSales14d', 'attributedConversions14d',
-      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'placementClassification',
+      'impressions', 'clicks', 'cost', 'costType',
+      'purchases', 'purchasesClicks', 'purchasesPromoted',
+      'sales', 'salesClicks', 'salesPromoted',
+      'unitsSold', 'unitsSoldClicks',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandPurchasesPercentage',
+      'newToBrandSales', 'newToBrandSalesClicks', 'newToBrandSalesPercentage',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks', 'newToBrandUnitsSoldPercentage',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewsClicks', 'newToBrandDetailPageViewRate', 'newToBrandECPDetailPageView',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'eCPAddToCart',
+      'video5SecondViewRate', 'video5SecondViews',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewableImpressions', 'viewClickThroughRate',
+      'date'
     ],
     table:      'sb_placement_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'placement', 'report_date']
@@ -211,13 +319,28 @@ const REPORT_TYPES = [
     reportTypeId: 'sdCampaigns',
     groupBy:      ['campaign'],
     columns:      [
-      'campaignId', 'campaignName',
-      'impressions', 'clicks', 'cost',
-      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
+      'campaignId', 'campaignName', 'campaignStatus', 'campaignBudgetAmount', 'campaignBudgetCurrencyCode',
+      'costType',
+      'impressions', 'impressionsViews', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'purchasesPromotedClicks',
+      'sales', 'salesClicks', 'salesPromotedClicks',
+      'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks',
-      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold',
-      'brandedSearches', 'viewabilityRate'
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'addToCartViews', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks', 'addToListFromViews',
+      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
+      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'brandedSearchRate',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'newToBrandSales', 'newToBrandSalesClicks',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewClicks',
+      'newToBrandDetailPageViewRate', 'newToBrandDetailPageViewViews', 'newToBrandECPDetailPageView',
+      'cumulativeReach', 'impressionsFrequencyAverage',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewClickThroughRate', 'eCPBrandSearch',
+      'longTermSales', 'longTermROAS',
+      'date'
     ],
     table:      'sd_campaign_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
@@ -225,14 +348,29 @@ const REPORT_TYPES = [
   {
     key:          'sdAdGroups',
     adProduct:    'SPONSORED_DISPLAY',
-    reportTypeId: 'sdAdGroups',
+    reportTypeId: 'sdAdGroup',   // correct reportTypeId
     groupBy:      ['adGroup'],
     columns:      [
-      'adGroupId', 'campaignId',
-      'impressions', 'clicks', 'cost',
-      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
-      'detailPageViews', 'addToCart',
-      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+      'adGroupId', 'adGroupName', 'campaignId', 'bidOptimization',
+      'impressions', 'impressionsViews', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'purchasesPromotedClicks',
+      'sales', 'salesClicks', 'salesPromotedClicks',
+      'unitsSold', 'unitsSoldClicks',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'addToCartViews', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks', 'addToListFromViews',
+      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
+      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'brandedSearchRate',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'newToBrandSales', 'newToBrandSalesClicks',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewClicks',
+      'newToBrandDetailPageViewRate', 'newToBrandDetailPageViewViews', 'newToBrandECPDetailPageView',
+      'cumulativeReach', 'impressionsFrequencyAverage',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewClickThroughRate', 'eCPBrandSearch',
+      'date'
     ],
     table:      'sd_ad_group_report',
     primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'date']
@@ -243,26 +381,58 @@ const REPORT_TYPES = [
     reportTypeId: 'sdTargeting',
     groupBy:      ['targeting'],
     columns:      [
-      'targetingId', 'adGroupId', 'campaignId',
-      'impressions', 'clicks', 'cost',
-      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
-      'detailPageViews', 'addToCart',
-      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+      'adGroupId', 'adGroupName', 'campaignId', 'campaignName', 'campaignBudgetCurrencyCode',
+      'targetingExpression', 'targetingId', 'targetingText',
+      'impressions', 'impressionsViews', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'purchasesPromotedClicks',
+      'sales', 'salesClicks', 'salesPromotedClicks',
+      'unitsSold', 'unitsSoldClicks',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'addToCartViews', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks', 'addToListFromViews',
+      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
+      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'brandedSearchRate',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'newToBrandSales', 'newToBrandSalesClicks',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewClicks',
+      'newToBrandDetailPageViewRate', 'newToBrandDetailPageViewViews', 'newToBrandECPDetailPageView',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewClickThroughRate', 'eCPBrandSearch',
+      'date'
     ],
     table:      'sd_target_report',
     primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'campaign_id', 'targeting_id', 'date']
   },
   {
-    key:          'sdProductAds',
+    key:          'sdAdvertisedProduct',   // was sdProductAds
     adProduct:    'SPONSORED_DISPLAY',
-    reportTypeId: 'sdProductAds',
-    groupBy:      ['adAndCreative'],
+    reportTypeId: 'sdAdvertisedProduct',   // correct reportTypeId
+    groupBy:      ['advertiser'],
     columns:      [
-      'adId', 'adGroupId', 'campaignId',
-      'impressions', 'clicks', 'cost',
-      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
-      'detailPageViews', 'addToCart',
-      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+      'adId', 'adGroupId', 'adGroupName', 'campaignId', 'campaignName', 'campaignBudgetCurrencyCode',
+      'promotedAsin', 'promotedSku',   // SD uses promotedAsin NOT advertisedAsin
+      'bidOptimization',
+      'impressions', 'impressionsViews', 'impressionsFrequencyAverage', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'purchasesPromotedClicks',
+      'sales', 'salesClicks', 'salesPromotedClicks',
+      'unitsSold', 'unitsSoldClicks',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks', 'addToCartRate', 'addToCartViews', 'eCPAddToCart',
+      'addToList', 'addToListFromClicks', 'addToListFromViews',
+      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
+      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'brandedSearchRate',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'newToBrandSales', 'newToBrandSalesClicks',
+      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
+      'newToBrandDetailPageViews', 'newToBrandDetailPageViewClicks',
+      'newToBrandDetailPageViewRate', 'newToBrandDetailPageViewViews', 'newToBrandECPDetailPageView',
+      'cumulativeReach',
+      'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
+      'viewabilityRate', 'viewClickThroughRate', 'eCPBrandSearch',
+      'date'
     ],
     table:      'sd_product_ad_report',
     primaryKey: ['client_id', 'profile_id', 'ad_id', 'date']
@@ -374,20 +544,23 @@ async function getAuthorizedProfiles(clientId, allProfiles) {
  * Handles 425 (duplicate) by extracting and returning the existing reportId.
  * Adds 2s delay after each successful request to avoid throttling.
  */
-async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns) {
+async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns, filters) {
   try {
+    const config = {
+      adProduct,
+      groupBy,
+      columns,
+      reportTypeId,
+      timeUnit: 'DAILY',
+      format:   'GZIP_JSON'
+    };
+    if (filters && filters.length) config.filters = filters;
+
     const res = await client.post('/reporting/reports', {
       name:      `${adProduct}_${reportTypeId}_${startDate}`,
       startDate,
       endDate:   startDate,
-      configuration: {
-        adProduct,
-        groupBy,
-        columns,
-        reportTypeId,
-        timeUnit: 'DAILY',
-        format:   'GZIP_JSON'
-      }
+      configuration: config
     }, {
       headers: {
         'Amazon-Advertising-API-Scope': profileId,
@@ -1269,6 +1442,59 @@ async function writeSdProductAdReport(clientId, profileId, reportDate, rows) {
   return written;
 }
 
+/**
+ * Write spPurchasedProduct rows (products purchased via SP ads, not necessarily advertised)
+ */
+async function writeSpPurchasedProductReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  let written = 0;
+  for (const r of rows) {
+    const cols = Object.keys(r).map(k => toSnake(k));
+    const vals = Object.values(r).map(v => (v === null || v === undefined) ? null : v);
+    // Use generic upsert based on primary key
+    const pkCols = ['client_id','profile_id','campaign_id','ad_group_id','keyword_id','advertised_asin','purchased_asin','date'];
+    const allCols = ['client_id','profile_id','report_date',...cols];
+    try {
+      await query(`
+        MERGE INTO sp_purchased_product_report t
+        USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS ad_group_id, ? AS keyword_id, ? AS advertised_asin, ? AS purchased_asin, ? AS report_date) s
+        ON t.client_id=s.client_id AND t.profile_id=s.profile_id AND t.campaign_id=s.campaign_id
+          AND t.ad_group_id=s.ad_group_id AND t.keyword_id=s.keyword_id
+          AND t.advertised_asin=s.advertised_asin AND t.purchased_asin=s.purchased_asin AND t.report_date=s.report_date
+        WHEN MATCHED THEN UPDATE SET
+          purchases_1_d=?, purchases_7_d=?, purchases_14_d=?, purchases_30_d=?,
+          sales_1_d=?, sales_7_d=?, sales_14_d=?, sales_30_d=?,
+          units_sold_clicks_1_d=?, units_sold_clicks_7_d=?, units_sold_clicks_14_d=?, units_sold_clicks_30_d=?,
+          synced_at=CURRENT_TIMESTAMP
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,profile_id,campaign_id,ad_group_id,keyword_id,advertised_asin,purchased_asin,report_date,
+           purchases_1_d,purchases_7_d,purchases_14_d,purchases_30_d,
+           sales_1_d,sales_7_d,sales_14_d,sales_30_d,
+           units_sold_clicks_1_d,units_sold_clicks_7_d,units_sold_clicks_14_d,units_sold_clicks_30_d,
+           synced_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      `, [
+        clientId, profileId, String(r.campaignId||''), String(r.adGroupId||''),
+        String(r.keywordId||''), String(r.advertisedAsin||''), String(r.purchasedAsin||''),
+        reportDate,
+        r.purchases1d||0, r.purchases7d||0, r.purchases14d||0, r.purchases30d||0,
+        r.sales1d||0, r.sales7d||0, r.sales14d||0, r.sales30d||0,
+        r.unitsSoldClicks1d||0, r.unitsSoldClicks7d||0, r.unitsSoldClicks14d||0, r.unitsSoldClicks30d||0,
+        clientId, profileId, String(r.campaignId||''), String(r.adGroupId||''),
+        String(r.keywordId||''), String(r.advertisedAsin||''), String(r.purchasedAsin||''),
+        reportDate,
+        r.purchases1d||0, r.purchases7d||0, r.purchases14d||0, r.purchases30d||0,
+        r.sales1d||0, r.sales7d||0, r.sales14d||0, r.sales30d||0,
+        r.unitsSoldClicks1d||0, r.unitsSoldClicks7d||0, r.unitsSoldClicks14d||0, r.unitsSoldClicks30d||0
+      ]);
+      written++;
+    } catch (err) {
+      console.warn(`[spPurchasedProduct] Row error: ${err.message}`);
+    }
+  }
+  return written;
+}
+
 // ============================================================
 // WRITE FUNCTION DISPATCH TABLE
 // ============================================================
@@ -1281,14 +1507,15 @@ const WRITE_FNS = {
   spAdvertisedProduct: writeSpAdvertisedProductReport,
   spCampaignPlacement: writeSpCampaignPlacementReport,
   sbCampaigns:        writeSbCampaignReport,
-  sbKeywords:         writeSbKeywordReport,
+  sbTargeting:        writeSbKeywordReport,    // key renamed from sbKeywords
   sbSearchTerms:      writeSbSearchTermReport,
   sbTargets:          writeSbTargetReport,
   sbPlacements:       writeSbPlacementReport,
+  spPurchasedProduct: writeSpPurchasedProductReport,
   sdCampaigns:        writeSdCampaignReport,
   sdAdGroups:         writeSdAdGroupReport,
   sdTargeting:        writeSdTargetReport,
-  sdProductAds:       writeSdProductAdReport
+  sdAdvertisedProduct: writeSdProductAdReport  // key renamed from sdProductAds
 };
 
 // ============================================================
@@ -1359,7 +1586,7 @@ async function ingestPerformance(clientId, connectionType, daysBack = 2) {
             const freshClient = await adsClient(clientId, connectionType);
             const reportId    = await requestV3Report(
               freshClient, profileId, isoDate,
-              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns
+              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters
             );
             if (!reportId) continue;
 
