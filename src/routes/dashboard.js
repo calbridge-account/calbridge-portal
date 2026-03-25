@@ -836,4 +836,162 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// GET /dashboard/profitability-trend?days=90&limit=20
+// ASIN-level profitability trend — is each product getting more or less profitable?
+// Returns slope, direction, week-over-week change, and signal for each ASIN.
+// ---------------------------------------------------------------------------
+router.get('/profitability-trend', requireAuth, async (req, res, next) => {
+  try {
+    const days      = Number(req.query.days)  || 90;
+    const limit     = Number(req.query.limit) || 20;
+    const clientId  = req.session.clientId;
+
+    // Pull all ASINs with CM data in the period
+    const asinRows = await query(`
+      SELECT DISTINCT asin
+      FROM contribution_margin
+      WHERE client_id = ?
+        AND calc_date >= DATEADD(day, -?, CURRENT_DATE)
+        AND cm3 IS NOT NULL
+      LIMIT ?
+    `, [clientId, days, limit]);
+
+    if (!asinRows.length) {
+      return res.json({ available: false, reason: 'No CM3 data yet — upload COGS to unlock profitability trends', days, asins: [] });
+    }
+
+    // For each ASIN compute trend metrics
+    const results = await Promise.all(asinRows.map(async ({ ASIN: asin }) => {
+      const rows = await getAsinTrend(clientId, asin, days);
+      if (!rows.length) return null;
+
+      // Build daily CM3 series (skip nulls)
+      const series = rows
+        .map(r => ({
+          date: r.CALC_DATE?.value
+            ? String(r.CALC_DATE.value).substring(0, 10)
+            : String(r.CALC_DATE).substring(0, 10),
+          cm3: r.CM3 != null ? Number(r.CM3) : null,
+          cm2: r.CM2 != null ? Number(r.CM2) : null,
+          revenue: Number(r.REVENUE || 0)
+        }))
+        .filter(d => d.cm3 != null)
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      if (series.length < 2) return null;
+
+      // Linear regression slope on CM3 ($/day)
+      const n     = series.length;
+      const xArr  = series.map((_, i) => i);
+      const yArr  = series.map(d => d.cm3);
+      const xMean = xArr.reduce((s, x) => s + x, 0) / n;
+      const yMean = yArr.reduce((s, y) => s + y, 0) / n;
+      const num   = xArr.reduce((s, x, i) => s + (x - xMean) * (yArr[i] - yMean), 0);
+      const den   = xArr.reduce((s, x) => s + (x - xMean) ** 2, 0);
+      const slope = den !== 0 ? num / den : 0;
+
+      // Week-over-week CM3 change
+      const last7days  = series.slice(-7);
+      const prev7days  = series.slice(-14, -7);
+      const cm3Last7   = last7days.reduce((s, d) => s + d.cm3, 0);
+      const cm3Prev7   = prev7days.reduce((s, d) => s + d.cm3, 0);
+      const wowChange  = cm3Prev7 !== 0 ? ((cm3Last7 - cm3Prev7) / Math.abs(cm3Prev7)) * 100 : null;
+
+      // Current profitability state
+      const latestCm3   = series[series.length - 1].cm3;
+      const totalCm3    = yArr.reduce((s, y) => s + y, 0);
+      const profitDays  = yArr.filter(y => y >= 0).length;
+      const profitRate  = n > 0 ? profitDays / n : 0;
+
+      // Break-even ACOS (from latest CM2/revenue)
+      const latestRow     = series[series.length - 1];
+      const breakEvenAcos = latestRow.revenue > 0 && latestRow.cm2 != null
+        ? (latestRow.cm2 / latestRow.revenue) * 100
+        : null;
+
+      // Signal
+      let signal = 'stable';
+      if (latestCm3 < 0 && slope < 0)          signal = 'losing_money_worsening';
+      else if (latestCm3 < 0 && slope >= 0)     signal = 'losing_money_recovering';
+      else if (latestCm3 >= 0 && slope > 0.5)   signal = 'scaling_opportunity';
+      else if (latestCm3 >= 0 && slope < -0.5)  signal = 'profitable_declining';
+      else if (profitRate < 0.5)                 signal = 'inconsistent';
+
+      // Human-readable trend label
+      const trendLabel = slope > 1    ? `+$${slope.toFixed(2)}/day` :
+                         slope > 0    ? `+$${slope.toFixed(2)}/day` :
+                         slope < -1   ? `-$${Math.abs(slope).toFixed(2)}/day` :
+                         slope < 0    ? `-$${Math.abs(slope).toFixed(2)}/day` : 'flat';
+
+      // Get product title
+      const productRows = await query(
+        'SELECT title FROM products WHERE client_id = ? AND asin = ? LIMIT 1',
+        [clientId, asin]
+      );
+      const title = productRows[0]?.TITLE || null;
+
+      return {
+        asin,
+        title,
+        signal,
+        trend:          slope > 0.1 ? 'improving' : slope < -0.1 ? 'declining' : 'stable',
+        slope:          parseFloat(slope.toFixed(4)),
+        trendLabel,
+        cm3Last7:       parseFloat(cm3Last7.toFixed(2)),
+        cm3Prev7:       parseFloat(cm3Prev7.toFixed(2)),
+        wowChangePct:   wowChange != null ? parseFloat(wowChange.toFixed(1)) : null,
+        latestCm3:      parseFloat(latestCm3.toFixed(2)),
+        totalCm3:       parseFloat(totalCm3.toFixed(2)),
+        profitableDays: profitDays,
+        totalDays:      n,
+        profitRate:     parseFloat((profitRate * 100).toFixed(1)),
+        breakEvenAcos:  breakEvenAcos != null ? parseFloat(breakEvenAcos.toFixed(1)) : null,
+        dataPoints:     n,
+        // Spark data for mini chart (last 14 days of CM3)
+        spark: series.slice(-14).map(d => ({ date: d.date, cm3: parseFloat(d.cm3.toFixed(2)) }))
+      };
+    }));
+
+    // Filter nulls, sort by signal priority then slope
+    const signalOrder = {
+      losing_money_worsening:  0,
+      losing_money_recovering: 1,
+      inconsistent:            2,
+      profitable_declining:    3,
+      stable:                  4,
+      scaling_opportunity:     5
+    };
+
+    const asins = results
+      .filter(Boolean)
+      .sort((a, b) => {
+        const sDiff = signalOrder[a.signal] - signalOrder[b.signal];
+        return sDiff !== 0 ? sDiff : Math.abs(b.slope) - Math.abs(a.slope);
+      });
+
+    res.json({
+      available: asins.length > 0,
+      days,
+      asins,
+      summary: {
+        total:               asins.length,
+        scalingOpportunity:  asins.filter(a => a.signal === 'scaling_opportunity').length,
+        profitableDecline:   asins.filter(a => a.signal === 'profitable_declining').length,
+        losingMoney:         asins.filter(a => a.signal.startsWith('losing_money')).length,
+        recovering:          asins.filter(a => a.signal === 'losing_money_recovering').length,
+        inconsistent:        asins.filter(a => a.signal === 'inconsistent').length
+      },
+      signals: {
+        scaling_opportunity:     '📈 Profitable and improving — scale ad spend',
+        profitable_declining:    '⚠️ Profitable but trending down — investigate',
+        losing_money_recovering: '🔄 Losing money but improving — monitor',
+        losing_money_worsening:  '🔴 Losing money and getting worse — act now',
+        inconsistent:            '🟡 Inconsistent profitability — review pricing/COGS',
+        stable:                  '✅ Stable profitability'
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

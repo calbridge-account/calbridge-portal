@@ -45,6 +45,12 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
 
+## Project Conventions (Calbridge Portal)
+
+- **Never use inline `<script>` blocks in HTML files** — Helmet's CSP blocks them silently. Always put JS in `/public/js/*.js` external files.
+- **Check codebase before asking Abe** about product details — billing.js has pricing, routes have feature definitions.
+- **Check MEMORY.md + memory/*.md** at session start for business context before any GTM/product/strategy questions.
+
 ## Red Lines
 
 - Don't exfiltrate private data. Ever.

@@ -56,6 +56,7 @@ function setupNav() {
       if (section === 'forecast')    loadForecast();
       if (section === 'pacing')      loadBudgetPacing();
       if (section === 'ntb')         loadNtb();
+      if (section === 'trends')      loadProfitabilityTrends();
     });
   });
 
@@ -324,35 +325,85 @@ async function loadCampaignData() {
   } catch (err) { console.error('Campaign chart error:', err); }
 }
 
+// Trend indicator badge — used in ASIN tables
+function trendBadge(asin, trendMap) {
+  if (!trendMap || !trendMap[asin]) return '';
+  const t = trendMap[asin];
+  const icon  = t.trend === 'improving' ? '📈' : t.trend === 'declining' ? '📉' : '➡️';
+  const color = t.trend === 'improving' ? 'var(--success)' : t.trend === 'declining' ? 'var(--danger)' : 'var(--gray-400)';
+  const wow   = t.wowChangePct != null ? ` ${t.wowChangePct > 0 ? '+' : ''}${t.wowChangePct.toFixed(0)}% WoW` : '';
+  return `<span style="font-size:11px;color:${color};margin-left:4px" title="${t.trendLabel}${wow}">${icon}${wow}</span>`;
+}
+
+let _trendMap = null; // cache per load
+
+async function loadTrendMap() {
+  if (_trendMap) return _trendMap;
+  try {
+    const res = await fetch(`/dashboard/profitability-trend?days=90&limit=50`, { credentials: 'include' });
+    if (!res.ok) return {};
+    const d = await res.json();
+    _trendMap = {};
+    (d.asins || []).forEach(a => { _trendMap[a.asin] = a; });
+    return _trendMap;
+  } catch { return {}; }
+}
+
 function renderTopAsins(rows) {
   const tbody = $('top-asins-body');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No data yet</td></tr>'; return; }
+
+  // Load trends async and re-render badges when ready
+  loadTrendMap().then(trendMap => {
+    tbody.innerHTML = rows.slice(0, 10).map(r => {
+      const asin    = r.ASIN || r.asin;
+      const cm1     = r.cm1     != null ? r.cm1     : (r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null);
+      const cm2     = r.cm2     != null ? r.cm2     : (r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null);
+      const cm3     = r.cm3     != null ? r.cm3     : (r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null);
+      const cm3Unit = r.cm3PerUnit != null ? r.cm3PerUnit : (r.AVG_CM3_PER_UNIT != null ? Number(r.AVG_CM3_PER_UNIT) : null);
+
+      const cm3Cls = cm3 == null ? 'cm-neutral' : cm3 < 0 ? 'cm-negative' : cm3 > 0 ? 'cm-positive' : 'cm-neutral';
+      const profitBadge = cm3 != null && cm3 < 0
+        ? ' <span style="font-size:10px;color:var(--danger);font-weight:700">⚠ LOSING</span>' : '';
+      const vendorBadge = r.vendorCm1IsEstimate || r.VENDOR_CM1_IS_ESTIMATE
+        ? ' <span style="font-size:10px;color:#b45309" title="Excludes Amazon deductions. Full remittance data coming soon.">⚠️</span>' : '';
+      const cogsNote = cm2 == null
+        ? '<span style="color:var(--gray-400);font-size:11px">COGS not set</span>'
+        : `<span class="${cm3Cls}">${fmt$(cm2)}</span>`;
+      const title = r.PRODUCT_TITLE || r.product_title
+        ? `<div style="font-weight:600;font-size:12px">${(r.PRODUCT_TITLE || r.product_title || '').substring(0, 60)}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || r.sku || ''}</div>`
+        : asin;
+
+      return `<tr>
+        <td style="max-width:180px">${title}</td>
+        <td style="font-size:11px;color:var(--gray-400)">${asin}</td>
+        <td>${Number(r.TOTAL_UNITS || r.total_units || 0).toLocaleString()}</td>
+        <td>${fmt$(r.TOTAL_REVENUE || r.total_revenue)}</td>
+        <td>${cm1 != null ? fmt$(cm1) + vendorBadge : '—'}</td>
+        <td>${cogsNote}</td>
+        <td class="${cm3Cls}">${cm3 != null ? fmt$(cm3) : '—'}${profitBadge}${trendBadge(asin, trendMap)}</td>
+        <td class="${cm3Cls}">${cm3Unit != null ? fmt$(cm3Unit) : '—'}</td>
+      </tr>`;
+    }).join('');
+  });
+
+  // Render immediately without trends while loading
   tbody.innerHTML = rows.slice(0, 10).map(r => {
-    // Use enriched CM1/CM2/CM3 fields (set by enrichPerformer in route)
-    const cm1     = r.cm1     != null ? r.cm1     : (r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null);
-    const cm2     = r.cm2     != null ? r.cm2     : (r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null);
-    const cm3     = r.cm3     != null ? r.cm3     : (r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null);
+    const asin    = r.ASIN || r.asin;
+    const cm1     = r.cm1 != null ? r.cm1 : (r.TOTAL_CM1 != null ? Number(r.TOTAL_CM1) : null);
+    const cm2     = r.cm2 != null ? r.cm2 : (r.TOTAL_CM2 != null ? Number(r.TOTAL_CM2) : null);
+    const cm3     = r.cm3 != null ? r.cm3 : (r.TOTAL_CM3 != null ? Number(r.TOTAL_CM3) : null);
     const cm3Unit = r.cm3PerUnit != null ? r.cm3PerUnit : (r.AVG_CM3_PER_UNIT != null ? Number(r.AVG_CM3_PER_UNIT) : null);
-    const profitable = r.profitable != null ? r.profitable : (cm3 != null ? cm3 >= 0 : null);
-
-    const cm3Cls = cm3 == null ? 'cm-neutral' : cm3 < 0 ? 'cm-negative' : cm3 > 0 ? 'cm-positive' : 'cm-neutral';
-    const profitBadge = cm3 != null && cm3 < 0
-      ? ' <span style="font-size:10px;color:var(--danger);font-weight:700">⚠ LOSING</span>'
-      : '';
-    const vendorBadge = r.vendorCm1IsEstimate || r.VENDOR_CM1_IS_ESTIMATE
-      ? ' <span style="font-size:10px;color:#b45309" title="Excludes Amazon deductions. Full remittance data coming soon.">⚠️</span>'
-      : '';
-    const cogsNote = cm2 == null
-      ? '<span style="color:var(--gray-400);font-size:11px">COGS not set</span>'
-      : `<span class="${cm3Cls}">${fmt$(cm2)}</span>`;
-
+    const cm3Cls  = cm3 == null ? 'cm-neutral' : cm3 < 0 ? 'cm-negative' : cm3 > 0 ? 'cm-positive' : 'cm-neutral';
+    const profitBadge = cm3 != null && cm3 < 0 ? ' <span style="font-size:10px;color:var(--danger);font-weight:700">⚠ LOSING</span>' : '';
+    const vendorBadge = r.vendorCm1IsEstimate || r.VENDOR_CM1_IS_ESTIMATE ? ' <span style="font-size:10px;color:#b45309">⚠️</span>' : '';
+    const cogsNote = cm2 == null ? '<span style="color:var(--gray-400);font-size:11px">COGS not set</span>' : `<span class="${cm3Cls}">${fmt$(cm2)}</span>`;
     const title = r.PRODUCT_TITLE || r.product_title
       ? `<div style="font-weight:600;font-size:12px">${(r.PRODUCT_TITLE || r.product_title || '').substring(0, 60)}</div><div style="color:var(--gray-400);font-size:11px">${r.SKU || r.sku || ''}</div>`
-      : r.ASIN || r.asin;
-
+      : asin;
     return `<tr>
       <td style="max-width:180px">${title}</td>
-      <td style="font-size:11px;color:var(--gray-400)">${r.ASIN || r.asin}</td>
+      <td style="font-size:11px;color:var(--gray-400)">${asin}</td>
       <td>${Number(r.TOTAL_UNITS || r.total_units || 0).toLocaleString()}</td>
       <td>${fmt$(r.TOTAL_REVENUE || r.total_revenue)}</td>
       <td>${cm1 != null ? fmt$(cm1) + vendorBadge : '—'}</td>
@@ -782,6 +833,88 @@ async function loadNtb() {
       tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No NTB campaign data</td></tr>';
     }
   } catch (err) { console.error('NTB load error:', err); }
+}
+
+// ---- Profitability Trends ----
+let trendsLoaded = false;
+async function loadProfitabilityTrends() {
+  if (trendsLoaded) return;
+  trendsLoaded = true;
+  const tbody = $('trends-body');
+  const kpis  = $('trends-kpis');
+  const label = $('trends-summary-label');
+  try {
+    const res = await fetch(`/dashboard/profitability-trend?days=90&limit=50`, { credentials: 'include' });
+    const d   = await res.json();
+
+    if (!d.available) {
+      tbody.innerHTML = `<tr><td colspan="9" class="loading-cell">${d.reason || 'No data yet'}</td></tr>`;
+      return;
+    }
+
+    // Summary KPIs
+    const s = d.summary;
+    label.textContent = `${s.total} products tracked over 90 days`;
+    kpis.innerHTML = `
+      <div class="kpi-card" style="border-color:var(--success);background:var(--success-bg)">
+        <div class="kpi-label">📈 Scaling Opportunity</div>
+        <div class="kpi-value" style="color:var(--success)">${s.scalingOpportunity}</div>
+        <div class="kpi-sub">Profitable & improving</div>
+      </div>
+      <div class="kpi-card" style="border-color:var(--warning);background:var(--warning-bg)">
+        <div class="kpi-label">⚠️ Profitable Declining</div>
+        <div class="kpi-value" style="color:var(--warning)">${s.profitableDecline}</div>
+        <div class="kpi-sub">Watch these</div>
+      </div>
+      <div class="kpi-card" style="border-color:var(--danger);background:var(--danger-bg)">
+        <div class="kpi-label">🔴 Losing Money</div>
+        <div class="kpi-value" style="color:var(--danger)">${s.losingMoney}</div>
+        <div class="kpi-sub">${s.recovering} recovering</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">🟡 Inconsistent</div>
+        <div class="kpi-value">${s.inconsistent}</div>
+        <div class="kpi-sub">Review pricing/COGS</div>
+      </div>
+    `;
+
+    const signalLabel = {
+      scaling_opportunity:     '📈 Scale',
+      profitable_declining:    '⚠️ Watch',
+      losing_money_recovering: '🔄 Recovering',
+      losing_money_worsening:  '🔴 Act Now',
+      inconsistent:            '🟡 Inconsistent',
+      stable:                  '✅ Stable'
+    };
+    const signalColor = {
+      scaling_opportunity:     'var(--success)',
+      profitable_declining:    'var(--warning)',
+      losing_money_recovering: '#b45309',
+      losing_money_worsening:  'var(--danger)',
+      inconsistent:            'var(--warning)',
+      stable:                  'var(--gray-400)'
+    };
+
+    tbody.innerHTML = d.asins.map(a => {
+      const wowCls   = a.wowChangePct == null ? '' : a.wowChangePct > 0 ? 'cm-positive' : a.wowChangePct < 0 ? 'cm-negative' : '';
+      const trendIcon = a.trend === 'improving' ? '📈' : a.trend === 'declining' ? '📉' : '➡️';
+      return `<tr>
+        <td style="max-width:160px;font-size:12px">${a.title ? a.title.substring(0, 55) : a.asin}</td>
+        <td style="font-size:11px;color:var(--gray-400)">${a.asin}</td>
+        <td><span style="font-size:12px;font-weight:600;color:${signalColor[a.signal]}">${signalLabel[a.signal] || a.signal}</span></td>
+        <td>${trendIcon} <span style="font-size:12px">${a.trendLabel}</span></td>
+        <td class="${a.cm3Last7 >= 0 ? 'cm-positive' : 'cm-negative'}">${fmt$(a.cm3Last7)}</td>
+        <td class="${a.cm3Prev7 >= 0 ? 'cm-positive' : 'cm-negative'}">${fmt$(a.cm3Prev7)}</td>
+        <td class="${wowCls}">${a.wowChangePct != null ? (a.wowChangePct > 0 ? '+' : '') + a.wowChangePct.toFixed(1) + '%' : '—'}</td>
+        <td>${a.breakEvenAcos != null ? a.breakEvenAcos.toFixed(1) + '%' : '—'}</td>
+        <td style="font-size:12px">${a.profitableDays}/${a.totalDays} days</td>
+      </tr>`;
+    }).join('');
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="9" class="loading-cell">Error loading trends</td></tr>`;
+    console.error('Profitability trends error:', err);
+  }
 }
 
 // ---- Helpers ----

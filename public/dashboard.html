@@ -22,6 +22,7 @@
       <a href="#forecast" class="nav-item" data-section="forecast">📈 Forecast</a>
       <a href="#pacing" class="nav-item nav-item-ads" data-section="pacing">⏱ Budget Pacing</a>
       <a href="#ntb" class="nav-item nav-item-ads" data-section="ntb">🆕 New-to-Brand</a>
+      <a href="#trends" class="nav-item" data-section="trends">📉 Profit Trends</a>
       <a href="/account.html" class="nav-item">⚙️ Account</a>
     </nav>
     <div class="sidebar-footer">
@@ -359,6 +360,35 @@
           </thead>
           <tbody id="bottom-asins-body">
             <tr><td colspan="8" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Profitability Trends Section -->
+    <section id="section-trends" class="dashboard-section hidden">
+      <div class="table-card">
+        <div class="table-header-row">
+          <h3>📉 ASIN Profitability Trends</h3>
+          <span id="trends-summary-label" style="font-size:12px;color:var(--gray-400)">Is each product getting more or less profitable?</span>
+        </div>
+        <div class="kpi-grid kpi-grid-4" id="trends-kpis" style="padding:16px 18px 0"></div>
+        <table class="data-table" id="trends-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>ASIN</th>
+              <th>Signal</th>
+              <th>Trend</th>
+              <th>CM3 Last 7d</th>
+              <th>CM3 Prev 7d</th>
+              <th>WoW Change</th>
+              <th>Break-even ACOS</th>
+              <th>Profitable Days</th>
+            </tr>
+          </thead>
+          <tbody id="trends-body">
+            <tr><td colspan="9" class="loading-cell">Loading...</td></tr>
           </tbody>
         </table>
       </div>
