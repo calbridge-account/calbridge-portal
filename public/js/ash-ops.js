@@ -86,43 +86,44 @@ function renderCostOverview(d) {
   const azureVmCost = azureOverride !== null ? azureOverride : (d.azureVmCost || 0);
   document.getElementById('azure-override-input').placeholder = azureVmCost;
 
-  let orBalance = null;
-  let orText = 'N/A';
-  if (d.openrouter && !d.openrouter.error) {
-    // OpenRouter credits response shape: { data: { total_credits, usage, ... } }
-    const credits = d.openrouter?.data;
-    if (credits) {
-      orBalance = credits.total_credits !== undefined ? parseFloat(credits.total_credits) : null;
-      orText = orBalance !== null ? '$' + orBalance.toFixed(2) : 'N/A';
-      document.getElementById('or-source').textContent = 'Auto — openrouter.ai/api/v1/credits';
-    }
-  } else if (d.openrouter?.error) {
-    orText = 'N/A';
-    document.getElementById('or-source').textContent = d.openrouter.error;
-  }
+  const or = d.openrouter;
+  const orMonthly  = or && !or.error ? or.usageMonthly  : null;
+  const orRemaining = or && !or.error ? or.remaining    : null;
+  const orAllTime  = or && !or.error ? or.usageAllTime  : null;
 
-  document.getElementById('or-balance').textContent = orText;
+  const orMonthlyText   = orMonthly  !== null ? '$' + orMonthly.toFixed(2)   : 'N/A';
+  const orRemainingText = orRemaining !== null ? '$' + orRemaining.toFixed(2) : 'N/A';
+
+  document.getElementById('or-balance').textContent = orRemainingText;
+  document.getElementById('or-source').textContent  = or?.error
+    ? or.error
+    : 'openclaw-dev key via management API';
+
+  const totalMonthly = azureVmCost + (orMonthly || 0);
   document.getElementById('azure-cost').textContent = '$' + azureVmCost.toFixed(2) + '/mo';
-
-  const total = (orBalance !== null ? 0 : 0) + azureVmCost; // OpenRouter shows remaining credits, not monthly cost
-  document.getElementById('cost-total').textContent = '$' + total.toFixed(2) + '/mo (est.)';
+  document.getElementById('cost-total').textContent = '$' + totalMonthly.toFixed(2) + '/mo (est.)';
 
   // KPIs
   document.getElementById('cost-kpis').innerHTML = `
-    <div class="ops-kpi highlight">
-      <div class="ops-kpi-label">OpenRouter Balance</div>
-      <div class="ops-kpi-value">${orText}</div>
-      <div class="ops-kpi-sub">Remaining credits</div>
+    <div class="ops-kpi ${orRemaining !== null && orRemaining < 50 ? 'danger' : 'highlight'}">
+      <div class="ops-kpi-label">OpenRouter Credits Left</div>
+      <div class="ops-kpi-value">${orRemainingText}</div>
+      <div class="ops-kpi-sub">of $${or?.totalCredits?.toFixed(0) || '—'} purchased</div>
     </div>
     <div class="ops-kpi">
-      <div class="ops-kpi-label">Azure VM Cost</div>
-      <div class="ops-kpi-value">$${azureVmCost.toFixed(0)}</div>
-      <div class="ops-kpi-sub">Per month</div>
+      <div class="ops-kpi-label">Ash AI Spend (Month)</div>
+      <div class="ops-kpi-value">${orMonthlyText}</div>
+      <div class="ops-kpi-sub">openclaw-dev key${orAllTime !== null ? ' · all-time: $' + orAllTime.toFixed(2) : ''}</div>
     </div>
     <div class="ops-kpi">
-      <div class="ops-kpi-label">Est. Monthly AI Cost</div>
+      <div class="ops-kpi-label">Azure VM</div>
       <div class="ops-kpi-value">$${azureVmCost.toFixed(0)}</div>
-      <div class="ops-kpi-sub">VM + OpenRouter</div>
+      <div class="ops-kpi-sub">Per month (live)</div>
+    </div>
+    <div class="ops-kpi ${totalMonthly > 250 ? 'warning' : ''}">
+      <div class="ops-kpi-label">Total Ash Ops Cost</div>
+      <div class="ops-kpi-value">$${totalMonthly.toFixed(0)}</div>
+      <div class="ops-kpi-sub">Azure + OpenRouter/mo</div>
     </div>
   `;
 }

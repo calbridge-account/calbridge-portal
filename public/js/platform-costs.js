@@ -110,9 +110,9 @@ function renderCostSummary(d) {
       source: 'auto',
       period: 'This month'
     },
-    // OpenRouter — one row per key, plus a credits-remaining summary
+    // OpenRouter — app key only (openclaw-dev / Ash is tracked in Ash Ops)
     ...(openrouter && !openrouter.error
-      ? openrouter.keys.map(k => ({
+      ? openrouter.appKeys.map(k => ({
           service: `OpenRouter — ${k.name}`,
           cost:    k.usageMonthly,
           error:   null,
@@ -121,7 +121,7 @@ function renderCostSummary(d) {
           sub:     `All-time: $${k.usageAllTime.toFixed(2)}`
         }))
       : [{
-          service: 'OpenRouter (AI)',
+          service: 'OpenRouter (app)',
           cost:    null,
           error:   openrouter?.error || 'Not configured',
           source:  'auto',

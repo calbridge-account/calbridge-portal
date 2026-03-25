@@ -50,21 +50,31 @@ router.get('/ash-ops/data', requireAdmin, async (req, res, next) => {
     const workspace = '/home/azureuser/.openclaw/workspace';
     const results = {};
 
-    // 1. OpenRouter credits
+    // 1. OpenRouter — Ash's key (openclaw-dev) via management key
     try {
-      const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_CHATBOT_KEY;
-      if (openrouterKey) {
-        const credRes = await safeFetch('https://openrouter.ai/api/v1/credits', {
-          headers: { Authorization: `Bearer ${openrouterKey}` }
-        });
-        if (credRes.ok) {
-          results.openrouter = await credRes.json();
-        } else {
-          results.openrouter = { error: `API returned ${credRes.status}` };
-        }
-      } else {
-        results.openrouter = { error: 'No OpenRouter API key configured' };
-      }
+      const mgmtKey = process.env.OPENROUTER_MANAGEMENT_KEY;
+      if (!mgmtKey) throw new Error('No OPENROUTER_MANAGEMENT_KEY configured');
+
+      const [keysRes, creditsRes] = await Promise.all([
+        safeFetch('https://openrouter.ai/api/v1/keys',    { headers: { Authorization: `Bearer ${mgmtKey}` } }),
+        safeFetch('https://openrouter.ai/api/v1/credits', { headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } })
+      ]);
+
+      const keysData    = keysRes.ok    ? await keysRes.json()    : null;
+      const creditsData = creditsRes.ok ? await creditsRes.json() : null;
+
+      const ashKey = (keysData?.data || []).find(k => k.name === 'openclaw-dev');
+      const totalCredits = parseFloat(creditsData?.data?.total_credits || 0);
+      const totalUsed    = parseFloat(creditsData?.data?.total_usage   || 0);
+
+      results.openrouter = {
+        name:         ashKey?.name || 'openclaw-dev',
+        usageMonthly: parseFloat(ashKey?.usage_monthly || 0),
+        usageDaily:   parseFloat(ashKey?.usage_daily   || 0),
+        usageAllTime: parseFloat(ashKey?.usage         || 0),
+        totalCredits,
+        remaining:    totalCredits - totalUsed
+      };
     } catch (err) {
       results.openrouter = { error: err.message };
     }
@@ -356,12 +366,24 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
         disabled:     k.disabled
       }));
 
-      const totalMonthly  = keys.reduce((sum, k) => sum + k.usageMonthly, 0);
-      const totalCredits  = parseFloat(creditsData?.data?.total_credits || 0);
-      const totalUsed     = parseFloat(creditsData?.data?.total_usage   || 0);
-      const remaining     = totalCredits - totalUsed;
+      const totalCredits = parseFloat(creditsData?.data?.total_credits || 0);
+      const totalUsed    = parseFloat(creditsData?.data?.total_usage   || 0);
+      const remaining    = totalCredits - totalUsed;
 
-      results.openrouter = { keys, totalMonthly, totalCredits, totalUsed, remaining };
+      // Split by purpose — only calbridge-portal belongs on platform costs
+      // openclaw-dev is Ash's operational key and belongs on Ash Ops only
+      const appKeys  = keys.filter(k => k.name !== 'openclaw-dev');
+      const ashKeys  = keys.filter(k => k.name === 'openclaw-dev');
+
+      results.openrouter = {
+        keys,
+        appKeys,
+        ashKeys,
+        totalMonthly: appKeys.reduce((sum, k) => sum + k.usageMonthly, 0),
+        totalCredits,
+        totalUsed,
+        remaining
+      };
     } catch (err) {
       results.openrouter = { error: err.message };
     }
