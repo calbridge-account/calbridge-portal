@@ -353,57 +353,119 @@ async function ingestCampaigns(clientId, connectionType) {
 }
 
 /**
- * Main ingestion job — performance (last N days)
- *
- * Requests separate SP, SB, and SD reports per profile per date.
- * Each report type returns ASIN-level data via advertisedAsin.
- * All rows are written to ad_performance with direct ASIN attribution.
+ * Phase 1 — Request performance reports and store IDs in ads_report_queue.
+ * Returns immediately — actual data arrives when processReportQueue() runs.
  */
 async function ingestPerformance(clientId, connectionType, daysBack = 1) {
   return runJob(clientId, connectionType, 'performance', async () => {
-    // Ensure schema is up to date before writing
     await ensureAdPerformanceSchema();
 
     const allProfiles = await fetchProfiles(clientId, connectionType);
-    const profiles = await getAuthorizedProfiles(clientId, allProfiles);
-    let totalWritten = 0;
+    const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
+    let queued = 0;
 
     for (const profile of profiles) {
-      const client = await adsClient(clientId, connectionType);
       for (let d = daysBack; d >= 1; d--) {
         const date = new Date();
         date.setDate(date.getDate() - d);
         const reportDate = date.toISOString().split('T')[0].replace(/-/g, '');
 
-        // Request SP, SB, and SD reports in parallel
         const reportJobs = [
-          { type: 'SP', requester: requestSPReport  },
-          { type: 'SB', requester: requestSBReport  },
-          { type: 'SD', requester: requestSDReport  }
+          { type: 'SP', requester: requestSPReport },
+          { type: 'SB', requester: requestSBReport },
+          { type: 'SD', requester: requestSDReport }
         ];
 
         for (const job of reportJobs) {
           try {
-            // Refresh client before each report to ensure token is fresh
             const freshClient = await adsClient(clientId, connectionType);
-            const reportId = await job.requester(freshClient, String(profile.profileId), reportDate);
+            const reportId    = await job.requester(freshClient, String(profile.profileId), reportDate);
             if (!reportId) continue;
-            // Refresh again before polling (reports can take minutes)
-            const pollClient = await adsClient(clientId, connectionType);
-            const rows = await downloadReport(pollClient, String(profile.profileId), reportId);
-            const rowArr = Array.isArray(rows) ? rows : [];
-            // Tag each row with its report type so we can detect SB NTB fields
-            const tagged = rowArr.map(r => ({ ...r, _reportType: job.type }));
-            totalWritten += await writePerformance(clientId, connectionType, reportDate, tagged);
+
+            // Store in queue — upsert in case it already exists
+            await query(`
+              MERGE INTO ads_report_queue t
+              USING (SELECT ? AS report_id) s ON t.report_id = s.report_id
+              WHEN NOT MATCHED THEN INSERT
+                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+            `, [reportId, reportId, clientId, connectionType, String(profile.profileId), job.type, reportDate]);
+
+            console.log(`[performance:${job.type}] Queued report ${reportId} for ${reportDate}`);
+            queued++;
           } catch (err) {
             const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : '';
-            console.warn(`[performance:${job.type}] Skipping ${reportDate} profile ${profile.profileId}: ${err.message} ${body}`);
+            console.warn(`[performance:${job.type}] Queue failed ${reportDate} profile ${profile.profileId}: ${err.message} ${body}`);
           }
         }
       }
     }
-    return { recordsWritten: totalWritten };
+    console.log(`[performance] Queued ${queued} reports — run processReportQueue() to download`);
+
+    // Phase 2 — process the queue in background (non-blocking)
+    processReportQueue(clientId, connectionType).catch(err =>
+      console.error('[performance] Queue processing error:', err.message)
+    );
+
+    return { recordsWritten: 0, queued };
   });
 }
 
-module.exports = { ingestCampaigns, ingestPerformance, ensureAdPerformanceSchema };
+/**
+ * Phase 2 — Poll and download completed reports from the queue.
+ * Runs in background after ingestPerformance() queues reports.
+ * Can also be called standalone to process any pending reports.
+ */
+async function processReportQueue(clientId, connectionType) {
+  const pending = await query(`
+    SELECT report_id, profile_id, report_type, report_date
+    FROM ads_report_queue
+    WHERE client_id = ? AND connection_type = ? AND status = 'pending'
+    ORDER BY requested_at ASC
+    LIMIT 50
+  `, [clientId, connectionType]);
+
+  if (!pending.length) return;
+  console.log(`[ReportQueue] Processing ${pending.length} pending reports for ${clientId}`);
+
+  for (const row of pending) {
+    const { REPORT_ID: reportId, PROFILE_ID: profileId, REPORT_TYPE: reportType, REPORT_DATE: reportDate } = row;
+    try {
+      const pollClient = await adsClient(clientId, connectionType);
+
+      // Check status
+      const statusRes = await pollClient.get(`/reporting/reports/${reportId}`, {
+        headers: { 'Amazon-Advertising-API-Scope': profileId }
+      });
+      const { status, url, failureReason } = statusRes.data;
+
+      if (status === 'PENDING' || status === 'PROCESSING') {
+        console.log(`[ReportQueue] ${reportId} still ${status} — skipping for now`);
+        continue;
+      }
+
+      if (status === 'FAILURE') {
+        await query(`UPDATE ads_report_queue SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE report_id = ?`,
+          [failureReason || 'FAILURE', reportId]);
+        console.warn(`[ReportQueue] Report ${reportId} failed: ${failureReason}`);
+        continue;
+      }
+
+      if (status === 'COMPLETED' && url) {
+        const zlib = require('zlib');
+        const download = await require('axios').get(url, { responseType: 'arraybuffer' });
+        const rows = JSON.parse(zlib.gunzipSync(Buffer.from(download.data)).toString('utf8'));
+        const tagged = (Array.isArray(rows) ? rows : []).map(r => ({ ...r, _reportType: reportType }));
+        const written = await writePerformance(clientId, connectionType, reportDate, tagged);
+
+        await query(`UPDATE ads_report_queue SET status = 'completed', records_written = ?, completed_at = CURRENT_TIMESTAMP WHERE report_id = ?`,
+          [written, reportId]);
+        console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records written`);
+      }
+    } catch (err) {
+      console.warn(`[ReportQueue] Error processing ${reportId}: ${err.message}`);
+    }
+  }
+}
+
+module.exports = { ingestCampaigns, ingestPerformance, processReportQueue, ensureAdPerformanceSchema };
