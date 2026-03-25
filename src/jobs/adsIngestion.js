@@ -59,70 +59,89 @@ async function fetchCampaigns(client, profileId, connectionType) {
 }
 
 /**
- * Request an SP ad-level performance report for a profile (async report flow)
- * Uses the sponsored products ads report which includes advertisedAsin at the ad level.
- * Metrics include: impressions, clicks, cost, attributedSales30d, attributedUnitsOrdered30d,
- *                  newToBrandPurchases, newToBrandSales (SB only)
+ * Request a v3 async report for a given ad product and report type.
+ * Uses the /reporting/reports endpoint (replaces deprecated v2 report endpoints).
  */
+async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns) {
+  // Must override Content-Type at the request level — axios instance default
+  // is application/json which causes 400. v3 requires the vendor media type.
+  const res = await client.post('/reporting/reports', {
+    name:      `${adProduct} ${reportTypeId} ${startDate}`,
+    startDate,
+    endDate:   startDate,
+    configuration: {
+      adProduct,
+      groupBy,
+      columns,
+      reportTypeId,
+      timeUnit: 'DAILY',
+      format:   'GZIP_JSON'
+    }
+  }, {
+    headers: {
+      'Amazon-Advertising-API-Scope': profileId,
+      'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
+      'Accept':        'application/vnd.createasyncreportrequest.v3+json'
+    },
+    transformRequest: [(data, headers) => {
+      // Force correct Content-Type — prevent axios from resetting it
+      headers['Content-Type'] = 'application/vnd.createasyncreportrequest.v3+json';
+      return JSON.stringify(data);
+    }]
+  });
+  return res.data?.reportId;
+}
+
 async function requestSPReport(client, profileId, reportDate) {
-  // SP report at "asin" level — returns one row per advertised ASIN
-  const res = await client.post('/v2/sp/adGroups/report', {
-    reportDate,
-    metrics: 'impressions,clicks,cost,attributedSales30d,attributedUnitsOrdered30d,advertisedAsin'
-  }, {
-    headers: { 'Amazon-Advertising-API-Scope': profileId }
-  });
-  return res.data?.reportId;
+  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
+  return requestV3Report(client, profileId, date, 'spCampaigns', 'SPONSORED_PRODUCTS',
+    ['campaign'],
+    ['impressions','clicks','cost','purchases30d','sales30d','campaignId','campaignName','advertisedAsin']
+  );
 }
 
-/**
- * Request a Sponsored Brands report including NTB metrics
- */
 async function requestSBReport(client, profileId, reportDate) {
-  const res = await client.post('/v2/hsa/campaigns/report', {
-    reportDate,
-    metrics: [
-      'impressions', 'clicks', 'cost', 'attributedSales14d',
-      'unitsSold14d', 'newToBrandOrders14d', 'newToBrandSales14d',
-      'newToBrandUnitsSold14d'
-    ].join(',')
-  }, {
-    headers: { 'Amazon-Advertising-API-Scope': profileId }
-  });
-  return res.data?.reportId;
+  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
+  return requestV3Report(client, profileId, date, 'sbCampaigns', 'SPONSORED_BRANDS',
+    ['campaign'],
+    ['impressions','clicks','cost','purchases14d','sales14d','campaignId','campaignName',
+     'newToBrandPurchases14d','newToBrandSales14d','newToBrandUnitsSold14d']
+  );
 }
 
-/**
- * Request a Sponsored Display report at ad level (includes advertisedAsin)
- */
 async function requestSDReport(client, profileId, reportDate) {
-  const res = await client.post('/v2/sd/adGroups/report', {
-    reportDate,
-    metrics: 'impressions,clicks,cost,attributedSales30d,attributedUnitsOrdered30d,advertisedAsin'
-  }, {
-    headers: { 'Amazon-Advertising-API-Scope': profileId }
-  });
-  return res.data?.reportId;
+  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
+  return requestV3Report(client, profileId, date, 'sdCampaigns', 'SPONSORED_DISPLAY',
+    ['campaign'],
+    ['impressions','clicks','cost','purchases30d','sales30d','campaignId','campaignName']
+  );
 }
 
 /**
- * Poll for report completion and download
+ * Poll v3 report for completion and download (GZIP_JSON → parsed array)
  */
-async function downloadReport(client, profileId, reportId, maxWaitMs = 60000) {
+async function downloadReport(client, profileId, reportId, maxWaitMs = 120000) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
-    const res = await client.get(`/v2/reports/${reportId}`, {
+    const res = await client.get(`/reporting/reports/${reportId}`, {
       headers: { 'Amazon-Advertising-API-Scope': profileId }
     });
-    const { status, location } = res.data;
-    if (status === 'SUCCESS' && location) {
-      const download = await axios.get(location, { responseType: 'json' });
-      return download.data;
+    const { status, url } = res.data;
+    if (status === 'COMPLETED' && url) {
+      // Download gzipped JSON and decompress
+      const download = await axios.get(url, { responseType: 'arraybuffer' });
+      const zlib = require('zlib');
+      const decompressed = zlib.gunzipSync(Buffer.from(download.data));
+      return JSON.parse(decompressed.toString('utf8'));
     }
     if (status === 'FAILURE') throw new Error(`Report ${reportId} failed`);
-    await new Promise(r => setTimeout(r, 5000)); // poll every 5s
+    if (status === 'PENDING' || status === 'PROCESSING') {
+      await new Promise(r => setTimeout(r, 8000)); // poll every 8s
+      continue;
+    }
+    throw new Error(`Report ${reportId} unknown status: ${status}`);
   }
-  throw new Error(`Report ${reportId} timed out`);
+  throw new Error(`Report ${reportId} timed out after ${maxWaitMs/1000}s`);
 }
 
 /**
@@ -199,22 +218,23 @@ async function writePerformance(clientId, connectionType, reportDate, rows) {
   if (!rows.length) return 0;
   let written = 0;
   for (const r of rows) {
+    // v3 field names differ slightly from v2 — handle both for compatibility
     const spend       = r.cost || r.spend || 0;
-    const sales       = r.attributedSales30d || r.attributedSales14d || 0;
+    const sales       = r.sales30d || r.sales14d || r.attributedSales30d || r.attributedSales14d || 0;
     const clicks      = r.clicks || 0;
     const impressions = r.impressions || 0;
-    const units       = r.attributedUnitsOrdered30d || r.unitsSold14d || 0;
+    const orders      = r.purchases30d || r.purchases14d || r.attributedUnitsOrdered30d || r.unitsSold14d || 0;
+    const units       = orders;
     const acos        = sales > 0 ? spend / sales : null;
     const roas        = spend > 0 ? sales / spend : null;
     const ctr         = impressions > 0 ? clicks / impressions : null;
     const cpc         = clicks > 0 ? spend / clicks : null;
 
-    // Direct ASIN from ad-level report; fall back to 'UNATTRIBUTED' for
-    // brand awareness DSP or campaigns with no product targeting
+    // ASIN attribution — v3 campaign-level reports may not have advertisedAsin
     const advertisedAsin = r.advertisedAsin || r.asin || 'UNATTRIBUTED';
 
-    // NTB metrics (Sponsored Brands only)
-    const ntbOrders = r.newToBrandOrders14d   || r.newToBrandPurchases || null;
+    // NTB metrics (Sponsored Brands only) — v3 field names
+    const ntbOrders = r.newToBrandPurchases14d || r.newToBrandOrders14d || r.newToBrandPurchases || null;
     const ntbSales  = r.newToBrandSales14d     || null;
     const ntbUnits  = r.newToBrandUnitsSold14d || null;
 
