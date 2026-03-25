@@ -866,19 +866,27 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
         sales_1_d, sales_7_d, sales_14_d, sales_30_d,
         units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
         synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?::DATE,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        CURRENT_TIMESTAMP
+      )
     `, [
       // MERGE key (6)
-      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
-      // UPDATE (20)
+      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), isoDate,
+      // UPDATE SET (20)
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
-      // INSERT VALUES (26 + CURRENT_TIMESTAMP = 27 cols)
-      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
+      // INSERT VALUES: 6 key + 5 + 3 + 4 + 4 + 4 = 26 + CURRENT_TIMESTAMP = 27 cols ✓
+      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), isoDate,
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
@@ -1048,45 +1056,97 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
   const isoDate = toISODate(reportDate);
   let written = 0;
   for (const r of rows) {
-    await query(`
-      MERGE INTO sb_campaign_report t
-      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS report_date) s
-      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
-        AND t.campaign_id = s.campaign_id AND t.report_date = s.report_date
-      WHEN MATCHED THEN UPDATE SET
-        campaign_name = ?, top_of_search_impression_share = ?,
-        impressions = ?, clicks = ?, cost = ?,
-        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
-        attributed_orders_new_to_brand_14_d = ?, attributed_sales_new_to_brand_14_d = ?,
-        attributed_units_ordered_new_to_brand_14_d = ?,
-        video_5_second_views = ?, video_complete_views = ?, viewable_impressions = ?,
-        synced_at = CURRENT_TIMESTAMP
-      WHEN NOT MATCHED THEN INSERT (
-        client_id, profile_id, campaign_id, report_date, campaign_name,
-        top_of_search_impression_share, impressions, clicks, cost,
-        attributed_sales_14_d, attributed_conversions_14_d,
-        attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d,
-        attributed_units_ordered_new_to_brand_14_d,
-        video_5_second_views, video_complete_views, viewable_impressions, synced_at
-      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `, [
-      clientId, profileId, String(r.campaignId), isoDate,
-      r.campaignName || null, r.topOfSearchImpressionShare || null,
+    // v3 SB field names: purchases, sales, unitsSold (no 14d suffix at campaign level)
+    const vals = [
+      clientId, profileId, String(r.campaignId || r.CAMPAIGN_ID || ''), isoDate,
+      r.campaignName || r.CAMPAIGN_NAME || null,
+      r.campaignStatus || r.CAMPAIGN_STATUS || null,
+      r.campaignBudgetAmount || r.CAMPAIGN_BUDGET_AMOUNT || null,
+      r.campaignBudgetType || r.CAMPAIGN_BUDGET_TYPE || null,
+      r.campaignBudgetCurrencyCode || r.CAMPAIGN_BUDGET_CURRENCY_CODE || null,
+      r.costType || r.COST_TYPE || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
-      r.attributedSales14d || null, r.attributedConversions14d || null,
-      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
-      r.attributedUnitsOrderedNewToBrand14d || null,
-      r.video5SecondViews || null, r.videoCompleteViews || null, r.viewableImpressions || null,
-      clientId, profileId, String(r.campaignId), isoDate,
-      r.campaignName || null,
-      r.topOfSearchImpressionShare || null,
-      r.impressions || 0, r.clicks || 0, r.cost || 0,
-      r.attributedSales14d || null, r.attributedConversions14d || null,
-      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
-      r.attributedUnitsOrderedNewToBrand14d || null,
-      r.video5SecondViews || null, r.videoCompleteViews || null, r.viewableImpressions || null
-    ]);
-    written++;
+      r.purchases || null, r.purchasesClicks || null, r.purchasesPromoted || null,
+      r.sales || null, r.salesClicks || null, r.salesPromoted || null,
+      r.unitsSold || null, r.unitsSoldClicks || null,
+      r.newToBrandPurchases || null, r.newToBrandPurchasesClicks || null,
+      r.newToBrandPurchasesPercentage || null, r.newToBrandPurchasesRate || null,
+      r.newToBrandSales || null, r.newToBrandSalesClicks || null,
+      r.newToBrandSalesPercentage || null,
+      r.newToBrandUnitsSold || null, r.newToBrandUnitsSoldClicks || null,
+      r.newToBrandUnitsSoldPercentage || null,
+      r.newToBrandDetailPageViews || null, r.newToBrandDetailPageViewsClicks || null,
+      r.newToBrandDetailPageViewRate || null, r.newToBrandECPDetailPageView || null,
+      r.detailPageViews || null, r.detailPageViewsClicks || null,
+      r.addToCart || null, r.addToCartClicks || null, r.addToCartRate || null,
+      r.brandedSearches || null, r.brandedSearchesClicks || null,
+      r.brandStorePageView || null, r.topOfSearchImpressionShare || null,
+      r.video5SecondViewRate || null, r.video5SecondViews || null,
+      r.videoCompleteViews || null, r.videoFirstQuartileViews || null,
+      r.videoMidpointViews || null, r.videoThirdQuartileViews || null, r.videoUnmutes || null,
+      r.viewabilityRate || null, r.viewableImpressions || null, r.viewClickThroughRate || null,
+      r.kindleEditionNormalizedPagesRead14d || null, r.kindleEditionNormalizedPagesRoyalties14d || null
+    ];
+    try {
+      await query(`
+        MERGE INTO sb_campaign_report t
+        USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS report_date) s
+        ON t.client_id=s.client_id AND t.profile_id=s.profile_id AND t.campaign_id=s.campaign_id AND t.report_date=s.report_date
+        WHEN MATCHED THEN UPDATE SET
+          campaign_name=?, campaign_status=?, campaign_budget_amount=?, campaign_budget_type=?,
+          campaign_budget_currency_code=?, cost_type=?,
+          impressions=?, clicks=?, cost=?,
+          purchases=?, purchases_clicks=?, purchases_promoted=?,
+          sales=?, sales_clicks=?, sales_promoted=?,
+          units_sold=?, units_sold_clicks=?,
+          new_to_brand_purchases=?, new_to_brand_purchases_clicks=?,
+          new_to_brand_purchases_percentage=?, new_to_brand_purchases_rate=?,
+          new_to_brand_sales=?, new_to_brand_sales_clicks=?, new_to_brand_sales_percentage=?,
+          new_to_brand_units_sold=?, new_to_brand_units_sold_clicks=?, new_to_brand_units_sold_percentage=?,
+          new_to_brand_detail_page_views=?, new_to_brand_detail_page_views_clicks=?,
+          new_to_brand_detail_page_view_rate=?, new_to_brand_e_c_p_detail_page_view=?,
+          detail_page_views=?, detail_page_views_clicks=?,
+          add_to_cart=?, add_to_cart_clicks=?, add_to_cart_rate=?,
+          branded_searches=?, branded_searches_clicks=?,
+          brand_store_page_view=?, top_of_search_impression_share=?,
+          video_5_second_view_rate=?, video_5_second_views=?,
+          video_complete_views=?, video_first_quartile_views=?,
+          video_midpoint_views=?, video_third_quartile_views=?, video_unmutes=?,
+          viewability_rate=?, viewable_impressions=?, view_click_through_rate=?,
+          kindle_edition_normalized_pages_read_14_d=?, kindle_edition_normalized_pages_royalties_14_d=?,
+          synced_at=CURRENT_TIMESTAMP
+        WHEN NOT MATCHED THEN INSERT (
+          client_id, profile_id, campaign_id, report_date,
+          campaign_name, campaign_status, campaign_budget_amount, campaign_budget_type,
+          campaign_budget_currency_code, cost_type,
+          impressions, clicks, cost,
+          purchases, purchases_clicks, purchases_promoted,
+          sales, sales_clicks, sales_promoted,
+          units_sold, units_sold_clicks,
+          new_to_brand_purchases, new_to_brand_purchases_clicks,
+          new_to_brand_purchases_percentage, new_to_brand_purchases_rate,
+          new_to_brand_sales, new_to_brand_sales_clicks, new_to_brand_sales_percentage,
+          new_to_brand_units_sold, new_to_brand_units_sold_clicks, new_to_brand_units_sold_percentage,
+          new_to_brand_detail_page_views, new_to_brand_detail_page_views_clicks,
+          new_to_brand_detail_page_view_rate, new_to_brand_e_c_p_detail_page_view,
+          detail_page_views, detail_page_views_clicks,
+          add_to_cart, add_to_cart_clicks, add_to_cart_rate,
+          branded_searches, branded_searches_clicks,
+          brand_store_page_view, top_of_search_impression_share,
+          video_5_second_view_rate, video_5_second_views,
+          video_complete_views, video_first_quartile_views,
+          video_midpoint_views, video_third_quartile_views, video_unmutes,
+          viewability_rate, viewable_impressions, view_click_through_rate,
+          kindle_edition_normalized_pages_read_14_d, kindle_edition_normalized_pages_royalties_14_d,
+          synced_at
+        ) VALUES (
+          ?,?,?,?::DATE,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP
+        )
+      `, [...vals, ...vals]);
+      written++;
+    } catch (err) {
+      console.warn(`[writeSbCampaignReport] Row error: ${err.message.substring(0,100)}`);
+    }
   }
   return written;
 }
@@ -1696,7 +1756,23 @@ async function processReportQueue(clientId, connectionType) {
           return false;
         }
 
-        const written = await writeFn(clientId, profileId, reportDate, rows);
+        let written = 0;
+        try {
+          written = await writeFn(clientId, profileId, reportDate, rows);
+        } catch (writeErr) {
+          // If table doesn't exist, create schema and retry once
+          if (writeErr.message?.includes('does not exist') || writeErr.message?.includes('not authorized')) {
+            console.warn(`[ReportQueue] Table missing for ${reportType} — running ensureAdsSchema and retrying`);
+            try {
+              await ensureAdsSchema();
+              written = await writeFn(clientId, profileId, reportDate, rows);
+            } catch (retryErr) {
+              throw retryErr; // let outer catch handle
+            }
+          } else {
+            throw writeErr;
+          }
+        }
         await query(`UPDATE ads_report_queue SET status='completed', records_written=?, completed_at=CURRENT_TIMESTAMP WHERE report_id=?`,
           [written, reportId]);
         console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records`);
