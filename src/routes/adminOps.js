@@ -206,6 +206,32 @@ router.get('/ash-ops/data', requireAdmin, async (req, res, next) => {
 });
 
 // ─────────────────────────────────────────────
+// Helper: get Azure AD bearer token
+// ─────────────────────────────────────────────
+async function getAzureToken(resource = 'https://management.azure.com/') {
+  const { AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
+  if (!AZURE_TENANT_ID || !AZURE_CLIENT_ID || !AZURE_CLIENT_SECRET) throw new Error('Azure credentials not configured');
+
+  const res = await safeFetch(
+    `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type:    'client_credentials',
+        client_id:     AZURE_CLIENT_ID,
+        client_secret: AZURE_CLIENT_SECRET,
+        resource
+      }).toString()
+    },
+    10000
+  );
+  if (!res.ok) throw new Error(`Azure auth failed: ${res.status}`);
+  const data = await res.json();
+  return data.access_token;
+}
+
+// ─────────────────────────────────────────────
 // GET /admin/platform-costs/data
 // Returns all Platform Costs data
 // ─────────────────────────────────────────────
@@ -213,17 +239,64 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
   try {
     const results = {};
 
-    // Manual / env var costs
+    // Month boundaries for cost queries
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+    // Manual / env var costs (fallback for anything not auto-fetched)
     results.manualCosts = {
-      azureVm:    parseFloat(process.env.AZURE_VM_MONTHLY_COST   || '0'),
-      domainSsl:  parseFloat(process.env.DOMAIN_ANNUAL_COST      || '0') / 12,
-      github:     parseFloat(process.env.GITHUB_MONTHLY_COST     || '0')
+      azureVm:   parseFloat(process.env.AZURE_VM_MONTHLY_COST || '0'),
+      domainSsl: parseFloat(process.env.DOMAIN_ANNUAL_COST    || '0') / 12,
+      github:    parseFloat(process.env.GITHUB_MONTHLY_COST   || '0')
     };
 
-    // Snowflake compute cost
+    // ── Azure actual cost (Cost Management API) ──
+    try {
+      const { AZURE_SUBSCRIPTION_ID } = process.env;
+      if (!AZURE_SUBSCRIPTION_ID) throw new Error('AZURE_SUBSCRIPTION_ID not set');
+
+      const token = await getAzureToken();
+      const url = `https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`;
+
+      const costRes = await safeFetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization:  `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: 'ActualCost',
+          timeframe: 'Custom',
+          timePeriod: { from: `${monthStart}T00:00:00Z`, to: `${monthEnd}T23:59:59Z` },
+          dataset: {
+            granularity: 'None',
+            aggregation: { totalCost: { name: 'Cost', function: 'Sum' } }
+          }
+        })
+      }, 15000);
+
+      if (!costRes.ok) {
+        const errText = await costRes.text();
+        throw new Error(`Azure Cost API ${costRes.status}: ${errText.substring(0, 200)}`);
+      }
+
+      const costData = await costRes.json();
+      const rows = costData?.properties?.rows || [];
+      const totalCost = rows.length > 0 ? parseFloat(rows[0][0] || 0) : 0;
+      const currency  = rows.length > 0 ? (rows[0][1] || 'USD') : 'USD';
+
+      results.azure = { totalCostUsd: totalCost, currency, source: 'Azure Cost Management API', period: `${monthStart} → ${monthEnd}` };
+      // Override the manual fallback with real data
+      results.manualCosts.azureVm = totalCost;
+    } catch (err) {
+      results.azure = { error: err.message };
+    }
+
+    // ── Snowflake compute cost ──
     try {
       const computeRows = await query(`
-        SELECT 
+        SELECT
           SUM(CREDITS_USED) as credits_used,
           SUM(CREDITS_USED) * 2 as estimated_cost_usd
         FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
@@ -235,16 +308,16 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
           estimatedCostUsd: parseFloat(computeRows[0].ESTIMATED_COST_USD || 0)
         };
       } else {
-        results.snowflakeCompute = { error: 'N/A — requires ACCOUNTADMIN role or no data yet' };
+        results.snowflakeCompute = { error: 'No data yet this month' };
       }
     } catch (err) {
-      results.snowflakeCompute = { error: 'N/A — requires ACCOUNTADMIN role' };
+      results.snowflakeCompute = { error: err.message };
     }
 
-    // Snowflake storage cost
+    // ── Snowflake storage cost ──
     try {
       const storageRows = await query(`
-        SELECT 
+        SELECT
           AVERAGE_STAGE_BYTES / (1024.0*1024*1024*1024) * 23 as estimated_storage_cost_usd
         FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE
         WHERE USAGE_DATE >= DATE_TRUNC('month', CURRENT_DATE)
@@ -252,68 +325,76 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
         LIMIT 1
       `);
       if (storageRows.length > 0 && storageRows[0].ESTIMATED_STORAGE_COST_USD !== null) {
-        results.snowflakeStorage = {
-          estimatedCostUsd: parseFloat(storageRows[0].ESTIMATED_STORAGE_COST_USD || 0)
-        };
+        results.snowflakeStorage = { estimatedCostUsd: parseFloat(storageRows[0].ESTIMATED_STORAGE_COST_USD || 0) };
       } else {
-        results.snowflakeStorage = { error: 'N/A — requires ACCOUNTADMIN role or no data yet' };
+        results.snowflakeStorage = { error: 'No data yet this month' };
       }
     } catch (err) {
-      results.snowflakeStorage = { error: 'N/A — requires ACCOUNTADMIN role' };
+      results.snowflakeStorage = { error: err.message };
     }
 
-    // Resend email count + cost
-    try {
-      const resendKey = process.env.RESEND_API_KEY;
-      if (resendKey) {
-        const resendRes = await safeFetch('https://api.resend.com/emails?limit=100', {
-          headers: { Authorization: `Bearer ${resendKey}` }
-        });
-        if (resendRes.ok) {
-          const resendData = await resendRes.json();
-          // Count emails sent this month
-          const now = new Date();
-          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-          const emails = (resendData.data || []).filter(e => new Date(e.created_at) >= monthStart);
-          const emailCount = emails.length;
-          const FREE_TIER = 3000;
-          const overFree = Math.max(0, emailCount - FREE_TIER);
-          results.resend = {
-            emailsThisMonth: emailCount,
-            estimatedCostUsd: parseFloat((overFree * 0.001).toFixed(2)),
-            freeTierUsed: Math.min(emailCount, FREE_TIER),
-            overFree
-          };
-        } else {
-          results.resend = { error: `Resend API returned ${resendRes.status}` };
-        }
-      } else {
-        results.resend = { error: 'No RESEND_API_KEY configured' };
-      }
-    } catch (err) {
-      results.resend = { error: err.message };
-    }
-
-    // OpenRouter balance (as proxy for cost)
+    // ── OpenRouter — monthly spend ──
     try {
       const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_CHATBOT_KEY;
-      if (openrouterKey) {
-        const orRes = await safeFetch('https://openrouter.ai/api/v1/credits', {
-          headers: { Authorization: `Bearer ${openrouterKey}` }
-        });
-        if (orRes.ok) {
-          results.openrouter = await orRes.json();
-        } else {
-          results.openrouter = { error: `OpenRouter API returned ${orRes.status}` };
-        }
-      } else {
-        results.openrouter = { error: 'No OpenRouter API key configured' };
-      }
+      if (!openrouterKey) throw new Error('No OpenRouter API key configured');
+
+      // Fetch credits (balance) and usage in parallel
+      const [credRes, usageRes] = await Promise.all([
+        safeFetch('https://openrouter.ai/api/v1/credits',               { headers: { Authorization: `Bearer ${openrouterKey}` } }),
+        safeFetch('https://openrouter.ai/api/v1/credits/usage?days=30', { headers: { Authorization: `Bearer ${openrouterKey}` } })
+      ]);
+
+      const credData  = credRes.ok  ? await credRes.json()  : null;
+      const usageData = usageRes.ok ? await usageRes.json() : null;
+
+      // Credits balance
+      const balance = credData?.data?.total_credits !== undefined
+        ? parseFloat(credData.data.total_credits)
+        : null;
+
+      // Monthly spend from usage endpoint
+      const usageRows = usageData?.data || [];
+      const cutoff = new Date(monthStart);
+      const monthlySpend = usageRows
+        .filter(r => new Date(r.date) >= cutoff)
+        .reduce((sum, r) => sum + parseFloat(r.cost || 0), 0);
+
+      results.openrouter = {
+        balance,
+        monthlySpendUsd: parseFloat(monthlySpend.toFixed(4)),
+        source: 'openrouter.ai/api/v1/credits + /usage'
+      };
     } catch (err) {
       results.openrouter = { error: err.message };
     }
 
-    // Active clients count
+    // ── Resend email count + cost ──
+    try {
+      const resendKey = process.env.RESEND_API_KEY;
+      if (!resendKey) throw new Error('No RESEND_API_KEY configured');
+
+      const resendRes = await safeFetch('https://api.resend.com/emails?limit=100', {
+        headers: { Authorization: `Bearer ${resendKey}` }
+      });
+      if (!resendRes.ok) throw new Error(`Resend API returned ${resendRes.status}`);
+
+      const resendData = await resendRes.json();
+      const cutoff = new Date(monthStart);
+      const emails = (resendData.data || []).filter(e => new Date(e.created_at) >= cutoff);
+      const emailCount = emails.length;
+      const FREE_TIER  = 3000;
+      const overFree   = Math.max(0, emailCount - FREE_TIER);
+      results.resend = {
+        emailsThisMonth:  emailCount,
+        estimatedCostUsd: parseFloat((overFree * 0.001).toFixed(2)),
+        freeTierUsed:     Math.min(emailCount, FREE_TIER),
+        overFree
+      };
+    } catch (err) {
+      results.resend = { error: err.message };
+    }
+
+    // ── Active clients count ──
     try {
       const clientRows = await query(`SELECT COUNT(*) as cnt FROM clients WHERE status = 'active'`);
       results.activeClients = Number(clientRows[0]?.CNT || 0);
@@ -321,43 +402,37 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
       results.activeClients = { error: err.message };
     }
 
-    // Stripe subscriptions
+    // ── Stripe subscriptions + MRR ──
     try {
       const stripeKey = process.env.STRIPE_SECRET_KEY;
-      if (stripeKey) {
-        const stripeRes = await safeFetch('https://api.stripe.com/v1/subscriptions?status=active&limit=100', {
-          headers: { Authorization: `Bearer ${stripeKey}` }
-        });
-        if (stripeRes.ok) {
-          const stripeData = await stripeRes.json();
-          const subs = stripeData.data || [];
-          const mrr = subs.reduce((sum, sub) => {
-            const item = sub.items?.data?.[0];
-            if (!item) return sum;
-            const amount = item.price?.unit_amount || 0;
-            const interval = item.price?.recurring?.interval;
-            const monthlyAmount = interval === 'year' ? amount / 12 : amount;
-            return sum + monthlyAmount;
-          }, 0);
+      if (!stripeKey) throw new Error('No STRIPE_SECRET_KEY configured');
 
-          // Plan distribution
-          const planMap = {};
-          subs.forEach(sub => {
-            const name = sub.items?.data?.[0]?.price?.nickname || sub.items?.data?.[0]?.price?.id || 'Unknown';
-            planMap[name] = (planMap[name] || 0) + 1;
-          });
+      const stripeRes = await safeFetch('https://api.stripe.com/v1/subscriptions?status=active&limit=100', {
+        headers: { Authorization: `Bearer ${stripeKey}` }
+      });
+      if (!stripeRes.ok) throw new Error(`Stripe API returned ${stripeRes.status}`);
 
-          results.stripe = {
-            activeSubscriptions: subs.length,
-            mrr: mrr / 100, // cents → dollars
-            planDistribution: planMap
-          };
-        } else {
-          results.stripe = { error: `Stripe API returned ${stripeRes.status}` };
-        }
-      } else {
-        results.stripe = { error: 'No STRIPE_SECRET_KEY configured' };
-      }
+      const stripeData = await stripeRes.json();
+      const subs = stripeData.data || [];
+      const mrr  = subs.reduce((sum, sub) => {
+        const item   = sub.items?.data?.[0];
+        if (!item) return sum;
+        const amount = item.price?.unit_amount || 0;
+        const interval = item.price?.recurring?.interval;
+        return sum + (interval === 'year' ? amount / 12 : amount);
+      }, 0);
+
+      const planMap = {};
+      subs.forEach(sub => {
+        const name = sub.items?.data?.[0]?.price?.nickname || sub.items?.data?.[0]?.price?.id || 'Unknown';
+        planMap[name] = (planMap[name] || 0) + 1;
+      });
+
+      results.stripe = {
+        activeSubscriptions: subs.length,
+        mrr:                 mrr / 100,
+        planDistribution:    planMap
+      };
     } catch (err) {
       results.stripe = { error: err.message };
     }

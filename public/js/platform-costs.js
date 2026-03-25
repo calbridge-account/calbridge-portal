@@ -79,58 +79,64 @@ async function loadData() {
 
 // ── Cost Summary ──
 function renderCostSummary(d) {
-  const manual = d.manualCosts || {};
-  const sfCompute = d.snowflakeCompute;
-  const sfStorage = d.snowflakeStorage;
-  const resend    = d.resend;
+  const manual     = d.manualCosts || {};
+  const sfCompute  = d.snowflakeCompute;
+  const sfStorage  = d.snowflakeStorage;
+  const resend     = d.resend;
   const openrouter = d.openrouter;
+  const azure      = d.azure;
 
   // Build line items
   const rows = [
     {
+      service: 'Azure (VM + all services)',
+      cost:   azure?.error ? null : azure?.totalCostUsd,
+      error:  azure?.error,
+      source: 'auto',
+      period: azure?.period || 'This month',
+      sub:    azure && !azure.error ? `Live from Azure Cost Management` : null
+    },
+    {
       service: 'Snowflake Compute',
-      cost: sfCompute?.error ? null : sfCompute?.estimatedCostUsd,
-      error: sfCompute?.error,
+      cost:   sfCompute?.error ? null : sfCompute?.estimatedCostUsd,
+      error:  sfCompute?.error,
       source: 'auto',
       period: 'This month'
     },
     {
       service: 'Snowflake Storage',
-      cost: sfStorage?.error ? null : sfStorage?.estimatedCostUsd,
-      error: sfStorage?.error,
+      cost:   sfStorage?.error ? null : sfStorage?.estimatedCostUsd,
+      error:  sfStorage?.error,
       source: 'auto',
       period: 'This month'
+    },
+    {
+      service: 'OpenRouter (AI chatbot)',
+      cost:   openrouter?.error ? null : openrouter?.monthlySpendUsd,
+      error:  openrouter?.error,
+      source: 'auto',
+      period: 'This month',
+      sub:    openrouter && !openrouter.error
+        ? `Balance remaining: $${openrouter.balance !== null ? openrouter.balance.toFixed(2) : 'N/A'}`
+        : null
     },
     {
       service: 'Resend (Email)',
-      cost: resend?.error ? null : (resend?.estimatedCostUsd || 0),
-      error: resend?.error,
+      cost:   resend?.error ? null : (resend?.estimatedCostUsd || 0),
+      error:  resend?.error,
       source: 'auto',
       period: 'This month',
-      sub: resend && !resend.error ? `${resend.emailsThisMonth} emails sent` : null
-    },
-    {
-      service: 'OpenRouter (AI)',
-      cost: openrouter?.error ? null : null,
-      error: openrouter?.error || (openrouter ? 'Balance shown in Ash Ops' : null),
-      source: 'auto',
-      period: 'This month'
-    },
-    {
-      service: 'Azure VM',
-      cost: manual.azureVm || 0,
-      source: 'manual',
-      period: 'Monthly'
+      sub:    resend && !resend.error ? `${resend.emailsThisMonth} emails sent` : null
     },
     {
       service: 'Domain / SSL',
-      cost: manual.domainSsl || 0,
+      cost:   manual.domainSsl || 0,
       source: 'manual',
       period: 'Annual ÷ 12'
     },
     {
       service: 'GitHub',
-      cost: manual.github || 0,
+      cost:   manual.github || 0,
       source: 'manual',
       period: 'Monthly'
     }
