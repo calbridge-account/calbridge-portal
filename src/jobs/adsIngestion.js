@@ -53,7 +53,7 @@ async function fetchProfiles(clientId, connectionType) {
 async function fetchCampaigns(client, profileId, connectionType) {
   const res = await client.get('/v2/campaigns', {
     headers: { 'Amazon-Advertising-API-Scope': profileId },
-    params: { state: 'enabled,paused,archived', count: 100 }
+    params: { stateFilter: 'enabled,paused,archived', count: 100 }
   });
   return res.data || [];
 }
@@ -270,11 +270,32 @@ async function writePerformance(clientId, connectionType, reportDate, rows) {
 }
 
 /**
+ * Get profile IDs that have a matching brand for this client.
+ * If no brands configured, fall back to all profiles (single-brand clients).
+ */
+async function getAuthorizedProfiles(clientId, allProfiles) {
+  try {
+    const brandRows = await query(
+      'SELECT ads_profile_id FROM brands WHERE client_id = ? AND is_active = TRUE AND ads_profile_id IS NOT NULL',
+      [clientId]
+    );
+    if (!brandRows.length) return allProfiles; // no brands yet — use all
+    const authorizedIds = new Set(brandRows.map(r => String(r.ADS_PROFILE_ID)));
+    const filtered = allProfiles.filter(p => authorizedIds.has(String(p.profileId)));
+    console.log(`[Ads] Client ${clientId}: ${filtered.length}/${allProfiles.length} profiles authorized via brands`);
+    return filtered;
+  } catch {
+    return allProfiles; // fallback to all on error
+  }
+}
+
+/**
  * Main ingestion job — campaigns
  */
 async function ingestCampaigns(clientId, connectionType) {
   return runJob(clientId, connectionType, 'campaigns', async () => {
-    const profiles = await fetchProfiles(clientId, connectionType);
+    const allProfiles = await fetchProfiles(clientId, connectionType);
+    const profiles = await getAuthorizedProfiles(clientId, allProfiles);
     let totalWritten = 0;
     for (const profile of profiles) {
       const client = await adsClient(clientId, connectionType);
@@ -297,7 +318,8 @@ async function ingestPerformance(clientId, connectionType, daysBack = 1) {
     // Ensure schema is up to date before writing
     await ensureAdPerformanceSchema();
 
-    const profiles = await fetchProfiles(clientId, connectionType);
+    const allProfiles = await fetchProfiles(clientId, connectionType);
+    const profiles = await getAuthorizedProfiles(clientId, allProfiles);
     let totalWritten = 0;
 
     for (const profile of profiles) {
