@@ -104,17 +104,17 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           AND order_date >= DATEADD(day, -?, CURRENT_DATE)
       `, [clientId, days]),
 
-      // Ad attributed sales + spend
+      // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
       query(`
         SELECT
-          COALESCE(SUM(spend), 0)  AS total_ad_spend,
-          COALESCE(SUM(sales), 0)  AS total_ad_sales,
-          COALESCE(SUM(orders), 0) AS total_ad_orders,
-          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
-          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM ad_performance
+          COALESCE(SUM(cost), 0)          AS total_ad_spend,
+          COALESCE(SUM(sales_30_d), 0)    AS total_ad_sales,
+          COALESCE(SUM(purchases_30_d), 0) AS total_ad_orders,
+          CASE WHEN SUM(cost) > 0 THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS ad_roas,
+          CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos
+        FROM sp_campaign_report
         WHERE client_id = ?
-          AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+          AND date >= DATEADD(day, -?, CURRENT_DATE)
       `, [clientId, days])
     ]);
 
