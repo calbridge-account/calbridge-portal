@@ -24,7 +24,7 @@ router.get('/template', requireAuth, async (req, res) => {
   `, [req.session.clientId]).catch(() => []);
 
   const header = [
-    '# CalBridge COGS Upload Template',
+    '# Calbridge COGS Upload Template',
     '# ',
     '# IMPORTANT: COGS should be your production/landed cost ONLY.',
     '# Do NOT include any Amazon-specific expenses such as:',

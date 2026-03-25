@@ -134,7 +134,7 @@ async function checkFirstRealClient(clientId) {
     await resend.emails.send({
       from: `Ash <${process.env.EMAIL_FROM}>`,
       to: [process.env.EMAIL_CC],
-      subject: '🎉 First real client connected — CalBridge',
+      subject: '🎉 First real client connected — Calbridge',
       html: `
         <h2>First real client just synced!</h2>
         <p>Client <strong>${clientId}</strong> just completed their first real Amazon data sync.</p>

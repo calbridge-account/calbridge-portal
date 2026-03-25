@@ -112,14 +112,14 @@ router.post('/forgot-password', async (req, res, next) => {
       const { Resend } = require('resend');
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
-        from:    `CalBridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+        from:    `Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
         to:      [normalised],
-        subject: 'Reset your CalBridge password',
+        subject: 'Reset your Calbridge password',
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#fff;border-radius:8px;">
-            <img src="${baseUrl}/images/calbridge-logo-220.png" alt="CalBridge" style="height:60px;margin-bottom:24px;" />
+            <img src="${baseUrl}/images/calbridge-logo-220.png" alt="Calbridge" style="height:60px;margin-bottom:24px;" />
             <h2 style="color:#1e3a1a;margin:0 0 8px;">Reset your password</h2>
-            <p style="color:#4b5563;margin:0 0 24px;">Hi ${client.NAME}, click the button below to reset your CalBridge password. This link expires in <strong>1 hour</strong>.</p>
+            <p style="color:#4b5563;margin:0 0 24px;">Hi ${client.NAME}, click the button below to reset your Calbridge password. This link expires in <strong>1 hour</strong>.</p>
             <a href="${resetUrl}" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Reset Password</a>
             <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">If you didn't request a password reset, you can safely ignore this email. Your password won't change.</p>
             <p style="color:#9ca3af;font-size:11px;margin:8px 0 0;">Or copy this link: ${resetUrl}</p>

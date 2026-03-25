@@ -1,4 +1,4 @@
-// CalBridge — Campaign Management Page
+// Calbridge — Campaign Management Page
 
 const $ = id => document.getElementById(id);
 let currentDays = 30;

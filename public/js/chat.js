@@ -1,4 +1,4 @@
-// CalBridge — AI Chat Widget
+// Calbridge — AI Chat Widget
 // Injected into dashboard.html and advertising.html
 
 (function () {
@@ -26,11 +26,11 @@
       </button>
 
       <!-- Chat panel -->
-      <div id="cb-chat-panel" class="cb-chat-hidden" role="dialog" aria-label="CalBridge AI Assistant">
+      <div id="cb-chat-panel" class="cb-chat-hidden" role="dialog" aria-label="Calbridge AI Assistant">
         <div id="cb-chat-header">
           <div id="cb-chat-title">
             <span>⚡</span>
-            <span>CalBridge AI</span>
+            <span>Calbridge AI</span>
             <span id="cb-chat-subtitle">Ask anything about your data</span>
           </div>
           <div id="cb-chat-header-actions">
@@ -42,7 +42,7 @@
         <div id="cb-chat-messages">
           <div class="cb-msg cb-msg-assistant">
             <div class="cb-msg-bubble">
-              Hi! I'm your CalBridge AI assistant. Ask me anything about your Amazon advertising performance, contribution margin, or top/bottom ASINs.
+              Hi! I'm your Calbridge AI assistant. Ask me anything about your Amazon advertising performance, contribution margin, or top/bottom ASINs.
             </div>
           </div>
         </div>

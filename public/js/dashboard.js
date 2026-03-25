@@ -1,4 +1,4 @@
-// CalBridge Dashboard — client-side JS
+// Calbridge Dashboard — client-side JS
 
 const $ = id => document.getElementById(id);
 let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;

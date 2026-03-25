@@ -27,7 +27,7 @@ const migrations = [
 ];
 
 async function migrate() {
-  console.log('Running CalBridge v2 migrations...\n');
+  console.log('Running Calbridge v2 migrations...\n');
   let applied = 0;
   let skipped = 0;
 

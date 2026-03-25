@@ -9,7 +9,9 @@ const { query } = require('../services/snowflakeService');
  */
 router.get('/summary', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
+    const days    = Number(req.query.days) || 30;
+    const channel = req.query.channel; // 'ads' | 'dsp' | undefined
+    const channelFilter = channel ? `AND connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
     const rows = await query(`
       SELECT
         SUM(impressions)                          AS total_impressions,
@@ -25,6 +27,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
       FROM ad_performance
       WHERE client_id = ?
         AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter}
     `, [req.session.clientId, days]);
 
     res.json(rows[0] || {});
@@ -97,7 +100,9 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
  */
 router.get('/trend', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
+    const days    = Number(req.query.days) || 30;
+    const channel = req.query.channel;
+    const channelFilter = channel ? `AND connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
     const rows = await query(`
       SELECT
         report_date,
@@ -111,6 +116,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
       FROM ad_performance
       WHERE client_id = ?
         AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter}
       GROUP BY report_date
       ORDER BY report_date ASC
     `, [req.session.clientId, days]);
@@ -125,8 +131,10 @@ router.get('/trend', requireAuth, async (req, res, next) => {
  */
 router.get('/campaigns', requireAuth, async (req, res, next) => {
   try {
-    const days  = Number(req.query.days)  || 30;
-    const limit = Number(req.query.limit) || 20;
+    const days    = Number(req.query.days)  || 30;
+    const limit   = Number(req.query.limit) || 20;
+    const channel = req.query.channel;
+    const channelFilter = channel ? `AND ap.connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
     const rows = await query(`
       SELECT
         ap.campaign_id,
@@ -151,6 +159,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
         AND ap.connection_type = c.connection_type
       WHERE ap.client_id = ?
         AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter}
       GROUP BY ap.campaign_id, c.campaign_name, c.campaign_type, ap.connection_type, c.status, c.budget
       ORDER BY SUM(ap.spend) DESC
       LIMIT ?

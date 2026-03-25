@@ -1,5 +1,5 @@
 /**
- * CalBridge Date Range Utilities
+ * Calbridge Date Range Utilities
  * Converts filter value to { days, startDate, endDate } for API calls
  */
 

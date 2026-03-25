@@ -1,10 +1,16 @@
-// CalBridge — Advertising Page
+// Calbridge — Advertising Page
 
 const $ = id => document.getElementById(id);
 let trendChart, channelChart, typeChart, acosTrendChart;
 let currentDays = 30;
 let allCampaigns = [];
 let activeChannel = 'all';
+
+const CHANNEL_LABELS = {
+  all: 'Amazon Ads + DSP — unified view',
+  ads: 'Sponsored Ads — SP, SB, SD',
+  dsp: 'Amazon DSP — programmatic'
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
@@ -51,12 +57,17 @@ function setupControls() {
     window.location.href = '/';
   });
 
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  // Global channel toggle — affects KPIs, all charts, and campaign table
+  document.querySelectorAll('.channel-toggle .tab-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      document.querySelectorAll('.channel-toggle .tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeChannel = btn.dataset.channel;
-      renderCampaignTable();
+      // Update subtitle
+      const subtitle = $('channel-subtitle');
+      if (subtitle) subtitle.textContent = CHANNEL_LABELS[activeChannel] || '';
+      // Reload everything with new channel filter
+      await loadAll();
     });
   });
 }
@@ -78,8 +89,12 @@ async function loadAll() {
   }
 }
 
+function channelParam() {
+  return activeChannel !== 'all' ? `&channel=${activeChannel}` : '';
+}
+
 async function loadSummary() {
-  const res = await fetch(`/advertising/summary?days=${currentDays}`, { credentials: 'include' });
+  const res = await fetch(`/advertising/summary?days=${currentDays}${channelParam()}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Summary API ${res.status}`);
   const d = await res.json();
   console.log('Summary data:', d);
@@ -94,7 +109,7 @@ async function loadSummary() {
 }
 
 async function loadTrend() {
-  const res = await fetch(`/advertising/trend?days=${currentDays}`, { credentials: 'include' });
+  const res = await fetch(`/advertising/trend?days=${currentDays}${channelParam()}`, { credentials: 'include' });
   const rows = await res.json();
 
   const labels = rows.map(r => fmtDate(r.REPORT_DATE));
@@ -144,6 +159,13 @@ async function loadTrend() {
 }
 
 async function loadChannelSplit() {
+  // Hide channel split chart when filtered to a single channel — it's redundant
+  const chartCard = $('channel-chart')?.closest('.chart-card');
+  if (activeChannel !== 'all') {
+    if (chartCard) chartCard.style.display = 'none';
+    return;
+  }
+  if (chartCard) chartCard.style.display = '';
   const res = await fetch(`/advertising/by-channel?days=${currentDays}`, { credentials: 'include' });
   const rows = await res.json();
   if (!rows.length) return;
@@ -169,7 +191,7 @@ async function loadChannelSplit() {
 }
 
 async function loadCampaignTypes() {
-  const res = await fetch(`/advertising/by-campaign-type?days=${currentDays}`, { credentials: 'include' });
+  const res = await fetch(`/advertising/by-campaign-type?days=${currentDays}${channelParam()}`, { credentials: 'include' });
   const rows = await res.json();
   if (!rows.length) return;
 
@@ -201,16 +223,14 @@ async function loadCampaignTypes() {
 }
 
 async function loadCampaigns() {
-  const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=50`, { credentials: 'include' });
+  const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=50${channelParam()}`, { credentials: 'include' });
   allCampaigns = await res.json();
   renderCampaignTable();
 }
 
 function renderCampaignTable() {
   const tbody = $('campaigns-body');
-  const filtered = activeChannel === 'all'
-    ? allCampaigns
-    : allCampaigns.filter(r => r.CONNECTION_TYPE === activeChannel);
+  const filtered = allCampaigns;
 
   if (!filtered.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">No campaigns found</td></tr>';

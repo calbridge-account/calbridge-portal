@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CalBridge — Advertising</title>
+  <title>Calbridge — Advertising</title>
   <link rel="stylesheet" href="/css/style.css" />
   <script src="/js/chart.umd.min.js"></script>
 </head>
@@ -28,9 +28,14 @@
     <header class="dashboard-header">
       <div>
         <h1>Advertising</h1>
-        <p>Amazon Ads + DSP — unified view</p>
+        <p id="channel-subtitle">Amazon Ads + DSP — unified view</p>
       </div>
       <div class="header-actions">
+        <div class="channel-toggle" style="display:flex;gap:8px;margin-right:12px">
+          <button class="tab-btn active" data-channel="all" id="toggle-all">All</button>
+          <button class="tab-btn" data-channel="ads" id="toggle-ads">Sponsored Ads</button>
+          <button class="tab-btn" data-channel="dsp" id="toggle-dsp">DSP</button>
+        </div>
         <select id="days-filter" class="days-select">
           <option value="7">Last 7 days</option>
           <option value="30" selected>Last 30 days</option>
@@ -110,11 +115,6 @@
       <div class="table-card">
         <div class="table-header-row">
           <h3>Campaign Performance</h3>
-          <div class="channel-tabs">
-            <button class="tab-btn active" data-channel="all">All</button>
-            <button class="tab-btn" data-channel="ads">Amazon Ads</button>
-            <button class="tab-btn" data-channel="dsp">DSP</button>
-          </div>
         </div>
         <table class="data-table">
           <thead>

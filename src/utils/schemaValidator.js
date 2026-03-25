@@ -119,7 +119,7 @@ function validateAllFiles() {
 
 // ---- Run as script ----
 if (require.main === module) {
-  console.log('🔍 CalBridge Schema Validator\n');
+  console.log('🔍 Calbridge Schema Validator\n');
 
   const { issues, totalIssues } = validateAllFiles();
 

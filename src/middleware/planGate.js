@@ -1,5 +1,5 @@
 /**
- * Plan enforcement middleware for CalBridge tier gating.
+ * Plan enforcement middleware for Calbridge tier gating.
  *
  * Tiers:
  *   starter    ($499/mo)  — 1 brand, no DSP, no client portal, no API

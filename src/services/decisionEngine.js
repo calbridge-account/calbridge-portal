@@ -1,5 +1,5 @@
 /**
- * CalBridge Decision Engine
+ * Calbridge Decision Engine
  *
  * Analyzes CM + advertising data to surface:
  * 1. Break-even ACOS per ASIN (calculated from CM data)

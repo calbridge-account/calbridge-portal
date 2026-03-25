@@ -1,4 +1,4 @@
-// CalBridge — Account Settings Page
+// Calbridge — Account Settings Page
 
 const $ = id => document.getElementById(id);
 let profile = {};

@@ -32,7 +32,7 @@ router.post('/', requireAuth, async (req, res, next) => {
     const dataContext = await buildChatContext(req.session.clientId);
 
     // System prompt
-    const systemPrompt = `You are the CalBridge portal assistant — a helpful, concise AI that helps Amazon sellers understand their advertising and contribution margin data.
+    const systemPrompt = `You are the Calbridge portal assistant — a helpful, concise AI that helps Amazon sellers understand their advertising and contribution margin data.
 
 You have read-only access to this client's performance data. You CANNOT make any changes to campaigns, bids, budgets, or any Amazon settings. If asked to make changes, politely explain you can only provide analysis and recommendations.
 
