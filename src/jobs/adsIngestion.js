@@ -866,15 +866,18 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
         sales_1_d, sales_7_d, sales_14_d, sales_30_d,
         units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
         synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
+      // MERGE key (6)
       clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
+      // UPDATE (20)
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      // INSERT VALUES (26 + CURRENT_TIMESTAMP = 27 cols)
       clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
@@ -912,20 +915,32 @@ async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
         synced_at = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT (
         client_id, profile_id, campaign_id, ad_group_id, keyword_id, search_term, date,
-        targeting, match_type, impressions, clicks, cost,
+        targeting, match_type,
+        impressions, clicks, cost,
         purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
         sales_1_d, sales_7_d, sales_14_d, sales_30_d,
         units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
         synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?::DATE,
+        ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        CURRENT_TIMESTAMP
+      )
     `, [
+      // MERGE key (7)
       clientId, profileId, String(r.campaignId), String(r.adGroupId),
       String(r.keywordId), r.searchTerm || '', isoDate,
+      // UPDATE (17)
       r.targeting || null, r.matchType || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      // INSERT VALUES (24 + CURRENT_TIMESTAMP = 25 cols)
       clientId, profileId, String(r.campaignId), String(r.adGroupId),
       String(r.keywordId), r.searchTerm || '', isoDate,
       r.targeting || null, r.matchType || null,
