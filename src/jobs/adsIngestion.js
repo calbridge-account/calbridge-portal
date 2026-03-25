@@ -105,11 +105,9 @@ async function requestSPReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'spCampaigns', 'SPONSORED_PRODUCTS',
     ['campaign'],
-    // v3 SP campaign columns — purchases/sales use click-window naming
+    // Validated against API 2026-03-25
     ['campaignId','campaignName','impressions','clicks','cost',
-     'purchases1d','purchases7d','purchases14d','purchases30d',
-     'purchasesSameSku30d','sales1d','sales7d','sales14d','sales30d',
-     'unitsSoldClicks1d','unitsSoldClicks7d','unitsSoldClicks14d','unitsSoldClicks30d']
+     'purchases30d','sales30d','unitsSoldClicks30d']
   );
 }
 
@@ -117,7 +115,7 @@ async function requestSBReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'sbCampaigns', 'SPONSORED_BRANDS',
     ['campaign'],
-    // v3 SB — NTB fields use different naming than SP
+    // Validated against API 2026-03-25 (NTB no window suffix at campaign level)
     ['campaignId','campaignName','impressions','clicks','cost',
      'purchases','sales','unitsSold',
      'newToBrandPurchases','newToBrandSales','newToBrandUnitsSold']
@@ -128,8 +126,9 @@ async function requestSDReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'sdCampaigns', 'SPONSORED_DISPLAY',
     ['campaign'],
-    // v3 SD — only basic metrics available at campaign level
-    ['campaignId','campaignName','impressions','clicks','cost']
+    // Validated against API 2026-03-25
+    ['campaignId','campaignName','impressions','clicks','cost',
+     'purchases','sales']
   );
 }
 
@@ -237,32 +236,28 @@ async function writePerformance(clientId, connectionType, reportDate, rows) {
   if (!rows.length) return 0;
   let written = 0;
   for (const r of rows) {
-    // v3 field names — use 30d window as primary, fall back to 14d, then legacy v2
-    const spend       = r.cost || r.spend || 0;
-    const sales       = r.sales30d || r.sales14d || r.sales || r.attributedSales30d || r.attributedSales14d || 0;
+    // v3 validated field names (confirmed 2026-03-25)
+    // SP: purchases30d, sales30d, unitsSoldClicks30d
+    // SB: purchases, sales, unitsSold, newToBrandPurchases, newToBrandSales, newToBrandUnitsSold
+    // SD: purchases, sales
+    const spend       = r.cost || 0;
+    const sales       = r.sales30d || r.sales || 0;
     const clicks      = r.clicks || 0;
     const impressions = r.impressions || 0;
-    const orders      = r.purchases30d || r.purchases14d || r.purchases ||
-                        r.attributedUnitsOrdered30d || r.unitsSoldClicks30d || r.unitsSold14d || 0;
+    const orders      = r.purchases30d || r.purchases || 0;
     const units       = r.unitsSoldClicks30d || r.unitsSold || orders;
     const acos        = sales > 0 ? spend / sales : null;
     const roas        = spend > 0 ? sales / spend : null;
     const ctr         = impressions > 0 ? clicks / impressions : null;
     const cpc         = clicks > 0 ? spend / clicks : null;
 
-    // Campaign-level v3 reports don't include advertisedAsin — use UNATTRIBUTED
-    const advertisedAsin = r.advertisedAsin || r.asin || 'UNATTRIBUTED';
+    // Campaign-level v3 reports don't include advertisedAsin
+    const advertisedAsin = r.advertisedAsin || 'UNATTRIBUTED';
 
-    // NTB metrics — v3 SB field names (no window suffix at campaign level)
-    const ntbOrders = r.newToBrandPurchases || r.purchasesNewToBrand || r.newToBrandPurchases14d || null;
-    const ntbSales  = r.newToBrandSales     || r.salesNewToBrand     || r.newToBrandSales14d     || null;
-    const ntbUnits  = r.newToBrandUnitsSold || r.unitsSoldNewToBrand || r.newToBrandUnitsSold14d || null;
-    
-    // SD uses click/view attribution — map to sales/orders
-    const sdSales  = r.salesClicks14d  || r.salesViews14d  || 0;
-    const sdOrders = r.purchasesClicks14d || r.purchasesViews14d || 0;
-    const effectiveSales  = sales  || sdSales;
-    const effectiveOrders = orders || sdOrders;
+    // NTB metrics — SB only, no window suffix
+    const ntbOrders = r.newToBrandPurchases || null;
+    const ntbSales  = r.newToBrandSales     || null;
+    const ntbUnits  = r.newToBrandUnitsSold || null;
 
     await query(`
       MERGE INTO ad_performance t
