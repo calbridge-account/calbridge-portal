@@ -1533,9 +1533,9 @@ async function ensureAdsSchema() {
   // Split into individual statements — Snowflake doesn't support multi-statement
   // Execute all CREATE TABLE statements
   const statements = sql
-    .split(/;\s*\n/)
+    .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => s.length > 10 && !s.startsWith('--'));
 
   let executed = 0;
   for (const stmt of statements) {
