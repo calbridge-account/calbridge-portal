@@ -317,4 +317,107 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// GET /advertising/asin-performance?days=30&limit=25
+// ASIN-level ad performance from sp_advertised_product_report.
+// Shows spend, sales, purchases, ACOS, ROAS per advertised ASIN.
+// ---------------------------------------------------------------------------
+router.get('/asin-performance', requireAuth, async (req, res, next) => {
+  try {
+    const days   = Number(req.query.days)  || 30;
+    const limit  = Number(req.query.limit) || 25;
+    const clientId = req.session.clientId;
+
+    // Try new granular table first
+    let rows = [];
+    try {
+      rows = await query(`
+        SELECT
+          p.advertised_asin                                        AS asin,
+          p.advertised_sku                                         AS sku,
+          COALESCE(pr.title, p.advertised_asin)                   AS product_title,
+          SUM(p.cost)                                              AS spend,
+          SUM(p.clicks)                                            AS clicks,
+          SUM(p.impressions)                                       AS impressions,
+          SUM(p.purchases_30_d)                                    AS purchases,
+          SUM(p.purchases_7_d)                                     AS purchases_7d,
+          SUM(p.sales_30_d)                                        AS sales,
+          SUM(p.sales_7_d)                                         AS sales_7d,
+          SUM(p.units_sold_clicks_30_d)                            AS units_sold,
+          CASE WHEN SUM(p.sales_30_d) > 0
+            THEN SUM(p.cost) / SUM(p.sales_30_d) ELSE NULL END    AS acos,
+          CASE WHEN SUM(p.cost) > 0
+            THEN SUM(p.sales_30_d) / SUM(p.cost) ELSE NULL END    AS roas,
+          CASE WHEN SUM(p.impressions) > 0
+            THEN SUM(p.clicks) / SUM(p.impressions) ELSE NULL END AS ctr,
+          CASE WHEN SUM(p.clicks) > 0
+            THEN SUM(p.cost) / SUM(p.clicks) ELSE NULL END        AS cpc
+        FROM sp_advertised_product_report p
+        LEFT JOIN products pr
+          ON p.client_id = pr.client_id AND p.advertised_asin = pr.asin
+        WHERE p.client_id = ?
+          AND p.date >= DATEADD(day, -?, CURRENT_DATE)
+          AND p.advertised_asin != 'UNATTRIBUTED'
+        GROUP BY p.advertised_asin, p.advertised_sku, pr.title
+        ORDER BY spend DESC
+        LIMIT ?
+      `, [clientId, days, limit]);
+    } catch (err) {
+      // Fall back to old ad_performance table
+      rows = await query(`
+        SELECT
+          COALESCE(ap.advertised_asin, 'UNATTRIBUTED')            AS asin,
+          MAX(p.title)                                             AS product_title,
+          SUM(ap.spend)                                            AS spend,
+          SUM(ap.clicks)                                           AS clicks,
+          SUM(ap.impressions)                                      AS impressions,
+          SUM(ap.orders)                                           AS purchases,
+          SUM(ap.sales)                                            AS sales,
+          CASE WHEN SUM(ap.sales) > 0
+            THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END      AS acos,
+          CASE WHEN SUM(ap.spend) > 0
+            THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END      AS roas,
+          CASE WHEN SUM(ap.impressions) > 0
+            THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr,
+          CASE WHEN SUM(ap.clicks) > 0
+            THEN SUM(ap.spend) / SUM(ap.clicks) ELSE NULL END     AS cpc
+        FROM ad_performance ap
+        LEFT JOIN products p ON ap.client_id = p.client_id
+          AND UPPER(TRIM(ap.advertised_asin)) = UPPER(TRIM(p.asin))
+        WHERE ap.client_id = ?
+          AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+          AND ap.advertised_asin != 'UNATTRIBUTED'
+        GROUP BY COALESCE(ap.advertised_asin, 'UNATTRIBUTED'), p.title
+        ORDER BY spend DESC
+        LIMIT ?
+      `, [clientId, days, limit]);
+    }
+
+    const totalSpend = rows.reduce((s, r) => s + Number(r.SPEND || 0), 0);
+
+    res.json({
+      days,
+      totalSpend,
+      asins: rows.map(r => ({
+        asin:         r.ASIN,
+        sku:          r.SKU || null,
+        productTitle: r.PRODUCT_TITLE || r.ASIN,
+        spend:        Number(r.SPEND        || 0),
+        clicks:       Number(r.CLICKS       || 0),
+        impressions:  Number(r.IMPRESSIONS  || 0),
+        purchases:    Number(r.PURCHASES    || 0),
+        purchases7d:  Number(r.PURCHASES_7D || 0),
+        sales:        Number(r.SALES        || 0),
+        sales7d:      Number(r.SALES_7D     || 0),
+        unitsSold:    Number(r.UNITS_SOLD   || 0),
+        acos:         r.ACOS != null ? Number(r.ACOS) : null,
+        roas:         r.ROAS != null ? Number(r.ROAS) : null,
+        ctr:          r.CTR  != null ? Number(r.CTR)  : null,
+        cpc:          r.CPC  != null ? Number(r.CPC)  : null,
+        spendShare:   totalSpend > 0 ? Number(r.SPEND || 0) / totalSpend : 0
+      }))
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -226,6 +226,7 @@ async function loadCampaigns() {
   const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=50${channelParam()}`, { credentials: 'include' });
   allCampaigns = await res.json();
   renderCampaignTable();
+  loadAsinPerformance();
 }
 
 function renderCampaignTable() {
@@ -248,18 +249,68 @@ function renderCampaignTable() {
     const channel = r.CONNECTION_TYPE === 'ads' ? '<span class="badge-ads">Ads</span>' : '<span class="badge-dsp">DSP</span>';
 
     return `<tr>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.CAMPAIGN_NAME || r.CAMPAIGN_ID}">${r.CAMPAIGN_NAME || r.CAMPAIGN_ID}</td>
-      <td>${fmtCampaignType(r.CAMPAIGN_TYPE, r.CONNECTION_TYPE)}</td>
-      <td>${channel}</td>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${r.CAMPAIGN_NAME || r.CAMPAIGN_ID}">${r.CAMPAIGN_NAME || r.CAMPAIGN_ID}</td>
+      <td style="font-size:12px">${fmtCampaignType(r.CAMPAIGN_TYPE, r.CONNECTION_TYPE)}</td>
       <td>${fmt$(r.SPEND)}</td>
       <td>${fmt$(r.SALES)}</td>
       <td>${fmtN(r.ORDERS)}</td>
       <td class="${acosClass}">${acos}</td>
       <td>${roas}</td>
-      <td>${ctr}</td>
-      <td>${cpc}</td>
     </tr>`;
   }).join('');
+}
+
+// ---- ASIN Performance ----
+async function loadAsinPerformance() {
+  const tbody = $('asin-perf-body');
+  try {
+    const res = await fetch(`/advertising/asin-performance?days=${currentDays}&limit=25`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed');
+    const data = await res.json();
+
+    if (!data.asins?.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="loading-cell">No ASIN data yet — syncing from Amazon</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.asins.map(a => {
+      const acosVal = a.acos != null ? (a.acos * 100).toFixed(1) + '%' : '—';
+      const acosCls = a.acos != null
+        ? a.acos < 0.15 ? 'cm-positive' : a.acos > 0.40 ? 'cm-negative' : ''
+        : '';
+      const roas    = a.roas != null ? a.roas.toFixed(2) + 'x' : '—';
+      const ctr     = a.ctr  != null ? (a.ctr * 100).toFixed(2) + '%' : '—';
+      const cpc     = a.cpc  != null ? fmt$(a.cpc) : '—';
+      const share   = (a.spendShare * 100).toFixed(1) + '%';
+      const shareBar = `<div style="display:flex;align-items:center;gap:6px">
+        <div style="width:60px;height:6px;background:var(--gray-200);border-radius:3px;overflow:hidden">
+          <div style="width:${Math.min(a.spendShare * 100, 100)}%;height:100%;background:var(--brand);border-radius:3px"></div>
+        </div>
+        <span style="font-size:11px;color:var(--gray-400)">${share}</span>
+      </div>`;
+
+      const title = a.productTitle !== a.asin
+        ? `<div style="font-size:12px;font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.productTitle}">${a.productTitle}</div>`
+        : '<span style="color:var(--gray-400);font-size:11px">—</span>';
+
+      return `<tr>
+        <td><a href="https://www.amazon.com/dp/${a.asin}" target="_blank" style="font-family:monospace;font-size:12px;color:var(--brand)">${a.asin}</a></td>
+        <td style="max-width:200px">${title}</td>
+        <td><strong>${fmt$(a.spend)}</strong></td>
+        <td>${fmt$(a.sales)}</td>
+        <td>${a.purchases.toLocaleString()}</td>
+        <td>${a.unitsSold.toLocaleString()}</td>
+        <td class="${acosCls}"><strong>${acosVal}</strong></td>
+        <td>${roas}</td>
+        <td>${ctr}</td>
+        <td>${cpc}</td>
+        <td>${shareBar}</td>
+      </tr>`;
+    }).join('');
+
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="11" class="loading-cell">Error loading ASIN data</td></tr>';
+  }
 }
 
 // ---- Helpers ----

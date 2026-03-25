@@ -110,28 +110,53 @@
         </div>
       </div>
 
-      <!-- Campaign table -->
+      <!-- ASIN Performance table -->
       <div class="table-card">
         <div class="table-header-row">
-          <h3>Campaign Performance</h3>
+          <h3>Advertised Product Performance</h3>
+          <span id="asin-perf-subtitle" style="font-size:12px;color:var(--gray-400)">By ASIN — last 30 days</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ASIN</th>
+              <th>Product</th>
+              <th>Spend</th>
+              <th>Sales (30d)</th>
+              <th>Purchases</th>
+              <th>Units Sold</th>
+              <th>ACOS</th>
+              <th>ROAS</th>
+              <th>CTR</th>
+              <th>CPC</th>
+              <th>Spend Share</th>
+            </tr>
+          </thead>
+          <tbody id="asin-perf-body">
+            <tr><td colspan="11" class="loading-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Campaign table (secondary) -->
+      <div class="table-card" style="margin-top:20px">
+        <div class="table-header-row">
+          <h3>Campaign Summary</h3>
         </div>
         <table class="data-table">
           <thead>
             <tr>
               <th>Campaign</th>
               <th>Type</th>
-              <th>Channel</th>
               <th>Spend</th>
               <th>Sales</th>
               <th>Orders</th>
               <th>ACOS</th>
               <th>ROAS</th>
-              <th>CTR</th>
-              <th>CPC</th>
             </tr>
           </thead>
           <tbody id="campaigns-body">
-            <tr><td colspan="10" class="loading-cell">Loading...</td></tr>
+            <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
           </tbody>
         </table>
       </div>
