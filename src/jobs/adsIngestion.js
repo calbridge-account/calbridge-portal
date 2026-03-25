@@ -1748,11 +1748,152 @@ async function processReportQueue(clientId, connectionType) {
 // EXPORTS
 // ============================================================
 
+// ============================================================
+// DSP INGESTION
+// ============================================================
+
+/**
+ * Fetch all DSP advertisers for a given agency profile.
+ */
+async function fetchDspAdvertisers(client, profileId) {
+  try {
+    const res = await client.get('/dsp/advertisers', {
+      headers: { 'Amazon-Advertising-API-Scope': profileId },
+      params: { pageSize: 100 }
+    });
+    const data = res.data?.response || res.data?.advertisers || res.data || [];
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.warn(`[DSP] fetchDspAdvertisers profile ${profileId}: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Request a DSP report for a specific advertiser.
+ */
+async function requestDspReport(client, profileId, advertiserId, reportTypeId, groupBy, columns, startDate, endDate) {
+  try {
+    const res = await client.post('/reporting/reports', {
+      name:      `DSP_${reportTypeId}_${advertiserId}_${startDate}`,
+      startDate,
+      endDate:   endDate || startDate,
+      configuration: {
+        adProduct:    'DEMAND_SIDE_PLATFORM',
+        groupBy,
+        columns,
+        reportTypeId,
+        timeUnit: 'DAILY',
+        format:   'GZIP_JSON',
+        filters:  [{ field: 'advertiserId', values: [advertiserId] }]
+      }
+    }, {
+      headers: {
+        'Amazon-Advertising-API-Scope': profileId,
+        'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
+        'Accept':        'application/vnd.createasyncreportrequest.v3+json'
+      },
+      transformRequest: [(data, headers) => {
+        headers['Content-Type'] = 'application/vnd.createasyncreportrequest.v3+json';
+        return JSON.stringify(data);
+      }]
+    });
+    await sleep(2000);
+    return res.data?.reportId;
+  } catch (err) {
+    if (err.response?.status === 425) {
+      const match = (err.response?.data?.detail || '').match(/duplicate of\s*:\s*([\w-]+)/i);
+      if (match?.[1]) return match[1];
+    }
+    if (err.response?.status === 429) await sleep(10000);
+    throw err;
+  }
+}
+
+/**
+ * Ingest DSP campaign reports for all advertisers under agency seats.
+ * Pulls daysBack days of data for every mapped and unmapped advertiser.
+ */
+async function ingestDsp(clientId, connectionType, daysBack = 7) {
+  return runJob(clientId, connectionType, 'dsp', async () => {
+    // Get all DSP advertisers from Snowflake (seeded from discovery)
+    const advertiserRows = await query(
+      'SELECT advertiser_id, profile_id, name FROM dsp_advertiser WHERE is_active = TRUE'
+    );
+    if (!advertiserRows.length) {
+      console.log('[DSP] No advertisers found in dsp_advertiser table');
+      return { recordsWritten: 0 };
+    }
+
+    console.log(`[DSP] Processing ${advertiserRows.length} advertisers`);
+    let totalQueued = 0;
+
+    for (const row of advertiserRows) {
+      const advertiserId = row.ADVERTISER_ID || row.advertiser_id;
+      const profileId    = row.PROFILE_ID    || row.profile_id;
+      const name         = row.NAME          || row.name;
+
+      for (let d = daysBack; d >= 1; d--) {
+        const dateObj = new Date();
+        dateObj.setDate(dateObj.getDate() - d);
+        const isoDate = dateObj.toISOString().split('T')[0];
+
+        try {
+          const freshClient = await adsClient(clientId, connectionType);
+          const reportId = await requestDspReport(
+            freshClient, profileId, advertiserId,
+            'dspCampaign',
+            ['campaign'],
+            [
+              'date', 'orderId', 'orderName',
+              'impressions', 'clicks', 'clickThroughRate', 'totalCost', 'eCPM', 'eCPC',
+              'detailPageViews', 'detailPageViewClicks', 'detailPageViewRate',
+              'addToCart', 'addToCartClicks', 'addToCartRate',
+              'purchases', 'purchasesClicks', 'purchaseRate',
+              'totalPurchases', 'totalPurchasesClicks',
+              'sales', 'totalSales',
+              'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandPurchaseRate',
+              'newToBrandProductSales',
+              'ROAS', 'totalROAS',
+              'viewableImpressions', 'viewabilityRate',
+              'advertiserName', 'advertiserId', 'entityId',
+              'orderBudget', 'orderStartDate', 'orderEndDate', 'orderCurrency'
+            ],
+            isoDate, isoDate
+          );
+
+          if (reportId) {
+            // Store in queue with advertiser_id in profile_id field for DSP
+            await query(`
+              MERGE INTO ads_report_queue t
+              USING (SELECT ? AS report_id) s ON t.report_id = s.report_id
+              WHEN NOT MATCHED THEN INSERT
+                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+            `, [reportId, reportId, clientId, connectionType,
+                advertiserId + '|' + profileId, // encode both IDs
+                'dspCampaign', isoDate.replace(/-/g, '')]);
+
+            console.log(`[DSP] Queued ${name} (${advertiserId}) ${isoDate}`);
+            totalQueued++;
+          }
+        } catch (err) {
+          console.warn(`[DSP] ${name} ${isoDate}: ${err.message?.substring(0, 100)}`);
+        }
+      }
+    }
+
+    console.log(`[DSP] Queued ${totalQueued} reports`);
+    return { recordsWritten: 0, queued: totalQueued };
+  });
+}
+
 module.exports = {
   // Core ingestion
   ingestCampaigns,
   ingestPerformance,
   processReportQueue,
+  ingestDsp,
   ensureAdsSchema,
 
   // Utilities (exported for testing)

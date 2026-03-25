@@ -11,7 +11,7 @@
  */
 require('dotenv').config();
 const { Resend } = require('resend');
-const { ingestCampaigns, ingestPerformance } = require('./adsIngestion');
+const { ingestCampaigns, ingestPerformance, ingestDsp, processReportQueue } = require('./adsIngestion');
 const { ingestProducts, ingestSales } = require('./spIngestion');
 const { calculateContributionMargin } = require('./contributionMargin');
 const authService = require('../services/authService');
@@ -34,7 +34,11 @@ async function syncClient(clientId, connections) {
 
   const jobs = [];
 
-  if (connections.ads?.connected)    jobs.push(ingestCampaigns(clientId, 'ads'), ingestPerformance(clientId, 'ads', 2));
+  if (connections.ads?.connected) {
+    jobs.push(ingestCampaigns(clientId, 'ads'), ingestPerformance(clientId, 'ads', 2));
+    jobs.push(ingestDsp(clientId, 'ads', 2));           // DSP uses ads connection
+    jobs.push(processReportQueue(clientId, 'ads'));     // process completed reports
+  }
   if (connections.dsp?.connected)    jobs.push(ingestCampaigns(clientId, 'dsp'), ingestPerformance(clientId, 'dsp', 2));
   if (connections.seller?.connected) jobs.push(ingestProducts(clientId, 'seller'), ingestSales(clientId, 'seller', 7));
   if (connections.vendor?.connected) jobs.push(ingestProducts(clientId, 'vendor'), ingestSales(clientId, 'vendor', 7));
