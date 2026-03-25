@@ -394,6 +394,25 @@ router.get('/platform-costs/data', requireAdmin, async (req, res, next) => {
       results.resend = { error: err.message };
     }
 
+    // ── GitHub plan ──
+    try {
+      const ghToken = process.env.GITHUB_BILLING_TOKEN || process.env.GITHUB_TOKEN;
+      if (!ghToken) throw new Error('No GitHub token configured');
+      const ghRes = await safeFetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json' }
+      });
+      if (!ghRes.ok) throw new Error(`GitHub API returned ${ghRes.status}`);
+      const ghData = await ghRes.json();
+      // GitHub Free for users = $0. Teams = $4/user/mo. Enterprise = custom.
+      // We can detect plan via /user — 'plan' field on authenticated user
+      const plan = ghData.plan?.name || 'free';
+      const monthlyCost = plan === 'free' ? 0 : plan === 'team' ? 4 : null;
+      results.github = { plan, monthlyCost, login: ghData.login };
+      if (monthlyCost !== null) results.manualCosts.github = monthlyCost;
+    } catch (err) {
+      results.github = { error: err.message };
+    }
+
     // ── Active clients count ──
     try {
       const clientRows = await query(`SELECT COUNT(*) as cnt FROM clients WHERE status = 'active'`);

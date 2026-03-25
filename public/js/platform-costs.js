@@ -136,9 +136,11 @@ function renderCostSummary(d) {
     },
     {
       service: 'GitHub',
-      cost:   manual.github || 0,
-      source: 'manual',
-      period: 'Monthly'
+      cost:   d.github?.error ? null : (d.github?.monthlyCost || 0),
+      error:  d.github?.error,
+      source: 'auto',
+      period: 'Monthly',
+      sub:    d.github && !d.github.error ? `Plan: ${d.github.plan} (@${d.github.login})` : null
     }
   ];
 
