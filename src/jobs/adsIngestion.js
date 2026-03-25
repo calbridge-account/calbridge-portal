@@ -63,40 +63,53 @@ async function fetchCampaigns(client, profileId, connectionType) {
  * Uses the /reporting/reports endpoint (replaces deprecated v2 report endpoints).
  */
 async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns) {
-  // Must override Content-Type at the request level — axios instance default
-  // is application/json which causes 400. v3 requires the vendor media type.
-  const res = await client.post('/reporting/reports', {
-    name:      `${adProduct} ${reportTypeId} ${startDate}`,
-    startDate,
-    endDate:   startDate,
-    configuration: {
-      adProduct,
-      groupBy,
-      columns,
-      reportTypeId,
-      timeUnit: 'DAILY',
-      format:   'GZIP_JSON'
+  try {
+    const res = await client.post('/reporting/reports', {
+      name:      `${adProduct} ${reportTypeId} ${startDate}`,
+      startDate,
+      endDate:   startDate,
+      configuration: {
+        adProduct,
+        groupBy,
+        columns,
+        reportTypeId,
+        timeUnit: 'DAILY',
+        format:   'GZIP_JSON'
+      }
+    }, {
+      headers: {
+        'Amazon-Advertising-API-Scope': profileId,
+        'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
+        'Accept':        'application/vnd.createasyncreportrequest.v3+json'
+      },
+      transformRequest: [(data, headers) => {
+        headers['Content-Type'] = 'application/vnd.createasyncreportrequest.v3+json';
+        return JSON.stringify(data);
+      }]
+    });
+    return res.data?.reportId;
+  } catch (err) {
+    // 425 = duplicate request — Amazon returns the existing report ID in the detail message
+    if (err.response?.status === 425) {
+      const match = err.response?.data?.detail?.match(/duplicate of\s*:\s*([\w-]+)/i);
+      if (match?.[1]) {
+        console.log(`[Ads] Reusing existing report ${match[1]} for ${adProduct} ${startDate}`);
+        return match[1];
+      }
     }
-  }, {
-    headers: {
-      'Amazon-Advertising-API-Scope': profileId,
-      'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
-      'Accept':        'application/vnd.createasyncreportrequest.v3+json'
-    },
-    transformRequest: [(data, headers) => {
-      // Force correct Content-Type — prevent axios from resetting it
-      headers['Content-Type'] = 'application/vnd.createasyncreportrequest.v3+json';
-      return JSON.stringify(data);
-    }]
-  });
-  return res.data?.reportId;
+    throw err;
+  }
 }
 
 async function requestSPReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'spCampaigns', 'SPONSORED_PRODUCTS',
     ['campaign'],
-    ['impressions','clicks','cost','purchases30d','sales30d','campaignId','campaignName','advertisedAsin']
+    // v3 SP campaign columns — purchases/sales use click-window naming
+    ['campaignId','campaignName','impressions','clicks','cost',
+     'purchases1d','purchases7d','purchases14d','purchases30d',
+     'purchasesSameSku30d','sales1d','sales7d','sales14d','sales30d',
+     'unitsSoldClicks1d','unitsSoldClicks7d','unitsSoldClicks14d','unitsSoldClicks30d']
   );
 }
 
@@ -104,8 +117,10 @@ async function requestSBReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'sbCampaigns', 'SPONSORED_BRANDS',
     ['campaign'],
-    ['impressions','clicks','cost','purchases14d','sales14d','campaignId','campaignName',
-     'newToBrandPurchases14d','newToBrandSales14d','newToBrandUnitsSold14d']
+    // v3 SB — NTB fields use different naming than SP
+    ['campaignId','campaignName','impressions','clicks','cost',
+     'purchases','sales','unitsSold',
+     'newToBrandPurchases','newToBrandSales','newToBrandUnitsSold']
   );
 }
 
@@ -113,30 +128,34 @@ async function requestSDReport(client, profileId, reportDate) {
   const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
   return requestV3Report(client, profileId, date, 'sdCampaigns', 'SPONSORED_DISPLAY',
     ['campaign'],
-    ['impressions','clicks','cost','purchases30d','sales30d','campaignId','campaignName']
+    // v3 SD — only basic metrics available at campaign level
+    ['campaignId','campaignName','impressions','clicks','cost']
   );
 }
 
 /**
  * Poll v3 report for completion and download (GZIP_JSON → parsed array)
  */
-async function downloadReport(client, profileId, reportId, maxWaitMs = 120000) {
+async function downloadReport(client, profileId, reportId, maxWaitMs = 300000) {
+  const zlib = require('zlib');
   const start = Date.now();
+  let pollCount = 0;
   while (Date.now() - start < maxWaitMs) {
     const res = await client.get(`/reporting/reports/${reportId}`, {
       headers: { 'Amazon-Advertising-API-Scope': profileId }
     });
     const { status, url } = res.data;
     if (status === 'COMPLETED' && url) {
-      // Download gzipped JSON and decompress
       const download = await axios.get(url, { responseType: 'arraybuffer' });
-      const zlib = require('zlib');
       const decompressed = zlib.gunzipSync(Buffer.from(download.data));
       return JSON.parse(decompressed.toString('utf8'));
     }
-    if (status === 'FAILURE') throw new Error(`Report ${reportId} failed`);
+    if (status === 'FAILURE') throw new Error(`Report ${reportId} failed: ${res.data.failureReason || 'unknown'}`);
     if (status === 'PENDING' || status === 'PROCESSING') {
-      await new Promise(r => setTimeout(r, 8000)); // poll every 8s
+      pollCount++;
+      // Back off: 8s for first 10 polls, 15s after that
+      const delay = pollCount <= 10 ? 8000 : 15000;
+      await new Promise(r => setTimeout(r, delay));
       continue;
     }
     throw new Error(`Report ${reportId} unknown status: ${status}`);
@@ -218,25 +237,32 @@ async function writePerformance(clientId, connectionType, reportDate, rows) {
   if (!rows.length) return 0;
   let written = 0;
   for (const r of rows) {
-    // v3 field names differ slightly from v2 — handle both for compatibility
+    // v3 field names — use 30d window as primary, fall back to 14d, then legacy v2
     const spend       = r.cost || r.spend || 0;
-    const sales       = r.sales30d || r.sales14d || r.attributedSales30d || r.attributedSales14d || 0;
+    const sales       = r.sales30d || r.sales14d || r.sales || r.attributedSales30d || r.attributedSales14d || 0;
     const clicks      = r.clicks || 0;
     const impressions = r.impressions || 0;
-    const orders      = r.purchases30d || r.purchases14d || r.attributedUnitsOrdered30d || r.unitsSold14d || 0;
-    const units       = orders;
+    const orders      = r.purchases30d || r.purchases14d || r.purchases ||
+                        r.attributedUnitsOrdered30d || r.unitsSoldClicks30d || r.unitsSold14d || 0;
+    const units       = r.unitsSoldClicks30d || r.unitsSold || orders;
     const acos        = sales > 0 ? spend / sales : null;
     const roas        = spend > 0 ? sales / spend : null;
     const ctr         = impressions > 0 ? clicks / impressions : null;
     const cpc         = clicks > 0 ? spend / clicks : null;
 
-    // ASIN attribution — v3 campaign-level reports may not have advertisedAsin
+    // Campaign-level v3 reports don't include advertisedAsin — use UNATTRIBUTED
     const advertisedAsin = r.advertisedAsin || r.asin || 'UNATTRIBUTED';
 
-    // NTB metrics (Sponsored Brands only) — v3 field names
-    const ntbOrders = r.newToBrandPurchases14d || r.newToBrandOrders14d || r.newToBrandPurchases || null;
-    const ntbSales  = r.newToBrandSales14d     || null;
-    const ntbUnits  = r.newToBrandUnitsSold14d || null;
+    // NTB metrics — v3 SB field names (no window suffix at campaign level)
+    const ntbOrders = r.newToBrandPurchases || r.purchasesNewToBrand || r.newToBrandPurchases14d || null;
+    const ntbSales  = r.newToBrandSales     || r.salesNewToBrand     || r.newToBrandSales14d     || null;
+    const ntbUnits  = r.newToBrandUnitsSold || r.unitsSoldNewToBrand || r.newToBrandUnitsSold14d || null;
+    
+    // SD uses click/view attribution — map to sales/orders
+    const sdSales  = r.salesClicks14d  || r.salesViews14d  || 0;
+    const sdOrders = r.purchasesClicks14d || r.purchasesViews14d || 0;
+    const effectiveSales  = sales  || sdSales;
+    const effectiveOrders = orders || sdOrders;
 
     await query(`
       MERGE INTO ad_performance t
@@ -358,15 +384,20 @@ async function ingestPerformance(clientId, connectionType, daysBack = 1) {
 
         for (const job of reportJobs) {
           try {
-            const reportId = await job.requester(client, String(profile.profileId), reportDate);
+            // Refresh client before each report to ensure token is fresh
+            const freshClient = await adsClient(clientId, connectionType);
+            const reportId = await job.requester(freshClient, String(profile.profileId), reportDate);
             if (!reportId) continue;
-            const rows = await downloadReport(client, String(profile.profileId), reportId);
+            // Refresh again before polling (reports can take minutes)
+            const pollClient = await adsClient(clientId, connectionType);
+            const rows = await downloadReport(pollClient, String(profile.profileId), reportId);
             const rowArr = Array.isArray(rows) ? rows : [];
             // Tag each row with its report type so we can detect SB NTB fields
             const tagged = rowArr.map(r => ({ ...r, _reportType: job.type }));
             totalWritten += await writePerformance(clientId, connectionType, reportDate, tagged);
           } catch (err) {
-            console.warn(`[performance:${job.type}] Skipping ${reportDate} profile ${profile.profileId}: ${err.message}`);
+            const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : '';
+            console.warn(`[performance:${job.type}] Skipping ${reportDate} profile ${profile.profileId}: ${err.message} ${body}`);
           }
         }
       }
