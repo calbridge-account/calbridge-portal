@@ -48,7 +48,7 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
       extra
     });
 
-    res.redirect(`/dashboard?connected=${type}`);
+    res.redirect(`/dashboard.html?connected=${type}`);
   } catch (err) {
     next(err);
   }
