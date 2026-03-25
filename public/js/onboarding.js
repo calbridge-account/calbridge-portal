@@ -43,12 +43,12 @@
     }
 
     async function nextStep() {
-      // Step 0: save profile if filled
+      // Step 0: save profile if filled — fire and forget, never block navigation
       if (currentStep === 0) {
         const name    = document.getElementById('ob-name').value.trim();
         const company = document.getElementById('ob-company').value.trim();
         if (name) {
-          await fetch('/account/profile', {
+          fetch('/account/profile', {
             method:  'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ name, companyName: company || name }),
