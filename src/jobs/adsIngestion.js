@@ -1,45 +1,339 @@
 /**
- * Amazon Advertising API ingestion
- * Covers: Amazon Ads (Sponsored Products/Brands/Display) + DSP
+ * Amazon Advertising API ingestion — v3 Async Reporting
+ * Covers: Sponsored Products, Sponsored Brands, Sponsored Display
  *
- * ASIN-level attribution (updated):
- *   - SP/SB/SD: use advertisedAsin from ad-level reports (direct attribution)
- *   - DSP: use product targeting / creative report asin field
- *   - If no ASIN on a record: bucket as "UNATTRIBUTED"
- *   - No proportional splitting — each ad row owns its own spend
+ * Architecture:
+ *   Phase 1 (ingestPerformance): Request all report types → store IDs in ads_report_queue
+ *   Phase 2 (processReportQueue): Poll, download, gunzip, write each completed report to its table
  *
- * Sandbox base URL: https://advertising-api-test.amazon.com
- * Production base URL: https://advertising-api.amazon.com (NA)
+ * Production base URL: https://advertising-api.amazon.com
+ * API docs: https://advertising.amazon.com/API/docs/en-us/reference/reporting/reports
  */
+'use strict';
+
 require('dotenv').config();
+const path = require('path');
+const fs   = require('fs');
+const zlib = require('zlib');
 const axios = require('axios');
 const { query } = require('../services/snowflakeService');
 const { getValidToken } = require('../services/amazonAuthService');
 const { runJob } = require('./ingestionRunner');
 
-const IS_SANDBOX = process.env.NODE_ENV !== 'production';
-const ADS_API_BASE = IS_SANDBOX
-  ? 'https://advertising-api-test.amazon.com'
-  : 'https://advertising-api.amazon.com';
+const ADS_API_BASE = 'https://advertising-api.amazon.com';
+
+// ============================================================
+// REPORT TYPE DEFINITIONS
+// ============================================================
 
 /**
- * Build authenticated Axios instance for Advertising API
+ * Each entry describes one report type to request + where to write results.
+ * key       — used in ads_report_queue.report_type and to look up the write fn
+ * adProduct — SPONSORED_PRODUCTS | SPONSORED_BRANDS | SPONSORED_DISPLAY
+ * reportTypeId — the v3 report type string
+ * groupBy   — array of dimension strings
+ * columns   — array of metric/dimension column names (Amazon API names)
+ * table     — Snowflake target table
+ * primaryKey — array of snake_case column names for MERGE ON clause
+ */
+const REPORT_TYPES = [
+  {
+    key:          'spCampaigns',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spCampaigns',
+    groupBy:      ['campaign'],
+    columns:      [
+      'campaignId', 'campaignName', 'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'topOfSearchImpressionShare', 'campaignBiddingStrategy'
+    ],
+    table:      'sp_campaign_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
+  },
+  {
+    key:          'spAdGroups',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spAdGroups',
+    groupBy:      ['adGroup'],
+    columns:      [
+      'adGroupId', 'adGroupName', 'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d'
+    ],
+    table:      'sp_ad_group_report',
+    primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'date']
+  },
+  {
+    key:          'spTargeting',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spTargeting',
+    groupBy:      ['targeting'],
+    columns:      [
+      'campaignId', 'adGroupId', 'keywordId', 'targeting', 'matchType',
+      'keywordBid', 'adKeywordStatus', 'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
+      'topOfSearchImpressionShare'
+    ],
+    table:      'sp_targeting_keyword_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'keyword_id', 'date']
+  },
+  {
+    key:          'spSearchTerm',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spSearchTerm',
+    groupBy:      ['searchTerm'],
+    columns:      [
+      'campaignId', 'adGroupId', 'keywordId', 'searchTerm', 'targeting', 'matchType',
+      'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d'
+    ],
+    table:      'sp_search_term_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'keyword_id', 'search_term', 'date']
+  },
+  {
+    key:          'spAdvertisedProduct',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spAdvertisedProduct',
+    groupBy:      ['advertiser'],
+    columns:      [
+      'campaignId', 'adGroupId', 'adId', 'advertisedAsin', 'advertisedSku',
+      'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'purchases1d', 'purchases7d', 'purchases14d',
+      'sales1d', 'sales7d', 'sales14d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
+      'purchasesSameSku30d', 'unitsSoldSameSku30d'
+    ],
+    table:      'sp_advertised_product_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'ad_group_id', 'ad_id', 'date']
+  },
+  {
+    key:          'spCampaignPlacement',
+    adProduct:    'SPONSORED_PRODUCTS',
+    reportTypeId: 'spCampaignPlacement',
+    groupBy:      ['campaignPlacement'],
+    columns:      [
+      'campaignId', 'placement',
+      'impressions', 'clicks', 'cost',
+      'purchases30d', 'sales30d', 'unitsSoldClicks30d'
+    ],
+    table:      'sp_campaign_placement_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'placement', 'date']
+  },
+  {
+    key:          'sbCampaigns',
+    adProduct:    'SPONSORED_BRANDS',
+    reportTypeId: 'sbCampaigns',
+    groupBy:      ['campaign'],
+    columns:      [
+      'campaignId', 'campaignName', 'impressions', 'clicks', 'cost',
+      'attributedSales14d', 'attributedConversions14d',
+      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
+      'attributedUnitsOrderedNewToBrand14d', 'topOfSearchImpressionShare',
+      'video5SecondViews', 'videoCompleteViews', 'viewableImpressions'
+    ],
+    table:      'sb_campaign_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'report_date']
+  },
+  {
+    key:          'sbKeywords',
+    adProduct:    'SPONSORED_BRANDS',
+    reportTypeId: 'sbKeywords',
+    groupBy:      ['keyword'],
+    columns:      [
+      'keywordId', 'campaignId', 'adGroupId',
+      'impressions', 'clicks', 'cost',
+      'attributedSales14d', 'attributedConversions14d',
+      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
+      'searchTermImpressionRank', 'searchTermImpressionShare', 'topOfSearchImpressionShare'
+    ],
+    table:      'sb_keyword_report',
+    primaryKey: ['client_id', 'profile_id', 'keyword_id', 'report_date']
+  },
+  {
+    key:          'sbSearchTerms',
+    adProduct:    'SPONSORED_BRANDS',
+    reportTypeId: 'sbSearchTerms',
+    groupBy:      ['searchTerm'],
+    columns:      [
+      'keywordId', 'queryTerm', 'campaignId', 'adGroupId',
+      'impressions', 'clicks', 'cost',
+      'attributedSales14d', 'attributedConversions14d',
+      'searchTermImpressionRank', 'searchTermImpressionShare'
+    ],
+    table:      'sb_search_term_report',
+    primaryKey: ['client_id', 'profile_id', 'keyword_id', 'query_term', 'report_date']
+  },
+  {
+    key:          'sbTargets',
+    adProduct:    'SPONSORED_BRANDS',
+    reportTypeId: 'sbTargets',
+    groupBy:      ['targeting'],
+    columns:      [
+      'targetId', 'campaignId', 'adGroupId',
+      'impressions', 'clicks', 'cost',
+      'attributedSales14d', 'attributedConversions14d',
+      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d',
+      'topOfSearchImpressionShare'
+    ],
+    table:      'sb_target_report',
+    primaryKey: ['client_id', 'profile_id', 'target_id', 'report_date']
+  },
+  {
+    key:          'sbPlacements',
+    adProduct:    'SPONSORED_BRANDS',
+    reportTypeId: 'sbPlacements',
+    groupBy:      ['placement'],
+    columns:      [
+      'campaignId', 'placement',
+      'impressions', 'clicks', 'cost',
+      'attributedSales14d', 'attributedConversions14d',
+      'attributedOrdersNewToBrand14d', 'attributedSalesNewToBrand14d'
+    ],
+    table:      'sb_placement_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'placement', 'report_date']
+  },
+  {
+    key:          'sdCampaigns',
+    adProduct:    'SPONSORED_DISPLAY',
+    reportTypeId: 'sdCampaigns',
+    groupBy:      ['campaign'],
+    columns:      [
+      'campaignId', 'campaignName',
+      'impressions', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
+      'detailPageViews', 'detailPageViewsClicks',
+      'addToCart', 'addToCartClicks',
+      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold',
+      'brandedSearches', 'viewabilityRate'
+    ],
+    table:      'sd_campaign_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
+  },
+  {
+    key:          'sdAdGroups',
+    adProduct:    'SPONSORED_DISPLAY',
+    reportTypeId: 'sdAdGroups',
+    groupBy:      ['adGroup'],
+    columns:      [
+      'adGroupId', 'campaignId',
+      'impressions', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
+      'detailPageViews', 'addToCart',
+      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+    ],
+    table:      'sd_ad_group_report',
+    primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'date']
+  },
+  {
+    key:          'sdTargeting',
+    adProduct:    'SPONSORED_DISPLAY',
+    reportTypeId: 'sdTargeting',
+    groupBy:      ['targeting'],
+    columns:      [
+      'targetingId', 'adGroupId', 'campaignId',
+      'impressions', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
+      'detailPageViews', 'addToCart',
+      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+    ],
+    table:      'sd_target_report',
+    primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'campaign_id', 'targeting_id', 'date']
+  },
+  {
+    key:          'sdProductAds',
+    adProduct:    'SPONSORED_DISPLAY',
+    reportTypeId: 'sdProductAds',
+    groupBy:      ['adAndCreative'],
+    columns:      [
+      'adId', 'adGroupId', 'campaignId',
+      'impressions', 'clicks', 'cost',
+      'purchases', 'purchasesClicks', 'sales', 'salesClicks',
+      'detailPageViews', 'addToCart',
+      'newToBrandPurchases', 'newToBrandSales', 'newToBrandUnitsSold'
+    ],
+    table:      'sd_product_ad_report',
+    primaryKey: ['client_id', 'profile_id', 'ad_id', 'date']
+  }
+];
+
+// Build a lookup map: key → REPORT_TYPES entry
+const REPORT_TYPE_MAP = Object.fromEntries(REPORT_TYPES.map(rt => [rt.key, rt]));
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Convert camelCase API column name to snake_case Snowflake column name.
+ * e.g. campaignId → campaign_id, purchases30d → purchases_30_d
+ */
+function toSnake(str) {
+  return str
+    // Insert underscore before numeric sequences (e.g. 30d → _30_d)
+    .replace(/(\d+)([a-zA-Z])/g, '_$1_$2')
+    .replace(/([a-zA-Z])(\d+)/g, '$1_$2')
+    // camelCase → snake_case
+    .replace(/([A-Z])/g, '_$1')
+    .toLowerCase()
+    // Clean up double underscores
+    .replace(/__+/g, '_')
+    .replace(/^_/, '');
+}
+
+/**
+ * Format a Date object as YYYYMMDD string.
+ */
+function toDateKey(date) {
+  return date.toISOString().split('T')[0].replace(/-/g, '');
+}
+
+/**
+ * Format a YYYYMMDD string as YYYY-MM-DD (for SQL DATE columns).
+ */
+function toISODate(dateKey) {
+  return `${dateKey.substring(0,4)}-${dateKey.substring(4,6)}-${dateKey.substring(6,8)}`;
+}
+
+// ============================================================
+// CLIENT + PROFILE FUNCTIONS
+// ============================================================
+
+/**
+ * Create a fresh authenticated axios instance per request.
+ * Calls getValidToken() each time so tokens are always fresh.
  */
 async function adsClient(clientId, connectionType) {
   const accessToken = await getValidToken(clientId, connectionType);
   return axios.create({
     baseURL: ADS_API_BASE,
     headers: {
-      'Authorization': `Bearer ${accessToken}`,
+      'Authorization':                  `Bearer ${accessToken}`,
       'Amazon-Advertising-API-ClientId': process.env.LWA_CLIENT_ID,
-      'Content-Type': 'application/json'
-    }
+      'Content-Type':                    'application/json'
+    },
+    timeout: 30000
   });
 }
 
 /**
- * Fetch all advertising profiles for a client
- * A profile = one marketplace/account combination
+ * Fetch all advertising profiles for a client.
  */
 async function fetchProfiles(clientId, connectionType) {
   const client = await adsClient(clientId, connectionType);
@@ -48,24 +342,42 @@ async function fetchProfiles(clientId, connectionType) {
 }
 
 /**
- * Fetch campaigns for a profile
+ * Filter profiles to those with a matching brand entry in Snowflake.
+ * Falls back to all profiles if no brands are configured yet.
  */
-async function fetchCampaigns(client, profileId, connectionType) {
-  const res = await client.get('/v2/campaigns', {
-    headers: { 'Amazon-Advertising-API-Scope': profileId },
-    params: { stateFilter: 'enabled,paused,archived', count: 100 }
-  });
-  return res.data || [];
+async function getAuthorizedProfiles(clientId, allProfiles) {
+  try {
+    const brandRows = await query(
+      'SELECT ads_profile_id FROM brands WHERE client_id = ? AND is_active = TRUE AND ads_profile_id IS NOT NULL',
+      [clientId]
+    );
+    if (!brandRows.length) {
+      console.log(`[Ads] Client ${clientId}: no brands configured — using all ${allProfiles.length} profiles`);
+      return allProfiles;
+    }
+    const authorizedIds = new Set(brandRows.map(r => String(r.ADS_PROFILE_ID || r.ads_profile_id)));
+    const filtered = allProfiles.filter(p => authorizedIds.has(String(p.profileId)));
+    console.log(`[Ads] Client ${clientId}: ${filtered.length}/${allProfiles.length} profiles authorized via brands`);
+    return filtered;
+  } catch (err) {
+    console.warn(`[Ads] getAuthorizedProfiles error — using all profiles: ${err.message}`);
+    return allProfiles;
+  }
 }
 
+// ============================================================
+// REPORT REQUEST + DOWNLOAD
+// ============================================================
+
 /**
- * Request a v3 async report for a given ad product and report type.
- * Uses the /reporting/reports endpoint (replaces deprecated v2 report endpoints).
+ * Request a v3 async report.
+ * Handles 425 (duplicate) by extracting and returning the existing reportId.
+ * Adds 2s delay after each successful request to avoid throttling.
  */
 async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns) {
   try {
     const res = await client.post('/reporting/reports', {
-      name:      `${adProduct} ${reportTypeId} ${startDate}`,
+      name:      `${adProduct}_${reportTypeId}_${startDate}`,
       startDate,
       endDate:   startDate,
       configuration: {
@@ -82,88 +394,95 @@ async function requestV3Report(client, profileId, startDate, reportTypeId, adPro
         'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
         'Accept':        'application/vnd.createasyncreportrequest.v3+json'
       },
+      // Force the Content-Type header — axios may override it otherwise
       transformRequest: [(data, headers) => {
         headers['Content-Type'] = 'application/vnd.createasyncreportrequest.v3+json';
         return JSON.stringify(data);
       }]
     });
+
+    // Throttle: 2s between requests to avoid 429
+    await sleep(2000);
+
     return res.data?.reportId;
   } catch (err) {
-    // 425 = duplicate request — Amazon returns the existing report ID in the detail message
-    if (err.response?.status === 425) {
-      const match = err.response?.data?.detail?.match(/duplicate of\s*:\s*([\w-]+)/i);
+    const status = err.response?.status;
+
+    // 425 = duplicate report — Amazon returns the existing ID in the error detail
+    if (status === 425) {
+      const detail = err.response?.data?.detail || '';
+      const match  = detail.match(/duplicate of\s*:\s*([\w-]+)/i);
       if (match?.[1]) {
-        console.log(`[Ads] Reusing existing report ${match[1]} for ${adProduct} ${startDate}`);
+        console.log(`[Ads] 425 duplicate — reusing report ${match[1]} for ${adProduct} ${reportTypeId} ${startDate}`);
+        await sleep(2000);
         return match[1];
       }
     }
+
+    // 429 = throttled — wait longer
+    if (status === 429) {
+      console.warn(`[Ads] 429 throttled for ${adProduct} ${reportTypeId} — waiting 10s`);
+      await sleep(10000);
+    }
+
     throw err;
   }
 }
 
-async function requestSPReport(client, profileId, reportDate) {
-  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
-  return requestV3Report(client, profileId, date, 'spCampaigns', 'SPONSORED_PRODUCTS',
-    ['campaign'],
-    // Validated against API 2026-03-25
-    ['campaignId','campaignName','impressions','clicks','cost',
-     'purchases30d','sales30d','unitsSoldClicks30d']
-  );
-}
-
-async function requestSBReport(client, profileId, reportDate) {
-  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
-  return requestV3Report(client, profileId, date, 'sbCampaigns', 'SPONSORED_BRANDS',
-    ['campaign'],
-    // Validated against API 2026-03-25 (NTB no window suffix at campaign level)
-    ['campaignId','campaignName','impressions','clicks','cost',
-     'purchases','sales','unitsSold',
-     'newToBrandPurchases','newToBrandSales','newToBrandUnitsSold']
-  );
-}
-
-async function requestSDReport(client, profileId, reportDate) {
-  const date = `${reportDate.substring(0,4)}-${reportDate.substring(4,6)}-${reportDate.substring(6,8)}`;
-  return requestV3Report(client, profileId, date, 'sdCampaigns', 'SPONSORED_DISPLAY',
-    ['campaign'],
-    // Validated against API 2026-03-25
-    ['campaignId','campaignName','impressions','clicks','cost',
-     'purchases','sales']
-  );
-}
-
 /**
- * Poll v3 report for completion and download (GZIP_JSON → parsed array)
+ * Poll a report until COMPLETED (or FAILURE/timeout), then download and gunzip.
+ * Returns parsed JSON array.
  */
 async function downloadReport(client, profileId, reportId, maxWaitMs = 300000) {
-  const zlib = require('zlib');
-  const start = Date.now();
-  let pollCount = 0;
+  const start     = Date.now();
+  let   pollCount = 0;
+
   while (Date.now() - start < maxWaitMs) {
     const res = await client.get(`/reporting/reports/${reportId}`, {
       headers: { 'Amazon-Advertising-API-Scope': profileId }
     });
-    const { status, url } = res.data;
+    const { status, url, failureReason } = res.data;
+
     if (status === 'COMPLETED' && url) {
-      const download = await axios.get(url, { responseType: 'arraybuffer' });
-      const decompressed = zlib.gunzipSync(Buffer.from(download.data));
-      return JSON.parse(decompressed.toString('utf8'));
+      const dl  = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
+      const buf = zlib.gunzipSync(Buffer.from(dl.data));
+      return JSON.parse(buf.toString('utf8'));
     }
-    if (status === 'FAILURE') throw new Error(`Report ${reportId} failed: ${res.data.failureReason || 'unknown'}`);
+
+    if (status === 'FAILURE') {
+      throw new Error(`Report ${reportId} FAILURE: ${failureReason || 'unknown reason'}`);
+    }
+
     if (status === 'PENDING' || status === 'PROCESSING') {
       pollCount++;
-      // Back off: 8s for first 10 polls, 15s after that
       const delay = pollCount <= 10 ? 8000 : 15000;
-      await new Promise(r => setTimeout(r, delay));
+      await sleep(delay);
       continue;
     }
-    throw new Error(`Report ${reportId} unknown status: ${status}`);
+
+    throw new Error(`Report ${reportId} unexpected status: ${status}`);
   }
-  throw new Error(`Report ${reportId} timed out after ${maxWaitMs/1000}s`);
+
+  throw new Error(`Report ${reportId} timed out after ${maxWaitMs / 1000}s`);
+}
+
+// ============================================================
+// CAMPAIGN ENTITY INGESTION
+// ============================================================
+
+/**
+ * Fetch all campaigns for a profile (enabled + paused + archived).
+ */
+async function fetchCampaigns(client, profileId) {
+  const res = await client.get('/v2/campaigns', {
+    headers: { 'Amazon-Advertising-API-Scope': profileId },
+    params:  { stateFilter: 'enabled,paused,archived', count: 100 }
+  });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 /**
- * Upsert campaigns into Snowflake
+ * Upsert campaign entities into ad_campaigns.
  */
 async function writeCampaigns(clientId, connectionType, profileId, campaigns) {
   if (!campaigns.length) return 0;
@@ -193,117 +512,104 @@ async function writeCampaigns(clientId, connectionType, profileId, campaigns) {
 }
 
 /**
- * Ensure the ad_performance table has the advertised_asin column.
- * Safe to call multiple times — uses ADD COLUMN IF NOT EXISTS pattern.
- *
- * Also ensures ntb_orders and ntb_sales columns exist for Sponsored Brands NTB data.
+ * Ingest campaign entities for all authorized profiles.
  */
-async function ensureAdPerformanceSchema() {
-  // Snowflake supports ADD COLUMN IF NOT EXISTS in newer versions.
-  // Using a try/catch per-column for compatibility with older account tiers.
-  const alterStatements = [
-    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS advertised_asin VARCHAR(20)`,
-    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_orders    NUMBER`,
-    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_sales     FLOAT`,
-    `ALTER TABLE ad_performance ADD COLUMN IF NOT EXISTS ntb_units     NUMBER`
-  ];
-  for (const sql of alterStatements) {
-    try {
-      await query(sql);
-    } catch (err) {
-      // Column likely already exists — ignore duplicate column errors
-      if (!err.message?.includes('already exists') && !err.message?.includes('duplicate')) {
-        console.warn(`[ensureAdPerformanceSchema] ${err.message}`);
-      }
+async function ingestCampaigns(clientId, connectionType) {
+  return runJob(clientId, connectionType, 'campaigns', async () => {
+    const allProfiles = await fetchProfiles(clientId, connectionType);
+    const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
+    let totalWritten  = 0;
+
+    for (const profile of profiles) {
+      const client    = await adsClient(clientId, connectionType);
+      const campaigns = await fetchCampaigns(client, String(profile.profileId));
+      totalWritten   += await writeCampaigns(clientId, connectionType, String(profile.profileId), campaigns);
     }
+
+    return { recordsWritten: totalWritten };
+  });
+}
+
+// ============================================================
+// PER-TABLE WRITE FUNCTIONS (MERGE upsert)
+// ============================================================
+
+/**
+ * Generic helper: map a report row (camelCase API names) to snake_case values
+ * for a given set of API column names. Returns an object keyed by snake_case names.
+ */
+function mapRow(apiRow, apiColumns) {
+  const mapped = {};
+  for (const col of apiColumns) {
+    const snake = toSnake(col);
+    const val   = apiRow[col];
+    mapped[snake] = (val === undefined || val === null || val === '') ? null : val;
   }
+  return mapped;
 }
 
 /**
- * Upsert performance data into Snowflake with ASIN-level attribution.
- *
- * Each row in `rows` should have:
- *   - campaignId, cost/spend, attributedSales*, clicks, impressions, units
- *   - advertisedAsin (from SP/SD ad-level report) OR null for brand awareness/DSP
- *   - ntbOrders, ntbSales, ntbUnits (SB only)
- *
- * The MERGE key includes advertised_asin so the same campaign on the same date
- * can have multiple rows — one per ASIN targeted.
- *
- * Records with no ASIN use 'UNATTRIBUTED' as the bucket.
+ * Write rows to sp_campaign_report using MERGE.
  */
-async function writePerformance(clientId, connectionType, reportDate, rows) {
+async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
   let written = 0;
   for (const r of rows) {
-    // v3 validated field names (confirmed 2026-03-25)
-    // SP: purchases30d, sales30d, unitsSoldClicks30d
-    // SB: purchases, sales, unitsSold, newToBrandPurchases, newToBrandSales, newToBrandUnitsSold
-    // SD: purchases, sales
-    const spend       = r.cost || 0;
-    const sales       = r.sales30d || r.sales || 0;
-    const clicks      = r.clicks || 0;
-    const impressions = r.impressions || 0;
-    const orders      = r.purchases30d || r.purchases || 0;
-    const units       = r.unitsSoldClicks30d || r.unitsSold || orders;
-    const acos        = sales > 0 ? spend / sales : null;
-    const roas        = spend > 0 ? sales / spend : null;
-    const ctr         = impressions > 0 ? clicks / impressions : null;
-    const cpc         = clicks > 0 ? spend / clicks : null;
-
-    // Campaign-level v3 reports don't include advertisedAsin
-    const advertisedAsin = r.advertisedAsin || 'UNATTRIBUTED';
-
-    // NTB metrics — SB only, no window suffix
-    const ntbOrders = r.newToBrandPurchases || null;
-    const ntbSales  = r.newToBrandSales     || null;
-    const ntbUnits  = r.newToBrandUnitsSold || null;
-
     await query(`
-      MERGE INTO ad_performance t
-      USING (SELECT ? AS client_id, ? AS connection_type, ? AS campaign_id,
-                    ? AS report_date, ? AS advertised_asin) s
-      ON  t.client_id       = s.client_id
-      AND t.connection_type = s.connection_type
-      AND t.campaign_id     = s.campaign_id
-      AND t.report_date     = s.report_date
-      AND COALESCE(t.advertised_asin, 'UNATTRIBUTED') = s.advertised_asin
+      MERGE INTO sp_campaign_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.date = s.date
       WHEN MATCHED THEN UPDATE SET
-        impressions     = ?,
-        clicks          = ?,
-        spend           = ?,
-        sales           = ?,
-        orders          = ?,
-        units_sold      = ?,
-        acos            = ?,
-        roas            = ?,
-        ctr             = ?,
-        cpc             = ?,
-        advertised_asin = ?,
-        ntb_orders      = ?,
-        ntb_sales       = ?,
-        ntb_units       = ?,
-        synced_at       = CURRENT_TIMESTAMP
-      WHEN NOT MATCHED THEN INSERT
-        (client_id, connection_type, campaign_id, report_date,
-         impressions, clicks, spend, sales, orders, units_sold,
-         acos, roas, ctr, cpc, advertised_asin,
-         ntb_orders, ntb_sales, ntb_units, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        campaign_name = ?, campaign_budget_amount = ?, campaign_budget_type = ?,
+        campaign_budget_currency_code = ?, campaign_bidding_strategy = ?,
+        top_of_search_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, date,
+        campaign_name, campaign_budget_amount, campaign_budget_type,
+        campaign_budget_currency_code, campaign_bidding_strategy,
+        top_of_search_impression_share,
+        impressions, clicks, cost,
+        purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        synced_at
+      ) VALUES (
+        ?, ?, ?, ?::DATE,
+        ?, ?, ?, ?, ?,
+        ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        CURRENT_TIMESTAMP
+      )
     `, [
       // MERGE key
-      clientId, connectionType, String(r.campaignId), reportDate, advertisedAsin,
-      // UPDATE SET
-      impressions, clicks, spend, sales,
-      r.attributedUnitsOrdered30d || r.unitsSold14d || 0, units,
-      acos, roas, ctr, cpc,
-      advertisedAsin, ntbOrders, ntbSales, ntbUnits,
-      // INSERT VALUES
-      clientId, connectionType, String(r.campaignId), reportDate,
-      impressions, clicks, spend, sales,
-      r.attributedUnitsOrdered30d || r.unitsSold14d || 0, units,
-      acos, roas, ctr, cpc,
-      advertisedAsin, ntbOrders, ntbSales, ntbUnits
+      clientId, profileId, String(r.campaignId), isoDate,
+      // UPDATE
+      r.campaignName || null, r.campaignBudgetAmount || null, r.campaignBudgetType || null,
+      r.campaignBudgetCurrencyCode || null, r.campaignBiddingStrategy || null,
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      // INSERT
+      clientId, profileId, String(r.campaignId), isoDate,
+      r.campaignName || null, r.campaignBudgetAmount || null, r.campaignBudgetType || null,
+      r.campaignBudgetCurrencyCode || null, r.campaignBiddingStrategy || null,
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null
     ]);
     written++;
   }
@@ -311,105 +617,795 @@ async function writePerformance(clientId, connectionType, reportDate, rows) {
 }
 
 /**
- * Get profile IDs that have a matching brand for this client.
- * If no brands configured, fall back to all profiles (single-brand clients).
+ * Write rows to sp_ad_group_report using MERGE.
  */
-async function getAuthorizedProfiles(clientId, allProfiles) {
-  try {
-    const brandRows = await query(
-      'SELECT ads_profile_id FROM brands WHERE client_id = ? AND is_active = TRUE AND ads_profile_id IS NOT NULL',
-      [clientId]
-    );
-    if (!brandRows.length) return allProfiles; // no brands yet — use all
-    const authorizedIds = new Set(brandRows.map(r => String(r.ADS_PROFILE_ID)));
-    const filtered = allProfiles.filter(p => authorizedIds.has(String(p.profileId)));
-    console.log(`[Ads] Client ${clientId}: ${filtered.length}/${allProfiles.length} profiles authorized via brands`);
-    return filtered;
-  } catch {
-    return allProfiles; // fallback to all on error
+async function writeSpAdGroupReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sp_ad_group_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS ad_group_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.ad_group_id = s.ad_group_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        ad_group_name = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, ad_group_id, date, ad_group_name,
+        impressions, clicks, cost,
+        purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.adGroupId), isoDate,
+      r.adGroupName || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      clientId, profileId, String(r.adGroupId), isoDate,
+      r.adGroupName || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null
+    ]);
+    written++;
   }
+  return written;
 }
 
 /**
- * Main ingestion job — campaigns
+ * Write rows to sp_targeting_keyword_report using MERGE.
  */
-async function ingestCampaigns(clientId, connectionType) {
-  return runJob(clientId, connectionType, 'campaigns', async () => {
-    const allProfiles = await fetchProfiles(clientId, connectionType);
-    const profiles = await getAuthorizedProfiles(clientId, allProfiles);
-    let totalWritten = 0;
-    for (const profile of profiles) {
-      const client = await adsClient(clientId, connectionType);
-      const campaigns = await fetchCampaigns(client, String(profile.profileId), connectionType);
-      totalWritten += await writeCampaigns(clientId, connectionType, String(profile.profileId), campaigns);
+async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sp_targeting_keyword_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS ad_group_id, ? AS keyword_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.ad_group_id = s.ad_group_id
+        AND t.keyword_id = s.keyword_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        targeting = ?, match_type = ?, keyword_bid = ?, ad_keyword_status = ?,
+        top_of_search_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, ad_group_id, keyword_id, date,
+        targeting, match_type, keyword_bid, ad_keyword_status, top_of_search_impression_share,
+        impressions, clicks, cost,
+        purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
+      r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.keywordId), isoDate,
+      r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sp_search_term_report using MERGE.
+ */
+async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sp_search_term_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS ad_group_id,
+                    ? AS keyword_id, ? AS search_term, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.ad_group_id = s.ad_group_id
+        AND t.keyword_id = s.keyword_id AND t.search_term = s.search_term AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        targeting = ?, match_type = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, ad_group_id, keyword_id, search_term, date,
+        targeting, match_type, impressions, clicks, cost,
+        purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), String(r.adGroupId),
+      String(r.keywordId), r.searchTerm || '', isoDate,
+      r.targeting || null, r.matchType || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      clientId, profileId, String(r.campaignId), String(r.adGroupId),
+      String(r.keywordId), r.searchTerm || '', isoDate,
+      r.targeting || null, r.matchType || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sp_advertised_product_report using MERGE.
+ */
+async function writeSpAdvertisedProductReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sp_advertised_product_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS ad_group_id, ? AS ad_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.ad_group_id = s.ad_group_id
+        AND t.ad_id = s.ad_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        advertised_asin = ?, advertised_sku = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        purchases_same_sku_30_d = ?, units_sold_same_sku_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, ad_group_id, ad_id, date,
+        advertised_asin, advertised_sku, impressions, clicks, cost,
+        purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        purchases_same_sku_30_d, units_sold_same_sku_30_d,
+        synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), isoDate,
+      r.advertisedAsin || null, r.advertisedSku || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      r.purchasesSameSku30d || null, r.unitsSoldSameSku30d || null,
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), isoDate,
+      r.advertisedAsin || null, r.advertisedSku || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
+      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
+      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
+      r.purchasesSameSku30d || null, r.unitsSoldSameSku30d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sp_campaign_placement_report using MERGE.
+ */
+async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sp_campaign_placement_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS placement, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.placement = s.placement AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        impressions = ?, clicks = ?, cost = ?,
+        purchases_30_d = ?, sales_30_d = ?, units_sold_clicks_30_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, placement, date,
+        impressions, clicks, cost, purchases_30_d, sales_30_d, units_sold_clicks_30_d, synced_at
+      ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases30d || null, r.sales30d || null, r.unitsSoldClicks30d || null,
+      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases30d || null, r.sales30d || null, r.unitsSoldClicks30d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sb_campaign_report using MERGE.
+ */
+async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sb_campaign_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS report_date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.report_date = s.report_date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_name = ?, top_of_search_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
+        attributed_orders_new_to_brand_14_d = ?, attributed_sales_new_to_brand_14_d = ?,
+        attributed_units_ordered_new_to_brand_14_d = ?,
+        video_5_second_views = ?, video_complete_views = ?, viewable_impressions = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, report_date, campaign_name,
+        top_of_search_impression_share, impressions, clicks, cost,
+        attributed_sales_14_d, attributed_conversions_14_d,
+        attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d,
+        attributed_units_ordered_new_to_brand_14_d,
+        video_5_second_views, video_complete_views, viewable_impressions, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), isoDate,
+      r.campaignName || null, r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
+      r.attributedUnitsOrderedNewToBrand14d || null,
+      r.video5SecondViews || null, r.videoCompleteViews || null, r.viewableImpressions || null,
+      clientId, profileId, String(r.campaignId), isoDate,
+      r.campaignName || null,
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
+      r.attributedUnitsOrderedNewToBrand14d || null,
+      r.video5SecondViews || null, r.videoCompleteViews || null, r.viewableImpressions || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sb_keyword_report using MERGE.
+ */
+async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sb_keyword_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS keyword_id, ?::DATE AS report_date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.keyword_id = s.keyword_id AND t.report_date = s.report_date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_id = ?, ad_group_id = ?,
+        top_of_search_impression_share = ?,
+        search_term_impression_rank = ?, search_term_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
+        attributed_orders_new_to_brand_14_d = ?, attributed_sales_new_to_brand_14_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, keyword_id, report_date, campaign_id, ad_group_id,
+        top_of_search_impression_share, search_term_impression_rank, search_term_impression_share,
+        impressions, clicks, cost,
+        attributed_sales_14_d, attributed_conversions_14_d,
+        attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.keywordId), isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.topOfSearchImpressionShare || null,
+      r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
+      clientId, profileId, String(r.keywordId), isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.topOfSearchImpressionShare || null,
+      r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sb_search_term_report using MERGE.
+ */
+async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sb_search_term_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS keyword_id, ? AS query_term, ?::DATE AS report_date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.keyword_id = s.keyword_id AND t.query_term = s.query_term AND t.report_date = s.report_date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_id = ?, ad_group_id = ?,
+        search_term_impression_rank = ?, search_term_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, keyword_id, query_term, report_date,
+        campaign_id, ad_group_id,
+        search_term_impression_rank, search_term_impression_share,
+        impressions, clicks, cost,
+        attributed_sales_14_d, attributed_conversions_14_d, synced_at
+      ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.keywordId), r.queryTerm || '', isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      clientId, profileId, String(r.keywordId), r.queryTerm || '', isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sb_target_report using MERGE.
+ */
+async function writeSbTargetReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sb_target_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS target_id, ?::DATE AS report_date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.target_id = s.target_id AND t.report_date = s.report_date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_id = ?, ad_group_id = ?,
+        top_of_search_impression_share = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
+        attributed_orders_new_to_brand_14_d = ?, attributed_sales_new_to_brand_14_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, target_id, report_date, campaign_id, ad_group_id,
+        top_of_search_impression_share, impressions, clicks, cost,
+        attributed_sales_14_d, attributed_conversions_14_d,
+        attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.targetId), isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
+      clientId, profileId, String(r.targetId), isoDate,
+      String(r.campaignId || ''), String(r.adGroupId || ''),
+      r.topOfSearchImpressionShare || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sb_placement_report using MERGE.
+ */
+async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sb_placement_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ? AS placement, ?::DATE AS report_date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.placement = s.placement AND t.report_date = s.report_date
+      WHEN MATCHED THEN UPDATE SET
+        impressions = ?, clicks = ?, cost = ?,
+        attributed_sales_14_d = ?, attributed_conversions_14_d = ?,
+        attributed_orders_new_to_brand_14_d = ?, attributed_sales_new_to_brand_14_d = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, placement, report_date,
+        impressions, clicks, cost,
+        attributed_sales_14_d, attributed_conversions_14_d,
+        attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
+      ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
+      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.attributedSales14d || null, r.attributedConversions14d || null,
+      r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sd_campaign_report using MERGE.
+ */
+async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sd_campaign_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.campaign_id = s.campaign_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_name = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases = ?, purchases_clicks = ?, sales = ?, sales_clicks = ?,
+        detail_page_views = ?, detail_page_views_clicks = ?,
+        add_to_cart = ?, add_to_cart_clicks = ?,
+        new_to_brand_purchases = ?, new_to_brand_sales = ?, new_to_brand_units_sold = ?,
+        branded_searches = ?, viewability_rate = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, campaign_id, date, campaign_name,
+        impressions, clicks, cost,
+        purchases, purchases_clicks, sales, sales_clicks,
+        detail_page_views, detail_page_views_clicks,
+        add_to_cart, add_to_cart_clicks,
+        new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold,
+        branded_searches, viewability_rate, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.campaignId), isoDate,
+      r.campaignName || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.detailPageViewsClicks || null,
+      r.addToCart || null, r.addToCartClicks || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
+      r.brandedSearches || null, r.viewabilityRate || null,
+      clientId, profileId, String(r.campaignId), isoDate,
+      r.campaignName || null,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.detailPageViewsClicks || null,
+      r.addToCart || null, r.addToCartClicks || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
+      r.brandedSearches || null, r.viewabilityRate || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sd_ad_group_report using MERGE.
+ */
+async function writeSdAdGroupReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sd_ad_group_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS ad_group_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.ad_group_id = s.ad_group_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        campaign_id = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases = ?, purchases_clicks = ?, sales = ?, sales_clicks = ?,
+        detail_page_views = ?, add_to_cart = ?,
+        new_to_brand_purchases = ?, new_to_brand_sales = ?, new_to_brand_units_sold = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, ad_group_id, date, campaign_id,
+        impressions, clicks, cost,
+        purchases, purchases_clicks, sales, sales_clicks,
+        detail_page_views, add_to_cart,
+        new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.adGroupId), isoDate,
+      String(r.campaignId || ''),
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
+      clientId, profileId, String(r.adGroupId), isoDate,
+      String(r.campaignId || ''),
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sd_target_report using MERGE.
+ */
+async function writeSdTargetReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sd_target_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS ad_group_id, ? AS campaign_id, ? AS targeting_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.ad_group_id = s.ad_group_id AND t.campaign_id = s.campaign_id
+        AND t.targeting_id = s.targeting_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        impressions = ?, clicks = ?, cost = ?,
+        purchases = ?, purchases_clicks = ?, sales = ?, sales_clicks = ?,
+        detail_page_views = ?, add_to_cart = ?,
+        new_to_brand_purchases = ?, new_to_brand_sales = ?, new_to_brand_units_sold = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, ad_group_id, campaign_id, targeting_id, date,
+        impressions, clicks, cost,
+        purchases, purchases_clicks, sales, sales_clicks,
+        detail_page_views, add_to_cart,
+        new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
+      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), isoDate,
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * Write rows to sd_product_ad_report using MERGE.
+ */
+async function writeSdProductAdReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const isoDate = toISODate(reportDate);
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO sd_product_ad_report t
+      USING (SELECT ? AS client_id, ? AS profile_id, ? AS ad_id, ?::DATE AS date) s
+      ON t.client_id = s.client_id AND t.profile_id = s.profile_id
+        AND t.ad_id = s.ad_id AND t.date = s.date
+      WHEN MATCHED THEN UPDATE SET
+        ad_group_id = ?, campaign_id = ?,
+        impressions = ?, clicks = ?, cost = ?,
+        purchases = ?, purchases_clicks = ?, sales = ?, sales_clicks = ?,
+        detail_page_views = ?, add_to_cart = ?,
+        new_to_brand_purchases = ?, new_to_brand_sales = ?, new_to_brand_units_sold = ?,
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, profile_id, ad_id, date, ad_group_id, campaign_id,
+        impressions, clicks, cost,
+        purchases, purchases_clicks, sales, sales_clicks,
+        detail_page_views, add_to_cart,
+        new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
+      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      clientId, profileId, String(r.adId), isoDate,
+      String(r.adGroupId || ''), String(r.campaignId || ''),
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
+      clientId, profileId, String(r.adId), isoDate,
+      String(r.adGroupId || ''), String(r.campaignId || ''),
+      r.impressions || 0, r.clicks || 0, r.cost || 0,
+      r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
+      r.detailPageViews || null, r.addToCart || null,
+      r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null
+    ]);
+    written++;
+  }
+  return written;
+}
+
+// ============================================================
+// WRITE FUNCTION DISPATCH TABLE
+// ============================================================
+
+const WRITE_FNS = {
+  spCampaigns:        writeSpCampaignReport,
+  spAdGroups:         writeSpAdGroupReport,
+  spTargeting:        writeSpTargetingReport,
+  spSearchTerm:       writeSpSearchTermReport,
+  spAdvertisedProduct: writeSpAdvertisedProductReport,
+  spCampaignPlacement: writeSpCampaignPlacementReport,
+  sbCampaigns:        writeSbCampaignReport,
+  sbKeywords:         writeSbKeywordReport,
+  sbSearchTerms:      writeSbSearchTermReport,
+  sbTargets:          writeSbTargetReport,
+  sbPlacements:       writeSbPlacementReport,
+  sdCampaigns:        writeSdCampaignReport,
+  sdAdGroups:         writeSdAdGroupReport,
+  sdTargeting:        writeSdTargetReport,
+  sdProductAds:       writeSdProductAdReport
+};
+
+// ============================================================
+// SCHEMA MIGRATION
+// ============================================================
+
+/**
+ * Read and execute the SQL migration file to create all ads tables.
+ * Each CREATE TABLE IF NOT EXISTS statement is idempotent.
+ */
+async function ensureAdsSchema() {
+  const sqlPath = path.join(__dirname, '../models/migrate-ads-schema.sql');
+  const sql     = fs.readFileSync(sqlPath, 'utf8');
+
+  // Split into individual statements — Snowflake doesn't support multi-statement
+  // Execute all CREATE TABLE statements
+  const statements = sql
+    .split(/;\s*\n/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--'));
+
+  let executed = 0;
+  for (const stmt of statements) {
+    if (!stmt.trim()) continue;
+    try {
+      await query(stmt);
+      executed++;
+    } catch (err) {
+      // Ignore "already exists" — CREATE TABLE IF NOT EXISTS should prevent this,
+      // but some Snowflake versions return errors for things like duplicate PKs
+      if (err.message?.includes('already exists') || err.message?.includes('duplicate')) {
+        continue;
+      }
+      throw err;
     }
-    return { recordsWritten: totalWritten };
-  });
+  }
+
+  console.log(`[ensureAdsSchema] Executed ${executed} SQL statements — schema ready`);
+  return executed;
 }
 
-/**
- * Phase 1 — Request performance reports and store IDs in ads_report_queue.
- * Returns immediately — actual data arrives when processReportQueue() runs.
- */
-async function ingestPerformance(clientId, connectionType, daysBack = 1) {
-  return runJob(clientId, connectionType, 'performance', async () => {
-    await ensureAdPerformanceSchema();
+// ============================================================
+// PERFORMANCE INGESTION (Phase 1: Queue Reports)
+// ============================================================
 
+/**
+ * Request all report types for all authorized profiles for daysBack days.
+ * Stores report IDs in ads_report_queue. Returns immediately.
+ * Call processReportQueue() to download completed reports.
+ */
+async function ingestPerformance(clientId, connectionType, daysBack = 2) {
+  return runJob(clientId, connectionType, 'performance', async () => {
     const allProfiles = await fetchProfiles(clientId, connectionType);
     const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
-    let queued = 0;
+    let   queued      = 0;
 
     for (const profile of profiles) {
+      const profileId = String(profile.profileId);
+
       for (let d = daysBack; d >= 1; d--) {
-        const date = new Date();
-        date.setDate(date.getDate() - d);
-        const reportDate = date.toISOString().split('T')[0].replace(/-/g, '');
+        const dateObj    = new Date();
+        dateObj.setDate(dateObj.getDate() - d);
+        const reportDate = toDateKey(dateObj);
+        const isoDate    = toISODate(reportDate);
 
-        const reportJobs = [
-          { type: 'SP', requester: requestSPReport },
-          { type: 'SB', requester: requestSBReport },
-          { type: 'SD', requester: requestSDReport }
-        ];
-
-        for (const job of reportJobs) {
+        for (const rt of REPORT_TYPES) {
           try {
             const freshClient = await adsClient(clientId, connectionType);
-            const reportId    = await job.requester(freshClient, String(profile.profileId), reportDate);
+            const reportId    = await requestV3Report(
+              freshClient, profileId, isoDate,
+              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns
+            );
             if (!reportId) continue;
 
-            // Store in queue — upsert in case it already exists
+            // Upsert into queue
             await query(`
               MERGE INTO ads_report_queue t
               USING (SELECT ? AS report_id) s ON t.report_id = s.report_id
               WHEN NOT MATCHED THEN INSERT
                 (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-            `, [reportId, reportId, clientId, connectionType, String(profile.profileId), job.type, reportDate]);
+            `, [reportId, reportId, clientId, connectionType, profileId, rt.key, reportDate]);
 
-            console.log(`[performance:${job.type}] Queued report ${reportId} for ${reportDate}`);
+            console.log(`[performance] Queued ${rt.key} report ${reportId} for profile ${profileId} date ${reportDate}`);
             queued++;
           } catch (err) {
-            const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : '';
-            console.warn(`[performance:${job.type}] Queue failed ${reportDate} profile ${profile.profileId}: ${err.message} ${body}`);
+            const body = err.response?.data
+              ? JSON.stringify(err.response.data).substring(0, 300)
+              : '';
+            console.warn(`[performance] Failed to queue ${rt.key} for ${profileId} ${reportDate}: ${err.message} ${body}`);
           }
         }
       }
     }
+
     console.log(`[performance] Queued ${queued} reports — run processReportQueue() to download`);
 
-    // Phase 2 — process the queue in background (non-blocking)
+    // Kick off queue processing in background (non-blocking)
     processReportQueue(clientId, connectionType).catch(err =>
-      console.error('[performance] Queue processing error:', err.message)
+      console.error('[performance] Background queue processing error:', err.message)
     );
 
     return { recordsWritten: 0, queued };
   });
 }
 
+// ============================================================
+// REPORT QUEUE PROCESSING (Phase 2: Download + Write)
+// ============================================================
+
 /**
- * Phase 2 — Poll and download completed reports from the queue.
- * Runs in background after ingestPerformance() queues reports.
- * Can also be called standalone to process any pending reports.
+ * Process pending reports in ads_report_queue.
+ * For each pending report:
+ *   - Poll GET /reporting/reports/:reportId
+ *   - If COMPLETED: download, gunzip, dispatch to correct write function
+ *   - If PENDING/PROCESSING: skip (will be picked up next run)
+ *   - If FAILURE: mark failed in queue
  */
 async function processReportQueue(clientId, connectionType) {
   const pending = await query(`
@@ -420,47 +1416,109 @@ async function processReportQueue(clientId, connectionType) {
     LIMIT 50
   `, [clientId, connectionType]);
 
-  if (!pending.length) return;
+  if (!pending.length) {
+    console.log(`[ReportQueue] No pending reports for ${clientId}`);
+    return { processed: 0 };
+  }
+
   console.log(`[ReportQueue] Processing ${pending.length} pending reports for ${clientId}`);
+  let processed = 0;
 
   for (const row of pending) {
-    const { REPORT_ID: reportId, PROFILE_ID: profileId, REPORT_TYPE: reportType, REPORT_DATE: reportDate } = row;
+    // Snowflake returns uppercase column names by default
+    const reportId   = row.REPORT_ID   || row.report_id;
+    const profileId  = row.PROFILE_ID  || row.profile_id;
+    const reportType = row.REPORT_TYPE || row.report_type;
+    const reportDate = String(row.REPORT_DATE || row.report_date);
+
     try {
       const pollClient = await adsClient(clientId, connectionType);
 
-      // Check status
       const statusRes = await pollClient.get(`/reporting/reports/${reportId}`, {
         headers: { 'Amazon-Advertising-API-Scope': profileId }
       });
       const { status, url, failureReason } = statusRes.data;
 
       if (status === 'PENDING' || status === 'PROCESSING') {
-        console.log(`[ReportQueue] ${reportId} still ${status} — skipping for now`);
+        console.log(`[ReportQueue] ${reportId} (${reportType}) still ${status} — skipping`);
         continue;
       }
 
       if (status === 'FAILURE') {
-        await query(`UPDATE ads_report_queue SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE report_id = ?`,
-          [failureReason || 'FAILURE', reportId]);
-        console.warn(`[ReportQueue] Report ${reportId} failed: ${failureReason}`);
+        await query(`
+          UPDATE ads_report_queue
+          SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+          WHERE report_id = ?
+        `, [failureReason || 'FAILURE', reportId]);
+        console.warn(`[ReportQueue] ${reportId} (${reportType}) FAILED: ${failureReason}`);
         continue;
       }
 
       if (status === 'COMPLETED' && url) {
-        const zlib = require('zlib');
-        const download = await require('axios').get(url, { responseType: 'arraybuffer' });
-        const rows = JSON.parse(zlib.gunzipSync(Buffer.from(download.data)).toString('utf8'));
-        const tagged = (Array.isArray(rows) ? rows : []).map(r => ({ ...r, _reportType: reportType }));
-        const written = await writePerformance(clientId, connectionType, reportDate, tagged);
+        // Download and decompress
+        const dl   = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
+        const rows = JSON.parse(zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8'));
+        const data = Array.isArray(rows) ? rows : [];
 
-        await query(`UPDATE ads_report_queue SET status = 'completed', records_written = ?, completed_at = CURRENT_TIMESTAMP WHERE report_id = ?`,
-          [written, reportId]);
+        // Dispatch to the correct write function
+        const writeFn = WRITE_FNS[reportType];
+        if (!writeFn) {
+          console.warn(`[ReportQueue] No write function for report type: ${reportType}`);
+          await query(`
+            UPDATE ads_report_queue
+            SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+            WHERE report_id = ?
+          `, [`No write function for type: ${reportType}`, reportId]);
+          continue;
+        }
+
+        const written = await writeFn(clientId, profileId, reportDate, data);
+
+        await query(`
+          UPDATE ads_report_queue
+          SET status = 'completed', records_written = ?, completed_at = CURRENT_TIMESTAMP
+          WHERE report_id = ?
+        `, [written, reportId]);
+
         console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records written`);
+        processed++;
       }
     } catch (err) {
-      console.warn(`[ReportQueue] Error processing ${reportId}: ${err.message}`);
+      const msg = err.message?.substring(0, 500) || 'unknown error';
+      console.warn(`[ReportQueue] Error processing ${reportId} (${reportType}): ${msg}`);
+
+      try {
+        await query(`
+          UPDATE ads_report_queue
+          SET error_message = ?
+          WHERE report_id = ?
+        `, [msg, reportId]);
+      } catch (updateErr) {
+        console.warn(`[ReportQueue] Could not update error_message: ${updateErr.message}`);
+      }
     }
   }
+
+  return { processed };
 }
 
-module.exports = { ingestCampaigns, ingestPerformance, processReportQueue, ensureAdPerformanceSchema };
+// ============================================================
+// EXPORTS
+// ============================================================
+
+module.exports = {
+  // Core ingestion
+  ingestCampaigns,
+  ingestPerformance,
+  processReportQueue,
+  ensureAdsSchema,
+
+  // Utilities (exported for testing)
+  adsClient,
+  fetchProfiles,
+  getAuthorizedProfiles,
+  requestV3Report,
+  downloadReport,
+  REPORT_TYPES,
+  WRITE_FNS
+};
