@@ -12,23 +12,39 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const days    = Number(req.query.days) || 30;
     const channel = req.query.channel; // 'ads' | 'dsp' | undefined
     const channelFilter = channel ? `AND connection_type = '${channel === 'ads' ? 'ads' : 'dsp'}'` : '';
-    const rows = await query(`
+    // Use sp_campaign_report (granular v3 data) — fall back to ad_performance if empty
+    let rows = await query(`
       SELECT
-        SUM(impressions)                          AS total_impressions,
-        SUM(clicks)                               AS total_clicks,
-        SUM(spend)                                AS total_spend,
-        SUM(sales)                                AS total_sales,
-        SUM(orders)                               AS total_orders,
-        SUM(units_sold)                           AS total_units,
-        CASE WHEN SUM(sales)  > 0 THEN SUM(spend) / SUM(sales)  ELSE NULL END AS acos,
-        CASE WHEN SUM(spend)  > 0 THEN SUM(sales) / SUM(spend)  ELSE NULL END AS roas,
+        COALESCE(SUM(impressions), 0)             AS total_impressions,
+        COALESCE(SUM(clicks), 0)                  AS total_clicks,
+        COALESCE(SUM(cost), 0)                    AS total_spend,
+        COALESCE(SUM(sales_30_d), 0)              AS total_sales,
+        COALESCE(SUM(purchases_30_d), 0)          AS total_orders,
+        COALESCE(SUM(units_sold_clicks_30_d), 0)  AS total_units,
+        CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0 THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr,
-        CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE NULL END AS cpc
-      FROM ad_performance
+        CASE WHEN SUM(clicks) > 0 THEN SUM(cost) / SUM(clicks) ELSE NULL END AS cpc
+      FROM sp_campaign_report
       WHERE client_id = ?
-        AND report_date >= DATEADD(day, -?, CURRENT_DATE)
-        ${channelFilter}
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
     `, [req.session.clientId, days]);
+
+    // Fall back to ad_performance if no data yet
+    if (!rows[0] || Number(rows[0].TOTAL_SPEND || 0) === 0) {
+      rows = await query(`
+        SELECT
+          SUM(impressions) AS total_impressions, SUM(clicks) AS total_clicks,
+          SUM(spend) AS total_spend, SUM(sales) AS total_sales,
+          SUM(orders) AS total_orders, SUM(units_sold) AS total_units,
+          CASE WHEN SUM(sales) > 0 THEN SUM(spend)/SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(spend) > 0 THEN SUM(sales)/SUM(spend) ELSE NULL END AS roas,
+          CASE WHEN SUM(impressions) > 0 THEN SUM(clicks)/SUM(impressions) ELSE NULL END AS ctr,
+          CASE WHEN SUM(clicks) > 0 THEN SUM(spend)/SUM(clicks) ELSE NULL END AS cpc
+        FROM ad_performance
+        WHERE client_id = ? AND report_date >= DATEADD(day,-?,CURRENT_DATE)
+      `, [req.session.clientId, days]);
+    }
 
     res.json(rows[0] || {});
   } catch (err) { next(err); }
