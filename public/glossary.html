@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calbridge — Metrics Glossary</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .glossary-layout { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { width: var(--sidebar-w); background: var(--brand-dark); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { padding: 16px 18px; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; align-items: center; justify-content: center; background: #ffffff; min-height: 72px; }
+    .sidebar-logo img { max-height: 48px; max-width: 180px; width: auto; height: auto; object-fit: contain; }
+    .sidebar-nav { flex: 1; padding: 12px 0; }
+    .sidebar-nav .nav-item { display: flex; align-items: center; gap: 8px; padding: 10px 20px; color: rgba(255,255,255,.65); text-decoration: none; font-size: 13px; font-weight: 500; border-left: 3px solid transparent; transition: all .15s; }
+    .sidebar-nav .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .sidebar-nav .nav-item.active { background: rgba(255,255,255,.12); color: #fff; border-left-color: rgba(255,255,255,.5); }
+    .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.1); font-size: 12px; color: rgba(255,255,255,.4); }
+    .sidebar-footer #client-name { display: block; margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.5); }
+    .btn-logout { background: none; border: 1px solid rgba(255,255,255,.2); color: rgba(255,255,255,.5); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; width: 100%; transition: all .15s; }
+    .btn-logout:hover { background: rgba(255,255,255,.08); color: #fff; }
+
+    /* Main */
+    .glossary-main { margin-left: var(--sidebar-w); flex: 1; padding: 32px 40px; max-width: 900px; }
+    .glossary-header { margin-bottom: 32px; }
+    .glossary-header h1 { font-size: 24px; font-weight: 700; color: var(--gray-800); margin-bottom: 6px; }
+    .glossary-header p { color: var(--gray-400); font-size: 14px; }
+
+    /* Search */
+    .glossary-search { margin-bottom: 28px; position: relative; }
+    .glossary-search input { width: 100%; padding: 10px 16px 10px 40px; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 14px; background: #fff; color: var(--gray-800); }
+    .glossary-search input:focus { outline: none; border-color: var(--brand); }
+    .glossary-search::before { content: '🔍'; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 14px; }
+
+    /* Category sections */
+    .glossary-category { margin-bottom: 40px; }
+    .glossary-category h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--gray-200); }
+
+    /* Term cards */
+    .glossary-term { background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 10px; transition: border-color .15s; }
+    .glossary-term:hover { border-color: var(--brand); }
+    .glossary-term-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+    .glossary-term-name { font-size: 15px; font-weight: 700; color: var(--gray-800); }
+    .glossary-term-abbr { font-size: 12px; font-weight: 700; color: var(--brand); background: var(--brand-light); padding: 2px 8px; border-radius: 20px; }
+    .glossary-term-formula { font-family: 'SF Mono', 'Monaco', monospace; font-size: 12px; color: var(--gray-600); background: var(--gray-100); padding: 4px 10px; border-radius: 4px; margin-bottom: 8px; display: inline-block; }
+    .glossary-term-desc { font-size: 13px; color: var(--gray-600); line-height: 1.6; }
+    .glossary-term-example { font-size: 12px; color: var(--gray-400); margin-top: 6px; font-style: italic; }
+    .glossary-term-tip { font-size: 12px; color: var(--brand); background: var(--brand-light); padding: 6px 10px; border-radius: 4px; margin-top: 8px; }
+
+    .no-results { text-align: center; padding: 60px 20px; color: var(--gray-400); font-size: 14px; }
+  </style>
+</head>
+<body>
+<div class="glossary-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="/images/calbridge-logo.png" alt="Calbridge" id="sidebar-logo-img"/>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="nav-item">📊 Overview</a>
+      <a href="/advertising.html" class="nav-item">📢 Advertising</a>
+      <a href="/account.html" class="nav-item">⚙️ Account</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="client-name">Loading...</span>
+      <button class="btn-logout" id="logout-btn">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="glossary-main">
+    <div class="glossary-header">
+      <h1>📖 Metrics Glossary</h1>
+      <p>Definitions and formulas for every metric in your Calbridge dashboard.</p>
+    </div>
+
+    <div class="glossary-search">
+      <input type="text" id="glossary-search-input" placeholder="Search metrics..." />
+    </div>
+
+    <div id="glossary-content">
+
+      <!-- Advertising Efficiency -->
+      <div class="glossary-category" data-category="advertising">
+        <h2>Advertising Efficiency</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Advertising Cost of Sales</span>
+            <span class="glossary-term-abbr">ACOS</span>
+          </div>
+          <div class="glossary-term-formula">ACOS = Ad Spend ÷ Ad-Attributed Sales × 100</div>
+          <div class="glossary-term-desc">The percentage of ad-attributed revenue that was spent on advertising. Lower is better — it means you're spending less to generate each dollar of ad-driven sales.</div>
+          <div class="glossary-term-example">Example: $500 spend on $2,000 ad sales = 25% ACOS</div>
+          <div class="glossary-term-tip">💡 Compare ACOS to your break-even ACOS to know if a campaign is profitable.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Total Advertising Cost of Sales</span>
+            <span class="glossary-term-abbr">TACoS</span>
+          </div>
+          <div class="glossary-term-formula">TACoS = Total Ad Spend ÷ Total Revenue × 100</div>
+          <div class="glossary-term-desc">Unlike ACOS, TACoS measures ad spend against your <em>total</em> revenue — including organic sales. This gives the most honest picture of advertising efficiency for the whole business.</div>
+          <div class="glossary-term-example">Example: $500 spend on $10,000 total revenue = 5% TACoS</div>
+          <div class="glossary-term-tip">💡 A declining TACoS over time means your organic sales are growing relative to ad spend — a sign of a healthy brand.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Return on Ad Spend</span>
+            <span class="glossary-term-abbr">ROAS</span>
+          </div>
+          <div class="glossary-term-formula">ROAS = Ad-Attributed Sales ÷ Ad Spend</div>
+          <div class="glossary-term-desc">How many dollars of ad-attributed revenue you get for every dollar spent. The inverse of ACOS. Higher is better.</div>
+          <div class="glossary-term-example">Example: $2,000 sales on $500 spend = 4x ROAS</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Break-Even ACOS</span>
+          </div>
+          <div class="glossary-term-formula">Break-Even ACOS = Gross Profit (CM2) ÷ Revenue × 100</div>
+          <div class="glossary-term-desc">The ACOS at which advertising neither profits nor loses money. If your actual ACOS is below this number, the campaign is profitable. Above it, you're losing money on ads.</div>
+          <div class="glossary-term-example">Example: $8 CM2 on a $20 product = 40% break-even ACOS</div>
+          <div class="glossary-term-tip">💡 This is calculated automatically per ASIN once you upload your COGS.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Cost Per Click</span>
+            <span class="glossary-term-abbr">CPC</span>
+          </div>
+          <div class="glossary-term-formula">CPC = Total Ad Spend ÷ Total Clicks</div>
+          <div class="glossary-term-desc">The average amount paid each time a shopper clicks your ad.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Click-Through Rate</span>
+            <span class="glossary-term-abbr">CTR</span>
+          </div>
+          <div class="glossary-term-formula">CTR = Clicks ÷ Impressions × 100</div>
+          <div class="glossary-term-desc">The percentage of ad impressions that resulted in a click. A higher CTR usually indicates more relevant ads or better creative.</div>
+          <div class="glossary-term-example">Example: 100 clicks on 10,000 impressions = 1% CTR</div>
+        </div>
+
+      </div>
+
+      <!-- Profitability -->
+      <div class="glossary-category" data-category="profitability">
+        <h2>Profitability</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Contribution Margin 1</span>
+            <span class="glossary-term-abbr">CM1</span>
+          </div>
+          <div class="glossary-term-formula">CM1 = Revenue − FBA Fees − Referral Fees</div>
+          <div class="glossary-term-desc">The net cash Amazon deposits into your account per unit sold, before your own product costs. This is what Amazon actually pays you after taking their cut.</div>
+          <div class="glossary-term-tip">💡 For vendors: CM1 = the amount Amazon paid for your products (shipped COGS).</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Contribution Margin 2</span>
+            <span class="glossary-term-abbr">CM2</span>
+          </div>
+          <div class="glossary-term-formula">CM2 = CM1 − (Units Sold × Cost of Goods)</div>
+          <div class="glossary-term-desc">Gross profit per ASIN — what you make after Amazon fees and your own product cost, before advertising. Answers: <em>"Is this product worth selling?"</em></div>
+          <div class="glossary-term-tip">💡 Requires COGS upload. If CM2 is negative, the product is unprofitable even without any advertising.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Contribution Margin 3</span>
+            <span class="glossary-term-abbr">CM3</span>
+          </div>
+          <div class="glossary-term-formula">CM3 = CM2 − Direct Ad Spend</div>
+          <div class="glossary-term-desc">True profitability per ASIN after all costs including advertising. This is the most important metric for understanding which products are actually making you money. Answers: <em>"Is advertising this product profitable?"</em></div>
+          <div class="glossary-term-tip">💡 If CM3 is negative, you are paying to lose money on this ASIN. Either reduce ad spend or improve the product margin.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">FBA Fees</span>
+          </div>
+          <div class="glossary-term-desc">Fees Amazon charges for storing and fulfilling your products through Fulfillment by Amazon. Includes pick & pack, weight handling, and monthly storage fees. These are deducted before CM1 is calculated.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Referral Fee</span>
+          </div>
+          <div class="glossary-term-formula">Typically 8–15% of selling price (varies by category)</div>
+          <div class="glossary-term-desc">Amazon's commission on every sale, charged as a percentage of the total selling price. This is the largest fee for most sellers and is deducted before CM1 is calculated.</div>
+        </div>
+
+      </div>
+
+      <!-- Sales & Volume -->
+      <div class="glossary-category" data-category="sales">
+        <h2>Sales & Volume</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Ad-Attributed Sales</span>
+          </div>
+          <div class="glossary-term-desc">Sales revenue that Amazon attributes to an ad click within a defined attribution window (typically 7 or 14 days). A sale counts if the customer clicked your ad and purchased within that window — even if they didn't buy the advertised product.</div>
+          <div class="glossary-term-tip">💡 Attribution windows: SP uses 7 & 14 day click windows. SB uses 14 day only.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">New-to-Brand Orders</span>
+            <span class="glossary-term-abbr">NTB</span>
+          </div>
+          <div class="glossary-term-desc">Orders from customers who have not purchased from your brand on Amazon in the past 12 months. NTB metrics show how effectively your advertising is growing your customer base vs. re-selling to existing customers.</div>
+          <div class="glossary-term-tip">💡 Available for Sponsored Brands campaigns only.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Same-SKU Sales</span>
+          </div>
+          <div class="glossary-term-formula">purchasesSameSku / purchases × 100</div>
+          <div class="glossary-term-desc">The percentage of ad-attributed purchases where the customer bought the exact product advertised (same SKU). Higher same-SKU rates mean your ads are converting on the specific product shown.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Top of Search Impression Share</span>
+            <span class="glossary-term-abbr">ToSIS</span>
+          </div>
+          <div class="glossary-term-formula">ToSIS = Your Top-of-Search Impressions ÷ Total Eligible Top-of-Search Impressions</div>
+          <div class="glossary-term-desc">The percentage of available top-of-search impressions your ads captured. Low ToSIS on important keywords means competitors are winning the most valuable placements.</div>
+        </div>
+
+      </div>
+
+      <!-- Ad Types -->
+      <div class="glossary-category" data-category="adtypes">
+        <h2>Ad Types</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Sponsored Products</span>
+            <span class="glossary-term-abbr">SP</span>
+          </div>
+          <div class="glossary-term-desc">Pay-per-click ads for individual products that appear in search results and product detail pages. The most common Amazon ad type. You bid on keywords or product targets and pay only when a shopper clicks.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Sponsored Brands</span>
+            <span class="glossary-term-abbr">SB</span>
+          </div>
+          <div class="glossary-term-desc">Banner ads featuring your brand logo, a custom headline, and multiple products. Appear at the top of search results. Best for brand awareness and driving traffic to your Store or a custom landing page. Uses 14-day attribution only.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Sponsored Display</span>
+            <span class="glossary-term-abbr">SD</span>
+          </div>
+          <div class="glossary-term-desc">Display ads that appear on and off Amazon — on product pages, Amazon-owned sites, and third-party sites. Can target audiences by shopping behavior or product/category. Supports both CPC and vCPM (cost per 1,000 viewable impressions) bidding.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Amazon DSP</span>
+          </div>
+          <div class="glossary-term-desc">Demand-Side Platform — programmatic display and video advertising that reaches Amazon audiences both on and off Amazon. Unlike Sponsored Ads, DSP is managed through Amazon's advertising platform and typically requires a minimum spend commitment. Uses CPM (cost per thousand impressions) billing.</div>
+        </div>
+
+      </div>
+
+      <!-- Budget & Pacing -->
+      <div class="glossary-category" data-category="budget">
+        <h2>Budget & Pacing</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Budget Pacing</span>
+          </div>
+          <div class="glossary-term-formula">Pacing Ratio = Actual MTD Spend ÷ Expected MTD Spend</div>
+          <div class="glossary-term-desc">Whether a campaign is spending on track for the month. A ratio above 1.1 means over-pacing (at risk of exhausting budget early). Below 0.7 means under-pacing (budget may be wasted or campaigns are being throttled).</div>
+          <div class="glossary-term-tip">💡 Over-pacing campaigns often run out of budget in the afternoon, missing evening shoppers.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Dynamic Bids — Down Only</span>
+          </div>
+          <div class="glossary-term-desc">Amazon's default bidding strategy. Amazon may lower your bid when a click is less likely to convert, but will never raise it above your set bid.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Dynamic Bids — Up and Down</span>
+          </div>
+          <div class="glossary-term-desc">Amazon can raise your bid up to 100% (for top of search) or 50% (elsewhere) when a click is more likely to convert, and lower it when less likely. More aggressive and typically results in higher spend.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Fixed Bids</span>
+          </div>
+          <div class="glossary-term-desc">Amazon uses your exact bid for every auction — no automatic adjustments. Gives maximum control but misses optimization opportunities.</div>
+        </div>
+
+      </div>
+
+      <!-- Targeting -->
+      <div class="glossary-category" data-category="targeting">
+        <h2>Targeting</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Broad Match</span>
+          </div>
+          <div class="glossary-term-desc">Your ad can show for searches containing your keyword in any order, plus close variants and related terms. Widest reach, most discovery potential, but also the most irrelevant traffic risk.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Phrase Match</span>
+          </div>
+          <div class="glossary-term-desc">Your ad shows for searches containing your keyword phrase in the exact order, with additional words before or after. More targeted than broad but less restrictive than exact.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Exact Match</span>
+          </div>
+          <div class="glossary-term-desc">Your ad only shows for the exact keyword or very close variants. Most precise targeting — lowest reach but highest relevance. Usually highest conversion rate.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Negative Keywords</span>
+          </div>
+          <div class="glossary-term-desc">Search terms you explicitly exclude from triggering your ads. Critical for preventing wasted spend on irrelevant searches. Regularly reviewing search term reports to add negatives is one of the highest-ROI optimizations in Amazon advertising.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Auto Targeting</span>
+          </div>
+          <div class="glossary-term-desc">Amazon automatically targets relevant keywords and products based on your listing content. Good for discovery and finding new keyword opportunities, but requires careful monitoring to prevent wasted spend.</div>
+        </div>
+
+      </div>
+
+      <!-- Performance Signals -->
+      <div class="glossary-category" data-category="signals">
+        <h2>Performance Signals</h2>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Impression Share</span>
+          </div>
+          <div class="glossary-term-formula">Impression Share = Your Impressions ÷ Total Eligible Impressions</div>
+          <div class="glossary-term-desc">The percentage of available impressions your ads captured for a given keyword or placement. Low impression share means competitors are outbidding you or your budget is limiting delivery.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Search Term Impression Rank</span>
+          </div>
+          <div class="glossary-term-desc">Your ranking among advertisers competing for impressions on a specific search term. Rank 1 means your ads received the most impressions for that term. Available for Sponsored Brands keywords.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Detail Page Views</span>
+            <span class="glossary-term-abbr">DPV</span>
+          </div>
+          <div class="glossary-term-desc">The number of times shoppers viewed your product detail page within the attribution window after clicking or viewing an ad. A high DPV with low purchases may indicate a listing quality issue — price, images, or reviews.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Add to Cart</span>
+            <span class="glossary-term-abbr">ATC</span>
+          </div>
+          <div class="glossary-term-desc">Times a shopper added your product to their cart after an ad interaction. High ATC with low purchases suggests a checkout friction issue — price competitiveness, shipping cost, or availability.</div>
+        </div>
+
+        <div class="glossary-term">
+          <div class="glossary-term-header">
+            <span class="glossary-term-name">Branded Searches</span>
+          </div>
+          <div class="glossary-term-desc">The number of times shoppers searched for your brand name within 14 days of an ad interaction. A growing branded search count indicates your advertising is building brand awareness and recall.</div>
+        </div>
+
+      </div>
+
+    </div><!-- /glossary-content -->
+
+    <div class="no-results" id="no-results" style="display:none">
+      No metrics found for "<span id="search-query"></span>"
+    </div>
+
+  </main>
+</div>
+
+<script src="/js/glossary.js"></script>
+</body>
+</html>
