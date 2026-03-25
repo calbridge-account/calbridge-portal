@@ -51,9 +51,16 @@ function getAuthUrl(type, clientId) {
   // SP-API uses the SP-API client ID; Advertising uses LWA client ID
   const clientIdToUse = conn.api === 'spapi' ? SPAPI_CLIENT_ID : LWA_CLIENT_ID;
 
+  // Mark all scopes as essential — if user denies, connection fails cleanly
+  // rather than silently succeeding with no permissions
+  const scopeData = JSON.stringify({
+    [conn.scope]: { essential: true }
+  });
+
   const params = new URLSearchParams({
-    client_id: clientIdToUse,
-    scope: conn.scope,
+    client_id:    clientIdToUse,
+    scope:        conn.scope,
+    scope_data:   scopeData,
     response_type: 'code',
     redirect_uri: `${BASE_URL}/amazon/callback/${type}`,
     state
