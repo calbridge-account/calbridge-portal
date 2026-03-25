@@ -162,14 +162,18 @@ async function loadOverview() {
     const { topPerformers, bottomPerformers } = await perfRes.json();
 
     // Top-line KPIs from summary endpoint
-    $('kpi-revenue').textContent    = fmt$(summary.totalRetailSales);
-    $('kpi-revenue-sub').textContent = `Seller ${fmt$(summary.sellerRevenue)} · Vendor ${fmt$(summary.vendorRevenue)}`;
-    $('kpi-ad-sales').textContent   = fmt$(summary.totalAdSales);
-    $('kpi-ad-sales-sub').textContent = `${summary.totalAdOrders.toLocaleString()} orders`;
-    $('kpi-spend').textContent      = fmt$(summary.totalAdSpend);
-    $('kpi-spend-sub').textContent  = summary.acos ? `${(summary.acos * 100).toFixed(1)}% ACOS` : '';
-    $('kpi-roas').textContent       = summary.totalRoas ? `${summary.totalRoas.toFixed(2)}x` : '—';
-    $('kpi-ad-roas').textContent    = summary.adRoas    ? `${summary.adRoas.toFixed(2)}x`    : '—';
+    const hasSalesData = summary.totalRetailSales > 0;
+    $('kpi-revenue').textContent     = hasSalesData ? fmt$(summary.totalRetailSales) : 'Pending';
+    $('kpi-revenue').style.color     = hasSalesData ? '' : 'var(--gray-400)';
+    $('kpi-revenue-sub').textContent = hasSalesData
+      ? `Seller ${fmt$(summary.sellerRevenue)} · Vendor ${fmt$(summary.vendorRevenue)}`
+      : 'Seller Central connection pending';
+    $('kpi-ad-sales').textContent    = fmt$(summary.totalAdSales);
+    $('kpi-ad-sales-sub').textContent = `${(summary.totalAdOrders||0).toLocaleString()} orders`;
+    $('kpi-spend').textContent       = fmt$(summary.totalAdSpend);
+    $('kpi-spend-sub').textContent   = summary.acos ? `${(summary.acos * 100).toFixed(1)}% ACOS` : '';
+    $('kpi-roas').textContent        = summary.totalRoas ? `${summary.totalRoas.toFixed(2)}x` : '—';
+    $('kpi-ad-roas').textContent     = summary.adRoas ? `${summary.adRoas.toFixed(2)}x` : '—';
 
     // CM3 (True Profitability) from cmBreakdown or performers aggregate
     const cm = summary.cmBreakdown;
@@ -180,12 +184,39 @@ async function loadOverview() {
     }
     const cmPct = summary.totalRetailSales > 0 && cm3Total != null ? (cm3Total / summary.totalRetailSales) * 100 : 0;
     $('kpi-cm').textContent     = cm3Total != null ? fmt$(cm3Total) : '—';
-    $('kpi-cm').style.color     = cm3Total != null && cm3Total < 0 ? 'var(--danger)' : '';
-    $('kpi-cm-sub').textContent = cm3Total != null ? `${cmPct.toFixed(1)}% of retail sales` : 'COGS not set';
+    $('kpi-cm').style.color     = cm3Total != null && cm3Total < 0 ? 'var(--danger)' : 'var(--gray-400)';
+    if (cm3Total != null) {
+      $('kpi-cm').style.color   = cm3Total < 0 ? 'var(--danger)' : '';
+      $('kpi-cm-sub').textContent = `${cmPct.toFixed(1)}% of retail sales`;
+    } else if (!hasSalesData) {
+      $('kpi-cm-sub').textContent = 'Connect Seller Central to unlock';
+    } else {
+      $('kpi-cm-sub').textContent = 'Upload COGS in Account settings';
+    }
     $('kpi-acos').textContent   = summary.acos ? `${(summary.acos * 100).toFixed(1)}%` : '—';
 
     // CM Waterfall
     if (summary.cmBreakdown) renderCmWaterfall(summary.cmBreakdown);
+
+    // Data status banner
+    const banner = $('data-status-banner');
+    if (banner) {
+      if (!hasSalesData && summary.totalAdSpend > 0) {
+        banner.style.display = 'flex';
+        banner.style.background = 'var(--brand-light)';
+        banner.style.border = '1px solid var(--brand)';
+        banner.style.color = 'var(--brand)';
+        banner.innerHTML = '📡 <strong>Advertising data connected.</strong>&nbsp;Connect your Seller or Vendor Central account in <a href="/account.html" style="color:var(--brand);text-decoration:underline">Account Settings</a> to unlock sales data and contribution margin.';
+      } else if (summary.totalAdSpend === 0 && summary.totalRetailSales === 0) {
+        banner.style.display = 'flex';
+        banner.style.background = 'var(--gray-100)';
+        banner.style.border = '1px solid var(--gray-200)';
+        banner.style.color = 'var(--gray-600)';
+        banner.innerHTML = '⏳ <strong>Initial sync in progress.</strong>&nbsp;Your data is being pulled from Amazon. Check back in a few minutes.';
+      } else {
+        banner.style.display = 'none';
+      }
+    }
 
     // TACOS (Total ACOS) — load async, show card if data is available
     loadTacos();
