@@ -4,7 +4,7 @@
  */
 
 /* ─── State ─────────────────────────────────────────────────────────── */
-let activeChannel = 'all';   // 'all' | 'ads' | 'dsp'
+let activeChannel = 'all';   // 'all' | 'ads' | 'SP' | 'SB' | 'SD' | 'dsp'
 let currentDays   = 30;
 
 let trendChart    = null;
@@ -121,11 +121,14 @@ function setupControls() {
       activeChannel = btn.dataset.channel;
 
       const subtitles = {
-        all:  'Amazon Ads + DSP — unified view',
-        ads:  'Sponsored Ads — SP · SB · SD',
-        dsp:  'Amazon DSP — programmatic display'
+        all: 'Amazon Ads + DSP — unified view',
+        ads: 'Sponsored Ads — SP · SB · SD',
+        SP:  'Sponsored Products',
+        SB:  'Sponsored Brands',
+        SD:  'Sponsored Display',
+        dsp: 'Amazon DSP — programmatic display'
       };
-      el('channel-subtitle').textContent = subtitles[activeChannel] || '';
+      el('channel-subtitle').textContent = subtitles[activeChannel] || activeChannel;
 
       // Show/hide DSP-incompatible metrics
       applyChannelVisibility();
@@ -190,6 +193,7 @@ function setupControls() {
 /* ─── Channel visibility ─────────────────────────────────────────────── */
 function applyChannelVisibility() {
   const isDsp = activeChannel === 'dsp';
+  // For SP/SB/SD subtypes, show sponsored ads metrics (ACOS, CTR)
 
   // ACOS card — hide for DSP
   toggleEl('kpi-acos-card',   !isDsp);
@@ -207,6 +211,7 @@ async function loadAll() {
       loadSummary(),
       loadTrend(),
       loadDonut(),
+      loadAdTypeBreakdown(),
       loadAsinPerformance(),
       loadCampaigns()
     ]);
@@ -215,10 +220,73 @@ async function loadAll() {
   }
 }
 
+/* ─── Ad Type Breakdown Table ────────────────────────────────────────── */
+async function loadAdTypeBreakdown() {
+  const tbody = document.getElementById('adtype-tbody');
+  if (!tbody) return;
+  try {
+    // Always fetch all types for comparison — not filtered by activeChannel
+    const res = await fetch(`/advertising/by-channel?days=${currentDays}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const rows = await res.json();
+
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">No data</td></tr>';
+      return;
+    }
+
+    const TYPE_COLORS = { SP: '#1a56db', SB: '#c05621', SD: '#065f46', DSP: '#5b21b6' };
+    const totals = rows.reduce((s, r) => ({
+      spend: s.spend + Number(r.SPEND||0),
+      sales: s.sales + Number(r.SALES||0)
+    }), { spend: 0, sales: 0 });
+
+    tbody.innerHTML = rows.map(r => {
+      const spend = Number(r.SPEND||0), sales = Number(r.SALES||0);
+      const orders = Number(r.ORDERS||0), clicks = Number(r.CLICKS||0), impr = Number(r.IMPRESSIONS||0);
+      const acos  = sales  > 0 ? (spend / sales * 100).toFixed(1) + '%' : '—';
+      const roas  = spend  > 0 ? (sales / spend).toFixed(2) + 'x' : '—';
+      const ctr   = impr   > 0 ? (clicks / impr * 100).toFixed(2) + '%' : '—';
+      const cpc   = clicks > 0 ? fmt$(spend / clicks) : '—';
+      const pct   = totals.spend > 0 ? (spend / totals.spend * 100).toFixed(1) : 0;
+      const type  = r.AD_TYPE || r.CAMPAIGN_TYPE;
+      const color = TYPE_COLORS[type] || '#6b7280';
+      const isDspRow = type === 'DSP';
+
+      return `<tr style="${activeChannel !== 'all' && activeChannel !== (isDspRow?'dsp':type==='ads'?'ads':type) && !(['SP','SB','SD'].includes(activeChannel)&&!isDspRow) ? 'opacity:0.4' : ''}">
+        <td><span class="badge-${type?.toLowerCase()}" style="background:${color}20;color:${color};padding:3px 8px;border-radius:4px;font-weight:700;font-size:12px">${type}</span></td>
+        <td><strong>${fmt$(spend)}</strong> <span style="font-size:11px;color:var(--gray-400)">(${pct}%)</span></td>
+        <td>${fmt$(sales)}</td>
+        <td>${orders.toLocaleString()}</td>
+        <td class="${Number(acos)>40?'cm-negative':Number(acos)<15?'cm-positive':''}">${isDspRow?'—':acos}</td>
+        <td>${roas}</td>
+        <td>${impr.toLocaleString()}</td>
+        <td>${clicks.toLocaleString()}</td>
+        <td>${isDspRow?'—':ctr}</td>
+        <td>${isDspRow?'—':cpc}</td>
+      </tr>`;
+    }).join('');
+
+    // Totals row
+    const totalSpend = totals.spend, totalSales = totals.sales;
+    const totalAcos = totalSales > 0 ? (totalSpend/totalSales*100).toFixed(1)+'%' : '—';
+    const totalRoas = totalSpend > 0 ? (totalSales/totalSpend).toFixed(2)+'x' : '—';
+    tbody.innerHTML += `<tr style="font-weight:700;border-top:2px solid var(--gray-200)">
+      <td>Total</td><td>${fmt$(totalSpend)}</td><td>${fmt$(totalSales)}</td>
+      <td colspan="7">${totalAcos} ACOS · ${totalRoas} ROAS</td>
+    </tr>`;
+
+  } catch (err) {
+    console.error('loadAdTypeBreakdown:', err);
+    tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">Error loading data</td></tr>';
+  }
+}
+
 /* ─── Channel param helper ───────────────────────────────────────────── */
 function channelParam() {
   if (activeChannel === 'ads') return '&channel=ads';
   if (activeChannel === 'dsp') return '&channel=dsp';
+  if (['SP','SB','SD'].includes(activeChannel)) return '&channel=ads&adType=' + activeChannel;
   return '';
 }
 

@@ -37,9 +37,12 @@
       </div>
       <div class="header-actions">
         <!-- Channel toggle -->
-        <div class="channel-toggle" id="channel-toggle">
+        <div class="channel-toggle" id="channel-toggle" style="flex-wrap:wrap;gap:4px">
           <button class="tab-btn active" data-channel="all">All</button>
           <button class="tab-btn" data-channel="ads">Sponsored Ads</button>
+          <button class="tab-btn" data-channel="SP">SP</button>
+          <button class="tab-btn" data-channel="SB">SB</button>
+          <button class="tab-btn" data-channel="SD">SD</button>
           <button class="tab-btn" data-channel="dsp">DSP</button>
         </div>
         <!-- Days filter -->
@@ -112,6 +115,33 @@
           <h3>Daily ACOS Trend</h3>
           <canvas id="acos-trend-chart"></canvas>
         </div>
+      </div>
+
+      <!-- Ad Type Breakdown -->
+      <div class="table-card" style="margin-bottom:20px">
+        <div class="table-header-row">
+          <h3>Performance by Ad Type</h3>
+          <span style="font-size:12px;color:var(--gray-400)">Side-by-side comparison</span>
+        </div>
+        <table class="data-table" id="adtype-breakdown-table">
+          <thead>
+            <tr>
+              <th>Ad Type</th>
+              <th style="cursor:pointer">Spend</th>
+              <th style="cursor:pointer">Sales</th>
+              <th style="cursor:pointer">Orders</th>
+              <th>ACOS</th>
+              <th>ROAS</th>
+              <th>Impressions</th>
+              <th>Clicks</th>
+              <th>CTR</th>
+              <th>CPC</th>
+            </tr>
+          </thead>
+          <tbody id="adtype-tbody">
+            <tr><td colspan="10" class="loading-cell">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- Table 1: ASIN Performance -->
