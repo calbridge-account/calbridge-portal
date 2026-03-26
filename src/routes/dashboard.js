@@ -112,8 +112,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ?) cp
-          AND date >= DATEADD(day, -?, CURRENT_DATE)
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
       `, [clientId, days])
     ]);
 
@@ -435,7 +434,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
 
       query(`
         SELECT COALESCE(SUM(spend), 0) AS total_spend
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)) cp
       `, [clientId, days])
     ]);
 
@@ -451,7 +450,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
           ad_type AS campaign_type,
           ad_type AS connection_type,
           SUM(spend) AS spend
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)) cp
         GROUP BY ad_type
         ORDER BY spend DESC
       `, [clientId, days]);
@@ -694,7 +693,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
           THEN SUM(spend) / SUM(new_to_brand_sales) ELSE NULL END AS ntb_acos,
         CASE WHEN SUM(spend) > 0
           THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL) cp
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL) cp
     `, [clientId, days]);
 
     const r = rows[0] || {};
@@ -716,7 +715,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
             THEN SUM(new_to_brand_purchases) / SUM(orders) ELSE NULL END AS ntb_order_rate,
           CASE WHEN SUM(spend) > 0
             THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE) AND new_to_brand_purchases > 0) cp
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases > 0) cp
         GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
         LIMIT 20
