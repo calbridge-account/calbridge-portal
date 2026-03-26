@@ -531,8 +531,8 @@ async function requestV3Report(client, profileId, startDate, reportTypeId, adPro
       }]
     });
 
-    // Throttle: 500ms between requests
-    await sleep(500);
+    // Throttle: 100ms between requests — fast enough to not block event loop
+    await sleep(100);
 
     return res.data?.reportId;
   } catch (err) {
@@ -1766,8 +1766,9 @@ async function processReportQueue(clientId, connectionType) {
   }
 
   // Parallel batches of 5
-  // Sequential processing — avoids Snowflake connection pool exhaustion
+  // Sequential processing with event loop yield between each report
   for (const row of pending) {
+    await new Promise(r => setImmediate(r)); // yield to event loop
     const ok = await processOne(row);
     if (ok) processed++;
   }
