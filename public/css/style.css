@@ -200,17 +200,36 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 /* ---- ADVERTISING PAGE ---- */
 .kpi-grid-6 { grid-template-columns: repeat(6, 1fr); }
 
-.table-header-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-200); }
+.table-header-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-200); flex-wrap: wrap; gap: 8px; }
 .table-header-row h3 { font-size: 14px; font-weight: 600; color: var(--gray-600); margin: 0; }
 
+/* Channel toggle in header */
+.channel-toggle { display: flex; gap: 6px; }
 .channel-tabs { display: flex; gap: 6px; }
-.tab-btn { padding: 5px 12px; border: 1px solid var(--gray-200); border-radius: 20px; background: #fff; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .15s; }
+.tab-btn { padding: 5px 14px; border: 1px solid var(--gray-200); border-radius: 20px; background: #fff; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .15s; white-space: nowrap; }
 .tab-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
-.badge-ads { background: rgba(45,90,39,.1);  color: var(--brand);      padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-.badge-dsp { background: rgba(61,122,53,.1); color: var(--brand-mid);  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 
-.badge-ads { background: rgba(26,86,219,.1);  color: var(--brand);   padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-.badge-dsp { background: rgba(5,122,85,.1);   color: var(--success); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+/* Legacy channel badges */
+.badge-ads { background: rgba(26,86,219,.1);  color: #1a56db; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-dsp { background: rgba(5,122,85,.1);   color: #057a55; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+/* Ad type badges — SP/SB/SD/DSP */
+.badge-ad-type { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.badge-sp      { background: rgba(26,86,219,.12);  color: #1a56db; }
+.badge-sb      { background: rgba(224,123,34,.12); color: #c66a10; }
+.badge-sd      { background: rgba(5,122,85,.12);   color: #057a55; }
+.badge-dsp-type { background: rgba(126,58,242,.12); color: #6b21e8; }
+
+/* Sortable table headers */
+.data-table th.sortable:hover { background: var(--gray-100); color: var(--gray-800); }
+.sort-arrow { font-size: 10px; }
+
+/* Table pagination bar */
+.table-pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--gray-100); font-size: 12px; color: var(--gray-400); }
+
+/* Glossary link in sidebar */
+.glossary-link { display: block; color: rgba(255,255,255,.4); font-size: 12px; text-decoration: none; margin-bottom: 10px; padding: 4px 0; }
+.glossary-link:hover { color: rgba(255,255,255,.7); }
 
 /* ---- CONNECTIONS ---- */
 .connections-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }

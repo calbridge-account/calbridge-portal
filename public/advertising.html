@@ -9,8 +9,11 @@
 </head>
 <body class="dashboard-page">
 
+  <!-- Sidebar -->
   <aside class="sidebar">
-    <div class="sidebar-logo"><img src="/images/calbridge-logo.png" alt="Calbridge" /></div>
+    <div class="sidebar-logo">
+      <img src="/images/calbridge-logo.png" alt="Calbridge" />
+    </div>
     <nav class="sidebar-nav">
       <a href="/dashboard.html" class="nav-item">📊 Overview</a>
       <a href="/advertising.html" class="nav-item active">📢 Advertising</a>
@@ -18,23 +21,28 @@
     </nav>
     <div class="sidebar-footer">
       <span id="client-name">Loading...</span>
-      <a href="/glossary.html" style="display:block;color:rgba(255,255,255,.4);font-size:12px;text-decoration:none;margin-bottom:10px;padding:4px 0;" onmouseover="this.style.color='rgba(255,255,255,.7)'" onmouseout="this.style.color='rgba(255,255,255,.4)'">📖 Metrics Glossary</a>
+      <a href="/glossary.html" class="glossary-link">📖 Metrics Glossary</a>
       <button class="btn-logout" id="logout-btn">Sign Out</button>
     </div>
   </aside>
 
+  <!-- Main -->
   <main class="main-content">
+
+    <!-- Header -->
     <header class="dashboard-header">
       <div>
         <h1>Advertising</h1>
         <p id="channel-subtitle">Amazon Ads + DSP — unified view</p>
       </div>
       <div class="header-actions">
-        <div class="channel-toggle" style="display:flex;gap:8px;margin-right:12px">
-          <button class="tab-btn active" data-channel="all" id="toggle-all">All</button>
-          <button class="tab-btn" data-channel="ads" id="toggle-ads">Sponsored Ads</button>
-          <button class="tab-btn" data-channel="dsp" id="toggle-dsp">DSP</button>
+        <!-- Channel toggle -->
+        <div class="channel-toggle" id="channel-toggle">
+          <button class="tab-btn active" data-channel="all">All</button>
+          <button class="tab-btn" data-channel="ads">Sponsored Ads</button>
+          <button class="tab-btn" data-channel="dsp">DSP</button>
         </div>
+        <!-- Days filter -->
         <select id="days-filter" class="days-select">
           <option value="7">Last 7 days</option>
           <option value="30" selected>Last 30 days</option>
@@ -55,8 +63,8 @@
 
     <div class="dashboard-section">
 
-      <!-- KPI Row -->
-      <div class="kpi-grid kpi-grid-6">
+      <!-- KPI Cards -->
+      <div class="kpi-grid kpi-grid-6" id="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-label">Total Spend</div>
           <div class="kpi-value" id="kpi-spend">—</div>
@@ -66,102 +74,113 @@
           <div class="kpi-value" id="kpi-sales">—</div>
         </div>
         <div class="kpi-card highlight">
-          <div class="kpi-label">ACOS</div>
-          <div class="kpi-value" id="kpi-acos">—</div>
-          <div class="kpi-sub">Ad Cost of Sale</div>
-        </div>
-        <div class="kpi-card highlight">
           <div class="kpi-label">ROAS</div>
           <div class="kpi-value" id="kpi-roas">—</div>
           <div class="kpi-sub">Return on Ad Spend</div>
+        </div>
+        <div class="kpi-card highlight" id="kpi-acos-card">
+          <div class="kpi-label">ACOS</div>
+          <div class="kpi-value" id="kpi-acos">—</div>
+          <div class="kpi-sub">Ad Cost of Sale</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Impressions</div>
           <div class="kpi-value" id="kpi-impressions">—</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Clicks / CTR</div>
-          <div class="kpi-value" id="kpi-clicks">—</div>
-          <div class="kpi-sub" id="kpi-ctr"></div>
+        <div class="kpi-card" id="kpi-ctr-card">
+          <div class="kpi-label">CTR</div>
+          <div class="kpi-value" id="kpi-ctr">—</div>
+          <div class="kpi-sub" id="kpi-clicks-sub"></div>
         </div>
       </div>
 
-      <!-- Channel split + Trend -->
+      <!-- Row 1: Trend + Donut -->
       <div class="charts-row">
-        <div class="chart-card wide">
-          <h3>Daily Spend vs Sales Trend</h3>
+        <div class="chart-card">
+          <h3>Daily Spend vs Sales</h3>
           <canvas id="trend-chart"></canvas>
         </div>
-        <div class="chart-card">
-          <h3>Spend by Channel</h3>
-          <canvas id="channel-chart"></canvas>
+        <div class="chart-card" id="donut-card">
+          <h3>Spend by Ad Type</h3>
+          <canvas id="donut-chart"></canvas>
         </div>
       </div>
 
-      <!-- Campaign type breakdown + ACOS trend -->
-      <div class="charts-row">
+      <!-- Row 2: ACOS Trend (hidden for DSP) -->
+      <div class="charts-row" id="acos-trend-row" style="grid-template-columns:1fr">
         <div class="chart-card">
-          <h3>Spend by Campaign Type</h3>
-          <canvas id="type-chart"></canvas>
-        </div>
-        <div class="chart-card wide">
           <h3>Daily ACOS Trend</h3>
           <canvas id="acos-trend-chart"></canvas>
         </div>
       </div>
 
-      <!-- ASIN Performance table -->
+      <!-- Table 1: ASIN Performance -->
       <div class="table-card">
         <div class="table-header-row">
-          <h3>Advertised Product Performance</h3>
-          <span id="asin-perf-subtitle" style="font-size:12px;color:var(--gray-400)">By ASIN — last 30 days</span>
+          <h3>Advertised Product Performance <span style="font-weight:400;font-size:12px;color:var(--gray-400)">(Sponsored Products)</span></h3>
+          <input type="text" id="asin-search" class="days-select" placeholder="Search ASIN or model…" style="width:220px" />
         </div>
-        <table class="data-table">
+        <table class="data-table" id="asin-table">
           <thead>
             <tr>
-              <th>ASIN</th>
-              <th>Model</th>
-              <th>Spend</th>
-              <th>Sales (30d)</th>
-              <th>Purchases</th>
-              <th>Units Sold</th>
-              <th>ACOS</th>
-              <th>ROAS</th>
-              <th>CTR</th>
-              <th>CPC</th>
-              <th>Spend Share</th>
+              <th class="sortable" data-col="asin">ASIN <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="modelNumber">Model <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="spend">Spend <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="sales">Sales (30d) <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="purchases">Purchases <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="acos">ACOS <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="roas">ROAS <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="ctr">CTR <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="cpc">CPC <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="spendShare">Spend % <span class="sort-arrow"></span></th>
             </tr>
           </thead>
-          <tbody id="asin-perf-body">
-            <tr><td colspan="11" class="loading-cell">Loading...</td></tr>
+          <tbody id="asin-tbody">
+            <tr><td colspan="10" class="loading-cell">Loading…</td></tr>
           </tbody>
         </table>
+        <!-- Pagination -->
+        <div class="table-pagination" id="asin-pagination">
+          <span id="asin-page-info"></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" id="asin-prev" disabled>← Prev</button>
+            <button class="btn-secondary" id="asin-next" disabled>Next →</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Campaign table (secondary) -->
-      <div class="table-card" style="margin-top:20px">
+      <!-- Table 2: Campaign Summary -->
+      <div class="table-card">
         <div class="table-header-row">
           <h3>Campaign Summary</h3>
+          <input type="text" id="campaign-search" class="days-select" placeholder="Search campaigns…" style="width:220px" />
         </div>
-        <table class="data-table">
+        <table class="data-table" id="campaign-table">
           <thead>
             <tr>
-              <th>Campaign</th>
-              <th>Type</th>
-              <th>Spend</th>
-              <th>Sales</th>
-              <th>Orders</th>
-              <th>ACOS</th>
-              <th>ROAS</th>
+              <th class="sortable" data-col="CAMPAIGN_NAME">Campaign <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="AD_TYPE">Type <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="SPEND">Spend <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="SALES">Sales <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="ORDERS">Orders <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="ACOS">ACOS <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="ROAS">ROAS <span class="sort-arrow"></span></th>
             </tr>
           </thead>
-          <tbody id="campaigns-body">
-            <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+          <tbody id="campaign-tbody">
+            <tr><td colspan="7" class="loading-cell">Loading…</td></tr>
           </tbody>
         </table>
+        <div class="table-pagination" id="campaign-pagination">
+          <span id="campaign-page-info"></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" id="campaign-prev" disabled>← Prev</button>
+            <button class="btn-secondary" id="campaign-next" disabled>Next →</button>
+          </div>
+        </div>
       </div>
 
-    </div>
+    </div><!-- /dashboard-section -->
   </main>
 
   <script src="/js/dateUtils.js"></script>
