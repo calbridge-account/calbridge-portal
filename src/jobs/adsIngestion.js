@@ -192,14 +192,12 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromoted',
       'unitsSold', 'unitsSoldClicks',
       'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandSales', 'newToBrandSalesClicks', 'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks', 'newToBrandDetailPageViews', 'newToBrandDetailPageViewsClicks', 'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToList', 'addToListFromClicks',
-      'qualifiedBorrows', 'qualifiedBorrowsFromClicks',
-      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks',
+      'addToCart', 'addToCartClicks',
       'brandedSearches', 'brandedSearchesClicks',
       'brandStorePageView', 'topOfSearchImpressionShare',
       'video5SecondViews',
       'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
-      'viewabilityRate', 'viewableImpressions', 'kindleEditionNormalizedPagesRead14d', 'kindleEditionNormalizedPagesRoyalties14d',
+      'viewabilityRate', 'viewableImpressions',
       'date'
     ],
     table:      'sb_campaign_report',
@@ -222,7 +220,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromoted',
       'unitsSold',
       'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandSales', 'newToBrandSalesClicks', 'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks', 'newToBrandDetailPageViews', 'newToBrandDetailPageViewsClicks', 'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToList', 'addToListFromClicks',
+      'addToCart', 'addToCartClicks',
       'brandedSearches', 'brandedSearchesClicks',
       'topOfSearchImpressionShare',
       'date'
@@ -246,7 +244,7 @@ const REPORT_TYPES = [
       'purchases', 'purchasesClicks', 'sales', 'salesClicks', 'unitsSold',
       'video5SecondViews',
       'videoCompleteViews', 'videoFirstQuartileViews', 'videoMidpointViews', 'videoThirdQuartileViews', 'videoUnmutes',
-      'viewabilityRate', 'viewableImpressions', 'kindleEditionNormalizedPagesRead14d', 'kindleEditionNormalizedPagesRoyalties14d',
+      'viewabilityRate', 'viewableImpressions',
       'date'
     ],
     table:      'sb_search_term_report',
@@ -308,9 +306,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews', 'addToList', 'addToListFromClicks', 'addToListFromViews',
-      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
-      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'addToCart', 'addToCartClicks', 'addToCartViews'
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -334,9 +330,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews', 'addToList', 'addToListFromClicks', 'addToListFromViews',
-      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
-      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'addToCart', 'addToCartClicks', 'addToCartViews'
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -361,9 +355,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews', 'addToList', 'addToListFromClicks', 'addToListFromViews',
-      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
-      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'addToCart', 'addToCartClicks', 'addToCartViews'
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -388,9 +380,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews', 'addToList', 'addToListFromClicks', 'addToListFromViews',
-      'qualifiedBorrows', 'qualifiedBorrowsFromClicks', 'qualifiedBorrowsFromViews',
-      'royaltyQualifiedBorrows', 'royaltyQualifiedBorrowsFromClicks', 'royaltyQualifiedBorrowsFromViews',
+      'addToCart', 'addToCartClicks', 'addToCartViews'
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -1126,9 +1116,8 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
       r.video5SecondViewRate || null, r.video5SecondViews || null,
       r.videoCompleteViews || null, r.videoFirstQuartileViews || null,
       r.videoMidpointViews || null, r.videoThirdQuartileViews || null, r.videoUnmutes || null,
-      r.viewabilityRate || null, r.viewableImpressions || null, r.viewClickThroughRate || null,
-      r.kindleEditionNormalizedPagesRead14d || null, r.kindleEditionNormalizedPagesRoyalties14d || null
-    ]; // 56 values + CURRENT_TIMESTAMP = 57 cols
+      r.viewabilityRate || null, r.viewableImpressions || null, r.viewClickThroughRate || null
+    ]; // vals array — CURRENT_TIMESTAMP added in SQL
     try {
       await query(`
         MERGE INTO sb_campaign_report t
@@ -1155,7 +1144,6 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
           video_complete_views=?, video_first_quartile_views=?,
           video_midpoint_views=?, video_third_quartile_views=?, video_unmutes=?,
           viewability_rate=?, viewable_impressions=?, view_click_through_rate=?,
-          kindle_edition_normalized_pages_read_14_d=?, kindle_edition_normalized_pages_royalties_14_d=?,
           synced_at=CURRENT_TIMESTAMP
         WHEN NOT MATCHED THEN INSERT (
           client_id, profile_id, campaign_id, report_date,
@@ -1179,10 +1167,9 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
           video_complete_views, video_first_quartile_views,
           video_midpoint_views, video_third_quartile_views, video_unmutes,
           viewability_rate, viewable_impressions, view_click_through_rate,
-          kindle_edition_normalized_pages_read_14_d, kindle_edition_normalized_pages_royalties_14_d,
           synced_at
         ) VALUES (
-          ?,?,?,?::DATE,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP
+          ?,?,?,?::DATE,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP
         )
       `, [...vals, ...vals]);
       written++;
