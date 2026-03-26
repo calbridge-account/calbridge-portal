@@ -44,6 +44,7 @@ const REPORT_TYPES = [
     groupBy:      ['campaign'],
     columns:      [
       'campaignId', 'campaignName', 'impressions', 'clicks', 'cost',
+      'addToList',
       'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
@@ -67,6 +68,7 @@ const REPORT_TYPES = [
       'campaignBiddingStrategy', 'portfolioId',
       // Performance
       'date', 'impressions', 'clicks', 'cost',
+      'addToList',
       // All purchase/sales/units windows
       'purchases1d', 'purchases7d', 'purchases14d', 'purchases30d',
       'purchasesSameSku1d', 'purchasesSameSku7d', 'purchasesSameSku14d', 'purchasesSameSku30d',
@@ -88,7 +90,7 @@ const REPORT_TYPES = [
       'campaignBudgetType', 'campaignBudgetCurrencyCode',
       'adGroupId', 'adGroupName', 'keywordId', 'keyword', 'keywordType',
       'matchType', 'targeting', 'adKeywordStatus', 'keywordBid',
-      'portfolioId', 'impressions', 'clicks', 'cost', 'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'portfolioId', 'impressions', 'clicks', 'cost', 'addToList', 'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
@@ -109,7 +111,7 @@ const REPORT_TYPES = [
       'campaignBudgetType', 'campaignBudgetCurrencyCode',
       'adGroupId', 'adGroupName', 'keywordId', 'keyword', 'keywordType',
       'matchType', 'targeting', 'searchTerm', 'adKeywordStatus', 'keywordBid',
-      'portfolioId', 'impressions', 'clicks', 'cost', 'purchases30d', 'sales30d', 'unitsSoldClicks30d',
+      'portfolioId', 'impressions', 'clicks', 'cost', 'addToList', 'purchases30d', 'sales30d', 'unitsSoldClicks30d',
       'purchases1d', 'purchases7d', 'purchases14d',
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
