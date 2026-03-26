@@ -49,7 +49,7 @@ const REPORT_TYPES = [
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
       'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
-      'topOfSearchImpressionShare', 'campaignBiddingStrategy'
+      'topOfSearchImpressionShare', 'campaignBiddingStrategy', 'portfolioId'
     ],
     table:      'sp_campaign_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
@@ -60,12 +60,20 @@ const REPORT_TYPES = [
     reportTypeId: 'spCampaigns',   // SP uses spCampaigns reportTypeId for adGroup groupBy
     groupBy:      ['adGroup'],
     columns:      [
+      // Ad group + campaign context
       'adGroupId', 'adGroupName', 'adStatus',
-      'impressions', 'clicks', 'cost', 'purchases30d', 'sales30d', 'unitsSoldClicks30d',
-      'purchases1d', 'purchases7d', 'purchases14d',
-      'sales1d', 'sales7d', 'sales14d',
-      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
-      'date'
+      'campaignId', 'campaignName', 'campaignStatus',
+      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
+      'campaignBiddingStrategy', 'portfolioId',
+      // Performance
+      'date', 'impressions', 'clicks', 'cost',
+      // All purchase/sales/units windows
+      'purchases1d', 'purchases7d', 'purchases14d', 'purchases30d',
+      'purchasesSameSku1d', 'purchasesSameSku7d', 'purchasesSameSku14d', 'purchasesSameSku30d',
+      'sales1d', 'sales7d', 'sales14d', 'sales30d',
+      'attributedSalesSameSku1d', 'attributedSalesSameSku7d', 'attributedSalesSameSku14d', 'attributedSalesSameSku30d',
+      'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d', 'unitsSoldClicks30d',
+      'unitsSoldSameSku1d', 'unitsSoldSameSku7d', 'unitsSoldSameSku14d', 'unitsSoldSameSku30d'
     ],
     table:      'sp_ad_group_report',
     primaryKey: ['client_id', 'profile_id', 'ad_group_id', 'date']
@@ -501,7 +509,7 @@ async function getAuthorizedProfiles(clientId, allProfiles) {
  * Handles 425 (duplicate) by extracting and returning the existing reportId.
  * Adds 2s delay after each successful request to avoid throttling.
  */
-async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns, filters) {
+async function requestV3Report(client, profileId, startDate, reportTypeId, adProduct, groupBy, columns, filters, endDate) {
   try {
     const config = {
       adProduct,
@@ -513,10 +521,11 @@ async function requestV3Report(client, profileId, startDate, reportTypeId, adPro
     };
     if (filters && filters.length) config.filters = filters;
 
+    const reportEndDate = endDate || startDate; // single day if no endDate
     const res = await client.post('/reporting/reports', {
-      name:      `${adProduct}_${reportTypeId}_${startDate}`,
+      name:      `${adProduct}_${reportTypeId}_${startDate}_${reportEndDate}`,
       startDate,
-      endDate:   startDate,
+      endDate:   reportEndDate,
       configuration: config
     }, {
       headers: {
@@ -683,7 +692,9 @@ function mapRow(apiRow, apiColumns) {
  */
 async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -722,7 +733,7 @@ async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
       )
     `, [
       // MERGE key
-      clientId, profileId, String(r.campaignId), isoDate,
+      clientId, profileId, String(r.campaignId), getIsoDate(r),
       // UPDATE
       r.campaignName || null, r.campaignBudgetAmount || null, r.campaignBudgetType || null,
       r.campaignBudgetCurrencyCode || null, r.campaignBiddingStrategy || null,
@@ -732,7 +743,7 @@ async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
       // INSERT
-      clientId, profileId, String(r.campaignId), isoDate,
+      clientId, profileId, String(r.campaignId), getIsoDate(r),
       r.campaignName || null, r.campaignBudgetAmount || null, r.campaignBudgetType || null,
       r.campaignBudgetCurrencyCode || null, r.campaignBiddingStrategy || null,
       r.topOfSearchImpressionShare || null,
@@ -751,42 +762,78 @@ async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSpAdGroupReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
   let written = 0;
   for (const r of rows) {
+    // Use row's own date field — range reports have per-row dates
+    const rowDate = r.date || r.DATE || toISODate(reportDate);
     await query(`
       MERGE INTO sp_ad_group_report t
       USING (SELECT ? AS client_id, ? AS profile_id, ? AS ad_group_id, ?::DATE AS date) s
       ON t.client_id = s.client_id AND t.profile_id = s.profile_id
         AND t.ad_group_id = s.ad_group_id AND t.date = s.date
       WHEN MATCHED THEN UPDATE SET
-        ad_group_name = ?,
+        ad_group_name = ?, ad_status = ?,
+        campaign_id = ?, campaign_name = ?, campaign_status = ?,
+        campaign_budget_amount = ?, campaign_budget_type = ?, campaign_budget_currency_code = ?,
+        campaign_bidding_strategy = ?, portfolio_id = ?,
         impressions = ?, clicks = ?, cost = ?,
         purchases_1_d = ?, purchases_7_d = ?, purchases_14_d = ?, purchases_30_d = ?,
+        purchases_same_sku_1_d = ?, purchases_same_sku_7_d = ?, purchases_same_sku_14_d = ?, purchases_same_sku_30_d = ?,
         sales_1_d = ?, sales_7_d = ?, sales_14_d = ?, sales_30_d = ?,
+        attributed_sales_same_sku_1_d = ?, attributed_sales_same_sku_7_d = ?, attributed_sales_same_sku_14_d = ?, attributed_sales_same_sku_30_d = ?,
         units_sold_clicks_1_d = ?, units_sold_clicks_7_d = ?, units_sold_clicks_14_d = ?, units_sold_clicks_30_d = ?,
+        units_sold_same_sku_1_d = ?, units_sold_same_sku_7_d = ?, units_sold_same_sku_14_d = ?, units_sold_same_sku_30_d = ?,
         synced_at = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT (
-        client_id, profile_id, ad_group_id, date, ad_group_name,
+        client_id, profile_id, ad_group_id, date,
+        ad_group_name, ad_status,
+        campaign_id, campaign_name, campaign_status,
+        campaign_budget_amount, campaign_budget_type, campaign_budget_currency_code,
+        campaign_bidding_strategy, portfolio_id,
         impressions, clicks, cost,
         purchases_1_d, purchases_7_d, purchases_14_d, purchases_30_d,
+        purchases_same_sku_1_d, purchases_same_sku_7_d, purchases_same_sku_14_d, purchases_same_sku_30_d,
         sales_1_d, sales_7_d, sales_14_d, sales_30_d,
+        attributed_sales_same_sku_1_d, attributed_sales_same_sku_7_d, attributed_sales_same_sku_14_d, attributed_sales_same_sku_30_d,
         units_sold_clicks_1_d, units_sold_clicks_7_d, units_sold_clicks_14_d, units_sold_clicks_30_d,
+        units_sold_same_sku_1_d, units_sold_same_sku_7_d, units_sold_same_sku_14_d, units_sold_same_sku_30_d,
         synced_at
-      ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (
+        ?,?,?,?::DATE,
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,?,?,
+        CURRENT_TIMESTAMP
+      )
     `, [
-      clientId, profileId, String(r.adGroupId), isoDate,
-      r.adGroupName || null,
-      r.impressions || 0, r.clicks || 0, r.cost || 0,
-      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
-      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
-      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
-      clientId, profileId, String(r.adGroupId), isoDate,
-      r.adGroupName || null,
-      r.impressions || 0, r.clicks || 0, r.cost || 0,
-      r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
-      r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
-      r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null
+      // MERGE key
+      clientId, profileId, String(r.adGroupId || ''), rowDate,
+      // UPDATE
+      r.adGroupName||null, r.adStatus||null,
+      String(r.campaignId||''), r.campaignName||null, r.campaignStatus||null,
+      r.campaignBudgetAmount||null, r.campaignBudgetType||null, r.campaignBudgetCurrencyCode||null,
+      r.campaignBiddingStrategy||null, r.portfolioId||null,
+      r.impressions||0, r.clicks||0, r.cost||0,
+      r.purchases1d||null, r.purchases7d||null, r.purchases14d||null, r.purchases30d||null,
+      r.purchasesSameSku1d||null, r.purchasesSameSku7d||null, r.purchasesSameSku14d||null, r.purchasesSameSku30d||null,
+      r.sales1d||null, r.sales7d||null, r.sales14d||null, r.sales30d||null,
+      r.attributedSalesSameSku1d||null, r.attributedSalesSameSku7d||null, r.attributedSalesSameSku14d||null, r.attributedSalesSameSku30d||null,
+      r.unitsSoldClicks1d||null, r.unitsSoldClicks7d||null, r.unitsSoldClicks14d||null, r.unitsSoldClicks30d||null,
+      r.unitsSoldSameSku1d||null, r.unitsSoldSameSku7d||null, r.unitsSoldSameSku14d||null, r.unitsSoldSameSku30d||null,
+      // INSERT VALUES (same order)
+      clientId, profileId, String(r.adGroupId||''), rowDate,
+      r.adGroupName||null, r.adStatus||null,
+      String(r.campaignId||''), r.campaignName||null, r.campaignStatus||null,
+      r.campaignBudgetAmount||null, r.campaignBudgetType||null, r.campaignBudgetCurrencyCode||null,
+      r.campaignBiddingStrategy||null, r.portfolioId||null,
+      r.impressions||0, r.clicks||0, r.cost||0,
+      r.purchases1d||null, r.purchases7d||null, r.purchases14d||null, r.purchases30d||null,
+      r.purchasesSameSku1d||null, r.purchasesSameSku7d||null, r.purchasesSameSku14d||null, r.purchasesSameSku30d||null,
+      r.sales1d||null, r.sales7d||null, r.sales14d||null, r.sales30d||null,
+      r.attributedSalesSameSku1d||null, r.attributedSalesSameSku7d||null, r.attributedSalesSameSku14d||null, r.attributedSalesSameSku30d||null,
+      r.unitsSoldClicks1d||null, r.unitsSoldClicks7d||null, r.unitsSoldClicks14d||null, r.unitsSoldClicks30d||null,
+      r.unitsSoldSameSku1d||null, r.unitsSoldSameSku7d||null, r.unitsSoldSameSku14d||null, r.unitsSoldSameSku30d||null
     ]);
     written++;
   }
@@ -798,7 +845,9 @@ async function writeSpAdGroupReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -834,7 +883,7 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
       )
     `, [
       // MERGE key (6)
-      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), isoDate,
+      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), getIsoDate(r),
       // UPDATE SET (20)
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
@@ -843,7 +892,7 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
       // INSERT VALUES: 6 key + 5 + 3 + 4 + 4 + 4 = 26 + CURRENT_TIMESTAMP = 27 cols ✓
-      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), isoDate,
+      clientId, profileId, String(r.campaignId || ''), String(r.adGroupId || ''), String(r.keywordId || ''), getIsoDate(r),
       r.targeting || null, r.matchType || null, r.keywordBid || null, r.adKeywordStatus || null,
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
@@ -861,7 +910,9 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -898,7 +949,7 @@ async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
     `, [
       // MERGE key (7)
       clientId, profileId, String(r.campaignId), String(r.adGroupId),
-      String(r.keywordId), r.searchTerm || '', isoDate,
+      String(r.keywordId), r.searchTerm || '', getIsoDate(r),
       // UPDATE (17)
       r.targeting || null, r.matchType || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
@@ -907,7 +958,7 @@ async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
       // INSERT VALUES (24 + CURRENT_TIMESTAMP = 25 cols)
       clientId, profileId, String(r.campaignId), String(r.adGroupId),
-      String(r.keywordId), r.searchTerm || '', isoDate,
+      String(r.keywordId), r.searchTerm || '', getIsoDate(r),
       r.targeting || null, r.matchType || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
@@ -924,7 +975,9 @@ async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSpAdvertisedProductReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -951,14 +1004,14 @@ async function writeSpAdvertisedProductReport(clientId, profileId, reportDate, r
         synced_at
       ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), isoDate,
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), getIsoDate(r),
       r.advertisedAsin || null, r.advertisedSku || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
       r.sales1d || null, r.sales7d || null, r.sales14d || null, r.sales30d || null,
       r.unitsSoldClicks1d || null, r.unitsSoldClicks7d || null, r.unitsSoldClicks14d || null, r.unitsSoldClicks30d || null,
       r.purchasesSameSku30d || null, r.unitsSoldSameSku30d || null,
-      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), isoDate,
+      clientId, profileId, String(r.campaignId), String(r.adGroupId), String(r.adId), getIsoDate(r),
       r.advertisedAsin || null, r.advertisedSku || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases1d || null, r.purchases7d || null, r.purchases14d || null, r.purchases30d || null,
@@ -976,7 +1029,9 @@ async function writeSpAdvertisedProductReport(clientId, profileId, reportDate, r
  */
 async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -993,10 +1048,10 @@ async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, r
         impressions, clicks, cost, purchases_30_d, sales_30_d, units_sold_clicks_30_d, synced_at
       ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      clientId, profileId, String(r.campaignId), r.placement || '', getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases30d || null, r.sales30d || null, r.unitsSoldClicks30d || null,
-      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      clientId, profileId, String(r.campaignId), r.placement || '', getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases30d || null, r.sales30d || null, r.unitsSoldClicks30d || null
     ]);
@@ -1010,13 +1065,15 @@ async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, r
  */
 async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     // v3 SB field names: purchases, sales, unitsSold (no 14d suffix at campaign level)
     // All 56 data columns matching sb_campaign_report table exactly
     const vals = [
-      clientId, profileId, String(r.campaignId || r.CAMPAIGN_ID || ''), isoDate,
+      clientId, profileId, String(r.campaignId || r.CAMPAIGN_ID || ''), getIsoDate(r),
       r.campaignName || null, r.campaignStatus || null,
       r.campaignBudgetAmount || null, r.campaignBudgetType || null,
       r.campaignBudgetCurrencyCode || null, r.costType || null,
@@ -1109,7 +1166,9 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1133,14 +1192,14 @@ async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
         attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
       ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.keywordId), isoDate,
+      clientId, profileId, String(r.keywordId), getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.topOfSearchImpressionShare || null,
       r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.attributedSales14d || null, r.attributedConversions14d || null,
       r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
-      clientId, profileId, String(r.keywordId), isoDate,
+      clientId, profileId, String(r.keywordId), getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.topOfSearchImpressionShare || null,
       r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
@@ -1158,7 +1217,9 @@ async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1180,12 +1241,12 @@ async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
         attributed_sales_14_d, attributed_conversions_14_d, synced_at
       ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.keywordId), r.queryTerm || '', isoDate,
+      clientId, profileId, String(r.keywordId), r.queryTerm || '', getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.attributedSales14d || null, r.attributedConversions14d || null,
-      clientId, profileId, String(r.keywordId), r.queryTerm || '', isoDate,
+      clientId, profileId, String(r.keywordId), r.queryTerm || '', getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.searchTermImpressionRank || null, r.searchTermImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
@@ -1201,7 +1262,9 @@ async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSbTargetReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1223,13 +1286,13 @@ async function writeSbTargetReport(clientId, profileId, reportDate, rows) {
         attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
       ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.targetId), isoDate,
+      clientId, profileId, String(r.targetId), getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.attributedSales14d || null, r.attributedConversions14d || null,
       r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
-      clientId, profileId, String(r.targetId), isoDate,
+      clientId, profileId, String(r.targetId), getIsoDate(r),
       String(r.campaignId || ''), String(r.adGroupId || ''),
       r.topOfSearchImpressionShare || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
@@ -1246,7 +1309,9 @@ async function writeSbTargetReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1266,11 +1331,11 @@ async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
         attributed_orders_new_to_brand_14_d, attributed_sales_new_to_brand_14_d, synced_at
       ) VALUES (?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      clientId, profileId, String(r.campaignId), r.placement || '', getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.attributedSales14d || null, r.attributedConversions14d || null,
       r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null,
-      clientId, profileId, String(r.campaignId), r.placement || '', isoDate,
+      clientId, profileId, String(r.campaignId), r.placement || '', getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.attributedSales14d || null, r.attributedConversions14d || null,
       r.attributedOrdersNewToBrand14d || null, r.attributedSalesNewToBrand14d || null
@@ -1285,7 +1350,9 @@ async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1312,7 +1379,7 @@ async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
         branded_searches, viewability_rate, synced_at
       ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.campaignId), isoDate,
+      clientId, profileId, String(r.campaignId), getIsoDate(r),
       r.campaignName || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
@@ -1320,7 +1387,7 @@ async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
       r.addToCart || null, r.addToCartClicks || null,
       r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
       r.brandedSearches || null, r.viewabilityRate || null,
-      clientId, profileId, String(r.campaignId), isoDate,
+      clientId, profileId, String(r.campaignId), getIsoDate(r),
       r.campaignName || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
@@ -1339,7 +1406,9 @@ async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSdAdGroupReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1362,13 +1431,13 @@ async function writeSdAdGroupReport(clientId, profileId, reportDate, rows) {
         new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
       ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.adGroupId), isoDate,
+      clientId, profileId, String(r.adGroupId), getIsoDate(r),
       String(r.campaignId || ''),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
       r.detailPageViews || null, r.addToCart || null,
       r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
-      clientId, profileId, String(r.adGroupId), isoDate,
+      clientId, profileId, String(r.adGroupId), getIsoDate(r),
       String(r.campaignId || ''),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
@@ -1385,7 +1454,9 @@ async function writeSdAdGroupReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSdTargetReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1408,12 +1479,12 @@ async function writeSdTargetReport(clientId, profileId, reportDate, rows) {
         new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
       ) VALUES (?, ?, ?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), isoDate,
+      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
       r.detailPageViews || null, r.addToCart || null,
       r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
-      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), isoDate,
+      clientId, profileId, String(r.adGroupId), String(r.campaignId), String(r.targetingId), getIsoDate(r),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
       r.detailPageViews || null, r.addToCart || null,
@@ -1429,7 +1500,9 @@ async function writeSdTargetReport(clientId, profileId, reportDate, rows) {
  */
 async function writeSdProductAdReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
-  const isoDate = toISODate(reportDate);
+  // For range reports each row has its own date; for single-day reports use reportDate
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  const isoDate = getIsoDate(null); // fallback for non-per-row usage
   let written = 0;
   for (const r of rows) {
     await query(`
@@ -1452,13 +1525,13 @@ async function writeSdProductAdReport(clientId, profileId, reportDate, rows) {
         new_to_brand_purchases, new_to_brand_sales, new_to_brand_units_sold, synced_at
       ) VALUES (?, ?, ?, ?::DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
-      clientId, profileId, String(r.adId), isoDate,
+      clientId, profileId, String(r.adId), getIsoDate(r),
       String(r.adGroupId || ''), String(r.campaignId || ''),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
       r.detailPageViews || null, r.addToCart || null,
       r.newToBrandPurchases || null, r.newToBrandSales || null, r.newToBrandUnitsSold || null,
-      clientId, profileId, String(r.adId), isoDate,
+      clientId, profileId, String(r.adId), getIsoDate(r),
       String(r.adGroupId || ''), String(r.campaignId || ''),
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.sales || null, r.salesClicks || null,
@@ -1594,62 +1667,66 @@ async function ensureAdsSchema() {
  * Stores report IDs in ads_report_queue. Returns immediately.
  * Call processReportQueue() to download completed reports.
  */
-async function ingestPerformance(clientId, connectionType, daysBack = 2) {
+async function ingestPerformance(clientId, connectionType, daysBack = 30) {
   return runJob(clientId, connectionType, 'performance', async () => {
     const allProfiles = await fetchProfiles(clientId, connectionType);
     const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
     let   queued      = 0;
 
+    // Calculate date range — one request per report type covers all days
+    const endDate   = new Date();
+    endDate.setDate(endDate.getDate() - 1); // yesterday
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (daysBack - 1));
+
+    const startIso = startDate.toISOString().split('T')[0];
+    const endIso   = endDate.toISOString().split('T')[0];
+
+    // Use a single range key for deduplication (startIso_endIso)
+    const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
+
+    console.log(`[performance] Requesting ${daysBack} days (${startIso} → ${endIso}) as ${REPORT_TYPES.length} range reports`);
+
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
 
-      for (let d = daysBack; d >= 1; d--) {
-        const dateObj    = new Date();
-        dateObj.setDate(dateObj.getDate() - d);
-        const reportDate = toDateKey(dateObj);
-        const isoDate    = toISODate(reportDate);
+      for (const rt of REPORT_TYPES) {
+        try {
+          await new Promise(r => setImmediate(r)); // yield event loop
 
-        for (const rt of REPORT_TYPES) {
-          try {
-            const freshClient = await adsClient(clientId, connectionType);
-            const reportId    = await requestV3Report(
-              freshClient, profileId, isoDate,
-              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters
-            );
-            if (!reportId) continue;
+          // Deduplicate: skip if already pending/completed for this type+range+profile
+          const existing = await query(`
+            SELECT COUNT(*) as cnt FROM ads_report_queue
+            WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
+            AND status IN ('pending','completed')
+          `, [clientId, rt.key, rangeKey, profileId]);
+          if (Number(existing[0]?.CNT || 0) > 0) continue;
 
-            // Deduplicate: only insert if no pending/completed for this type+date+profile
-            await query(`
-              MERGE INTO ads_report_queue t
-              USING (
-                SELECT ? AS report_id, ? AS client_id, ? AS connection_type,
-                       ? AS profile_id, ? AS report_type, ? AS report_date
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM ads_report_queue
-                  WHERE client_id = ? AND report_type = ? AND report_date = ? AND profile_id = ?
-                  AND status IN ('pending','completed')
-                )
-              ) s ON t.report_id = s.report_id
-              WHEN NOT MATCHED AND s.report_id IS NOT NULL THEN INSERT
-                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
-                VALUES (s.report_id, s.client_id, s.connection_type, s.profile_id, s.report_type, s.report_date, 'pending', CURRENT_TIMESTAMP)
-            `, [reportId, clientId, connectionType, profileId, rt.key, reportDate,
-                clientId, rt.key, reportDate, profileId]);
+          const freshClient = await adsClient(clientId, connectionType);
+          const reportId    = await requestV3Report(
+            freshClient, profileId, startIso,
+            rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters,
+            endIso  // pass endDate to cover full range
+          );
+          if (!reportId) continue;
 
-            console.log(`[performance] Queued ${rt.key} report ${reportId} for profile ${profileId} date ${reportDate}`);
-            queued++;
-            queued++;
-          } catch (err) {
-            const body = err.response?.data
-              ? JSON.stringify(err.response.data).substring(0, 300)
-              : '';
-            console.warn(`[performance] Failed to queue ${rt.key} for ${profileId} ${reportDate}: ${err.message} ${body}`);
-          }
+          await query(`
+            INSERT INTO ads_report_queue
+              (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+          `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey]);
+
+          console.log(`[performance] Queued ${rt.key} ${startIso}→${endIso} (${reportId.substring(0,8)})`);
+          queued++;
+          await sleep(100);
+        } catch (err) {
+          const body = err.response?.data ? JSON.stringify(err.response.data).substring(0,200) : '';
+          console.warn(`[performance] Failed ${rt.key}: ${err.message} ${body}`);
         }
       }
     }
 
-    console.log(`[performance] Queued ${queued} reports — queue poller will download on next 5min tick`);
+    console.log(`[performance] Queued ${queued} range reports (${startIso}→${endIso})`);
     return { recordsWritten: 0, queued };
   });
 }
