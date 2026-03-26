@@ -435,9 +435,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
 
       query(`
         SELECT COALESCE(SUM(spend), 0) AS total_spend
-        FROM ad_performance
-        WHERE client_id = ?
-          AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
       `, [clientId, days])
     ]);
 
@@ -450,17 +448,11 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     try {
       const typeRows = await query(`
         SELECT
-          c.campaign_type,
-          ap.connection_type,
-          SUM(ap.spend) AS spend
-        FROM ad_performance ap
-        LEFT JOIN ad_campaigns c
-          ON ap.client_id = c.client_id
-          AND ap.campaign_id = c.campaign_id
-          AND ap.connection_type = c.connection_type
-        WHERE ap.client_id = ?
-          AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-        GROUP BY c.campaign_type, ap.connection_type
+          ad_type AS campaign_type,
+          ad_type AS connection_type,
+          SUM(spend) AS spend
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
+        GROUP BY ad_type
         ORDER BY spend DESC
       `, [clientId, days]);
 
@@ -591,18 +583,17 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
         c.status,
         c.budget                                    AS daily_budget,
         c.budget_type,
-        COALESCE(SUM(ap.spend), 0)                  AS mtd_spend,
-        COUNT(DISTINCT ap.report_date)              AS days_with_data,
+        COALESCE(SUM(r.cost), 0)                    AS mtd_spend,
+        COUNT(DISTINCT r.date)                      AS days_with_data,
         -- Monthly budget = daily_budget * days in month
         c.budget * ?                                AS monthly_budget,
         -- Expected MTD spend = monthly_budget * (days elapsed / days in month)
         (c.budget * ?) * (? / ?)                    AS expected_mtd_spend
       FROM ad_campaigns c
-      LEFT JOIN ad_performance ap
-        ON c.client_id     = ap.client_id
-        AND c.campaign_id  = ap.campaign_id
-        AND c.connection_type = ap.connection_type
-        AND ap.report_date >= ?
+      LEFT JOIN sp_campaign_report r
+        ON c.client_id    = r.client_id
+        AND c.campaign_id = r.campaign_id
+        AND r.date >= ?
       WHERE c.client_id = ?
         AND c.budget IS NOT NULL
         AND c.budget > 0
@@ -689,24 +680,21 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
 
     const rows = await query(`
       SELECT
-        COALESCE(SUM(orders), 0)                    AS total_orders,
-        COALESCE(SUM(sales), 0)                     AS total_sales,
-        COALESCE(SUM(spend), 0)                     AS total_spend,
-        COALESCE(SUM(ntb_orders), 0)                AS ntb_orders,
-        COALESCE(SUM(ntb_sales), 0)                 AS ntb_sales,
-        COALESCE(SUM(ntb_units), 0)                 AS ntb_units,
+        COALESCE(SUM(orders), 0)               AS total_orders,
+        COALESCE(SUM(sales), 0)                AS total_sales,
+        COALESCE(SUM(spend), 0)                AS total_spend,
+        COALESCE(SUM(new_to_brand_purchases), 0) AS ntb_orders,
+        COALESCE(SUM(new_to_brand_sales), 0)   AS ntb_sales,
+        COALESCE(SUM(new_to_brand_units_sold),0) AS ntb_units,
         CASE WHEN SUM(orders) > 0
-          THEN SUM(ntb_orders) / SUM(orders) ELSE NULL END AS ntb_order_rate,
+          THEN SUM(new_to_brand_purchases) / SUM(orders) ELSE NULL END AS ntb_order_rate,
         CASE WHEN SUM(sales) > 0
-          THEN SUM(ntb_sales) / SUM(sales) ELSE NULL END   AS ntb_revenue_rate,
-        CASE WHEN SUM(ntb_sales) > 0
-          THEN SUM(spend) / SUM(ntb_sales) ELSE NULL END   AS ntb_acos,
+          THEN SUM(new_to_brand_sales) / SUM(sales) ELSE NULL END AS ntb_revenue_rate,
+        CASE WHEN SUM(new_to_brand_sales) > 0
+          THEN SUM(spend) / SUM(new_to_brand_sales) ELSE NULL END AS ntb_acos,
         CASE WHEN SUM(spend) > 0
-          THEN SUM(ntb_sales) / SUM(spend) ELSE NULL END   AS ntb_roas
-      FROM ad_performance
-      WHERE client_id = ?
-        AND report_date >= DATEADD(day, -?, CURRENT_DATE)
-        AND ntb_orders IS NOT NULL
+          THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL) cp
     `, [clientId, days]);
 
     const r = rows[0] || {};
@@ -716,28 +704,20 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
     try {
       const campRows = await query(`
         SELECT
-          ap.campaign_id,
-          c.campaign_name,
-          c.campaign_type,
-          SUM(ap.orders)     AS total_orders,
-          SUM(ap.sales)      AS total_sales,
-          SUM(ap.spend)      AS total_spend,
-          SUM(ap.ntb_orders) AS ntb_orders,
-          SUM(ap.ntb_sales)  AS ntb_sales,
-          CASE WHEN SUM(ap.orders) > 0
-            THEN SUM(ap.ntb_orders) / SUM(ap.orders) ELSE NULL END AS ntb_order_rate,
-          CASE WHEN SUM(ap.spend) > 0
-            THEN SUM(ap.ntb_sales) / SUM(ap.spend) ELSE NULL END   AS ntb_roas
-        FROM ad_performance ap
-        LEFT JOIN ad_campaigns c
-          ON ap.client_id = c.client_id
-          AND ap.campaign_id = c.campaign_id
-          AND ap.connection_type = c.connection_type
-        WHERE ap.client_id = ?
-          AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-          AND ap.ntb_orders IS NOT NULL
-          AND ap.ntb_orders > 0
-        GROUP BY ap.campaign_id, c.campaign_name, c.campaign_type
+          campaign_id,
+          campaign_name,
+          ad_type AS campaign_type,
+          SUM(orders)        AS total_orders,
+          SUM(sales)                 AS total_sales,
+          SUM(spend)                 AS total_spend,
+          SUM(new_to_brand_purchases) AS ntb_orders,
+          SUM(new_to_brand_sales)    AS ntb_sales,
+          CASE WHEN SUM(orders) > 0
+            THEN SUM(new_to_brand_purchases) / SUM(orders) ELSE NULL END AS ntb_order_rate,
+          CASE WHEN SUM(spend) > 0
+            THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE) AND new_to_brand_purchases > 0) cp
+        GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
         LIMIT 20
       `, [clientId, days]);
@@ -790,23 +770,21 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
 
     const rows = await query(`
       SELECT
-        COALESCE(ap.advertised_asin, 'UNATTRIBUTED') AS asin,
-        MAX(p.title)   AS product_title,
-        SUM(ap.spend)  AS total_spend,
-        SUM(ap.sales)  AS total_sales,
-        SUM(ap.orders) AS total_orders,
-        SUM(ap.clicks) AS total_clicks,
-        CASE WHEN SUM(ap.sales) > 0
-          THEN SUM(ap.spend) / SUM(ap.sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(ap.spend) > 0
-          THEN SUM(ap.sales) / SUM(ap.spend) ELSE NULL END AS roas
-      FROM ad_performance ap
-      LEFT JOIN products p
-        ON ap.client_id = p.client_id
-        AND UPPER(TRIM(ap.advertised_asin)) = UPPER(TRIM(p.asin))
-      WHERE ap.client_id = ?
-        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-      GROUP BY COALESCE(ap.advertised_asin, 'UNATTRIBUTED')
+        COALESCE(r.advertised_asin, 'UNATTRIBUTED') AS asin,
+        MAX(p.title)         AS product_title,
+        SUM(r.cost)          AS total_spend,
+        SUM(r.sales_30_d)    AS total_sales,
+        SUM(r.purchases_30_d) AS total_orders,
+        SUM(r.clicks)        AS total_clicks,
+        CASE WHEN SUM(r.sales_30_d) > 0
+          THEN SUM(r.cost) / SUM(r.sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(r.cost) > 0
+          THEN SUM(r.sales_30_d) / SUM(r.cost) ELSE NULL END AS roas
+      FROM sp_advertised_product_report r
+      LEFT JOIN products p ON r.client_id = p.client_id AND r.advertised_asin = p.asin
+      WHERE r.client_id = ?
+        AND r.date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY COALESCE(r.advertised_asin, 'UNATTRIBUTED')
       ORDER BY total_spend DESC
       LIMIT 50
     `, [clientId, days]);

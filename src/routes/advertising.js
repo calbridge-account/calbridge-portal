@@ -159,28 +159,22 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
     const clientId = req.session.clientId;
 
     const [roasRows, salesRow] = await Promise.all([
-      // ROAS per campaign type
+      // ROAS per ad type — from campaign_performance view, compute metrics from raw facts
       query(`
         SELECT
-          COALESCE(c.campaign_type, 'Unknown')  AS campaign_type,
-          ap.connection_type,
-          SUM(ap.impressions)  AS impressions,
-          SUM(ap.clicks)       AS clicks,
-          SUM(ap.spend)        AS spend,
-          SUM(ap.sales)        AS sales,
-          SUM(ap.orders)       AS orders,
-          CASE WHEN SUM(ap.spend) > 0  THEN SUM(ap.sales) / SUM(ap.spend)  ELSE NULL END AS roas,
-          CASE WHEN SUM(ap.sales) > 0  THEN SUM(ap.spend) / SUM(ap.sales)  ELSE NULL END AS acos,
-          CASE WHEN SUM(ap.impressions) > 0 THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr
-        FROM ad_performance ap
-        LEFT JOIN ad_campaigns c
-          ON ap.client_id = c.client_id
-          AND ap.campaign_id = c.campaign_id
-          AND ap.connection_type = c.connection_type
-        WHERE ap.client_id = ?
-          AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-        GROUP BY COALESCE(c.campaign_type, 'Unknown'), ap.connection_type
-        ORDER BY spend DESC
+          ad_type AS campaign_type,
+          ad_type AS connection_type,
+          SUM(impressions)  AS impressions,
+          SUM(clicks)       AS clicks,
+          SUM(spend)        AS spend,
+          SUM(sales)        AS sales,
+          SUM(orders)       AS orders,
+          CASE WHEN SUM(spend)  > 0 THEN SUM(sales) / SUM(spend)  ELSE NULL END AS roas,
+          CASE WHEN SUM(sales)  > 0 THEN SUM(spend) / SUM(sales)  ELSE NULL END AS acos,
+          CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
+        GROUP BY ad_type
+        ORDER BY SUM(spend) DESC
       `, [clientId, days]),
 
       // Total revenue for TACOS denominator
@@ -237,29 +231,24 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
     const limit = Number(req.query.limit) || 10;
     const clientId = req.session.clientId;
 
-    // Check if keyword-level data exists (separate keyword table future feature)
-    // For now, surface ASIN-level efficiency as a proxy using advertised_asin
+    // Use sp_search_term_report for keyword-level efficiency
     const rows = await query(`
       SELECT
-        COALESCE(ap.advertised_asin, 'UNATTRIBUTED') AS asin,
-        MAX(p.title)   AS product_title,
-        SUM(ap.spend)  AS total_spend,
-        SUM(ap.sales)  AS total_sales,
-        SUM(ap.orders) AS total_orders,
-        SUM(ap.clicks) AS total_clicks,
-        SUM(ap.impressions) AS total_impressions,
-        CASE WHEN SUM(ap.spend) > 0  THEN SUM(ap.sales) / SUM(ap.spend)  ELSE NULL END AS roas,
-        CASE WHEN SUM(ap.sales) > 0  THEN SUM(ap.spend) / SUM(ap.sales)  ELSE NULL END AS acos,
-        CASE WHEN SUM(ap.impressions) > 0 THEN SUM(ap.clicks) / SUM(ap.impressions) ELSE NULL END AS ctr
-      FROM ad_performance ap
-      LEFT JOIN products p
-        ON ap.client_id = p.client_id
-        AND UPPER(TRIM(ap.advertised_asin)) = UPPER(TRIM(p.asin))
-      WHERE ap.client_id = ?
-        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
-        AND ap.advertised_asin IS NOT NULL
-        AND ap.advertised_asin != 'UNATTRIBUTED'
-      GROUP BY COALESCE(ap.advertised_asin, 'UNATTRIBUTED')
+        st.search_term                                                           AS asin,
+        st.keyword                                                               AS product_title,
+        SUM(st.cost)                                                             AS total_spend,
+        SUM(st.sales_30_d)                                                       AS total_sales,
+        SUM(st.purchases_30_d)                                                   AS total_orders,
+        SUM(st.clicks)                                                           AS total_clicks,
+        SUM(st.impressions)                                                      AS total_impressions,
+        CASE WHEN SUM(st.cost)        > 0 THEN SUM(st.sales_30_d) / SUM(st.cost)        ELSE NULL END AS roas,
+        CASE WHEN SUM(st.sales_30_d)  > 0 THEN SUM(st.cost) / SUM(st.sales_30_d)        ELSE NULL END AS acos,
+        CASE WHEN SUM(st.impressions) > 0 THEN SUM(st.clicks) / SUM(st.impressions)     ELSE NULL END AS ctr
+      FROM sp_search_term_report st
+      WHERE st.client_id = ?
+        AND st.date >= DATEADD(day, -?, CURRENT_DATE)
+        AND st.search_term IS NOT NULL
+      GROUP BY st.search_term, st.keyword
     `, [clientId, days]);
 
     const mapped = rows.map(r => ({
