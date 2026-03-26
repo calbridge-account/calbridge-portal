@@ -1622,16 +1622,26 @@ async function ingestPerformance(clientId, connectionType, daysBack = 2) {
             );
             if (!reportId) continue;
 
-            // Upsert into queue
+            // Deduplicate: only insert if no pending/completed for this type+date+profile
             await query(`
               MERGE INTO ads_report_queue t
-              USING (SELECT ? AS report_id) s ON t.report_id = s.report_id
-              WHEN NOT MATCHED THEN INSERT
+              USING (
+                SELECT ? AS report_id, ? AS client_id, ? AS connection_type,
+                       ? AS profile_id, ? AS report_type, ? AS report_date
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM ads_report_queue
+                  WHERE client_id = ? AND report_type = ? AND report_date = ? AND profile_id = ?
+                  AND status IN ('pending','completed')
+                )
+              ) s ON t.report_id = s.report_id
+              WHEN NOT MATCHED AND s.report_id IS NOT NULL THEN INSERT
                 (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-            `, [reportId, reportId, clientId, connectionType, profileId, rt.key, reportDate]);
+                VALUES (s.report_id, s.client_id, s.connection_type, s.profile_id, s.report_type, s.report_date, 'pending', CURRENT_TIMESTAMP)
+            `, [reportId, clientId, connectionType, profileId, rt.key, reportDate,
+                clientId, rt.key, reportDate, profileId]);
 
             console.log(`[performance] Queued ${rt.key} report ${reportId} for profile ${profileId} date ${reportDate}`);
+            queued++;
             queued++;
           } catch (err) {
             const body = err.response?.data
