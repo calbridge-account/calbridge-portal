@@ -39,7 +39,8 @@ async function syncClient(clientId, connections) {
     // Queue report requests — fast, non-blocking
     // processReportQueue runs separately on 5min internal timer
     jobs.push(ingestPerformance(clientId, 'ads', 30));
-    jobs.push(ingestDsp(clientId, 'ads', 14));
+    // DSP disabled from auto-scheduler — run manually when ready
+    // jobs.push(ingestDsp(clientId, 'ads', 14));
     // NOTE: processReportQueue is NOT called here — it runs on its own 5min timer
     // so the event loop stays free to process completed reports concurrently
   }
