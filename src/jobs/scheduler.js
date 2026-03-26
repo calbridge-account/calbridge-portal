@@ -105,15 +105,38 @@ async function runFullSync() {
  * Uses setInterval — swap for a proper cron library (node-cron) in production
  */
 function startScheduler() {
-  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  const SIX_HOURS   = 6 * 60 * 60 * 1000;
+  const FIVE_MINUTES = 5 * 60 * 1000;
 
-  console.log('[Scheduler] Started — full sync every 6 hours');
+  console.log('[Scheduler] Started — full sync every 6h, queue poll every 5min');
 
-  // Run immediately on startup
+  // Run full sync immediately on startup
   runFullSync();
 
-  // Then every 6 hours
+  // Full sync every 6 hours
   setInterval(runFullSync, SIX_HOURS);
+
+  // Poll report queue every 5 minutes — runs inside the server process
+  // so Snowflake connections are warm and no external process needed
+  setInterval(async () => {
+    try {
+      const { query } = require('../services/snowflakeService');
+      // Get all active clients with ads connected
+      const clients = await query(`
+        SELECT client_id FROM amazon_connections
+        WHERE connection_type = 'ads'
+        GROUP BY client_id
+      `);
+      for (const row of clients) {
+        const cid = row.CLIENT_ID || row.client_id;
+        await processReportQueue(cid, 'ads').catch(err =>
+          console.warn('[QueuePoller] Error for', cid, err.message)
+        );
+      }
+    } catch (err) {
+      console.warn('[QueuePoller] Error:', err.message);
+    }
+  }, FIVE_MINUTES);
 }
 
 /**
