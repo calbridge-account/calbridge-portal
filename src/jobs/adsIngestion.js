@@ -1704,12 +1704,17 @@ async function processReportQueue(clientId, connectionType) {
 
   async function processOne(row) {
     const reportId   = row.REPORT_ID   || row.report_id;
-    const profileId  = row.PROFILE_ID  || row.profile_id;
+    const rawProfileId = row.PROFILE_ID || row.profile_id;
     const reportType = row.REPORT_TYPE || row.report_type;
     const reportDate = String(row.REPORT_DATE || row.report_date);
 
+    // DSP reports store 'advertiserId|profileId' — extract just profileId
+    const profileId = rawProfileId?.includes('|')
+      ? rawProfileId.split('|')[1]
+      : rawProfileId;
+
     try {
-      const pollClient = await buildPollClient(profileId);
+      const pollClient = await buildPollClient();
       const statusRes  = await pollClient.get(`/reporting/reports/${reportId}`, {
         headers: { 'Amazon-Advertising-API-Scope': profileId }
       });
