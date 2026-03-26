@@ -63,11 +63,8 @@ const REPORT_TYPES = [
     reportTypeId: 'spCampaigns',   // SP uses spCampaigns reportTypeId for adGroup groupBy
     groupBy:      ['adGroup'],
     columns:      [
-      // Ad group + campaign context
+      // Ad group only — campaign context not available for adGroup groupBy
       'adGroupId', 'adGroupName', 'adStatus',
-      'campaignId', 'campaignName', 'campaignStatus',
-      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
-      'campaignBiddingStrategy', 'portfolioId',
       // Performance
       'date', 'impressions', 'clicks', 'cost',
       'addToList',
