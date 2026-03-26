@@ -1649,13 +1649,7 @@ async function ingestPerformance(clientId, connectionType, daysBack = 2) {
       }
     }
 
-    console.log(`[performance] Queued ${queued} reports — run processReportQueue() to download`);
-
-    // Kick off queue processing in background (non-blocking)
-    processReportQueue(clientId, connectionType).catch(err =>
-      console.error('[performance] Background queue processing error:', err.message)
-    );
-
+    console.log(`[performance] Queued ${queued} reports — queue poller will download on next 5min tick`);
     return { recordsWritten: 0, queued };
   });
 }
@@ -1691,16 +1685,13 @@ async function processReportQueue(clientId, connectionType) {
   let cachedToken = await getValidToken(clientId, connectionType);
   let tokenFetchedAt = Date.now();
 
-  function buildPollClient(profileId) {
-    // Refresh token if older than 45 minutes
+  async function buildPollClient() {
+    // Refresh if older than 45 minutes
     if (Date.now() - tokenFetchedAt > 45 * 60 * 1000) {
-      return adsClient(clientId, connectionType).then(c => {
-        cachedToken = c.defaults.headers.Authorization?.replace('Bearer ','');
-        tokenFetchedAt = Date.now();
-        return c;
-      });
+      cachedToken = await getValidToken(clientId, connectionType);
+      tokenFetchedAt = Date.now();
     }
-    return Promise.resolve(axios.create({
+    return axios.create({
       baseURL: ADS_API_BASE,
       headers: {
         'Authorization': `Bearer ${cachedToken}`,
@@ -1708,7 +1699,7 @@ async function processReportQueue(clientId, connectionType) {
         'Content-Type': 'application/json'
       },
       timeout: 30000
-    }));
+    });
   }
 
   async function processOne(row) {

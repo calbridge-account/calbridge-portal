@@ -36,11 +36,12 @@ async function syncClient(clientId, connections) {
 
   if (connections.ads?.connected) {
     jobs.push(ingestCampaigns(clientId, 'ads'));
-    // Re-pull 30 days for SP (30d attribution window), 14 days for SB/SD/DSP
-    // MERGE upsert ensures updated attribution values overwrite stale data
+    // Queue report requests — fast, non-blocking
+    // processReportQueue runs separately on 5min internal timer
     jobs.push(ingestPerformance(clientId, 'ads', 30));
     jobs.push(ingestDsp(clientId, 'ads', 14));
-    jobs.push(processReportQueue(clientId, 'ads'));
+    // NOTE: processReportQueue is NOT called here — it runs on its own 5min timer
+    // so the event loop stays free to process completed reports concurrently
   }
   if (connections.dsp?.connected)    jobs.push(ingestCampaigns(clientId, 'dsp'), ingestPerformance(clientId, 'dsp', 2));
   if (connections.seller?.connected) jobs.push(ingestProducts(clientId, 'seller'), ingestSales(clientId, 'seller', 7));
