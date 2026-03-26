@@ -1615,6 +1615,13 @@ async function ingestPerformance(clientId, connectionType, daysBack = 2) {
 
         for (const rt of REPORT_TYPES) {
           try {
+            // Skip if already queued/completed for this type+date — avoid duplicates
+            const existing = await query(
+              `SELECT COUNT(*) as cnt FROM ads_report_queue WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=? AND status IN ('pending','completed')`,
+              [clientId, rt.key, reportDate, profileId]
+            );
+            if (Number(existing[0]?.CNT || 0) > 0) continue;
+
             const freshClient = await adsClient(clientId, connectionType);
             const reportId    = await requestV3Report(
               freshClient, profileId, isoDate,
@@ -1870,7 +1877,14 @@ async function ingestDsp(clientId, connectionType, daysBack = 7) {
           );
 
           if (reportId) {
-            // Store in queue with advertiser_id in profile_id field for DSP
+            // Store in queue — MERGE deduplicates on report_id
+            // Also deduplicate by advertiser+date: skip if already pending/completed for this date
+            const existing = await query(
+              `SELECT COUNT(*) as cnt FROM ads_report_queue WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=? AND status IN ('pending','completed')`,
+              [clientId, 'dspCampaign', isoDate.replace(/-/g,''), advertiserId + '|' + profileId]
+            );
+            if (Number(existing[0]?.CNT || 0) > 0) continue; // already queued for this advertiser+date
+
             await query(`
               MERGE INTO ads_report_queue t
               USING (SELECT ? AS report_id) s ON t.report_id = s.report_id
@@ -1878,7 +1892,7 @@ async function ingestDsp(clientId, connectionType, daysBack = 7) {
                 (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
             `, [reportId, reportId, clientId, connectionType,
-                advertiserId + '|' + profileId, // encode both IDs
+                advertiserId + '|' + profileId,
                 'dspCampaign', isoDate.replace(/-/g, '')]);
 
             console.log(`[DSP] Queued ${name} (${advertiserId}) ${isoDate}`);
