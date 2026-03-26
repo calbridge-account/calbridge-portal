@@ -306,7 +306,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews'
+      'addToCart', 'addToCartClicks', 'addToCartViews',
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -330,7 +330,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews'
+      'addToCart', 'addToCartClicks', 'addToCartViews',
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -355,7 +355,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews'
+      'addToCart', 'addToCartClicks', 'addToCartViews',
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
@@ -380,7 +380,7 @@ const REPORT_TYPES = [
       'sales', 'salesClicks', 'salesPromotedClicks',
       'unitsSold', 'unitsSoldClicks',
       'detailPageViews', 'detailPageViewsClicks',
-      'addToCart', 'addToCartClicks', 'addToCartViews'
+      'addToCart', 'addToCartClicks', 'addToCartViews',
       'brandedSearches', 'brandedSearchesClicks', 'brandedSearchesViews', 'newToBrandPurchases', 'newToBrandPurchasesClicks',
       'newToBrandSales', 'newToBrandSalesClicks',
       'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
