@@ -320,7 +320,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
       rows = await query(`
         SELECT
           p.advertised_asin                                        AS asin,
-          p.advertised_sku                                         AS sku,
+          pr.sku                                                   AS model_number,
           COALESCE(pr.title, p.advertised_asin)                   AS product_title,
           SUM(p.cost)                                              AS spend,
           SUM(p.clicks)                                            AS clicks,
@@ -386,7 +386,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
       totalSpend,
       asins: rows.map(r => ({
         asin:         r.ASIN,
-        sku:          r.SKU || null,
+        modelNumber:  r.MODEL_NUMBER || null,
         productTitle: r.PRODUCT_TITLE || r.ASIN,
         spend:        Number(r.SPEND        || 0),
         clicks:       Number(r.CLICKS       || 0),

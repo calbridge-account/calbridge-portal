@@ -289,8 +289,11 @@ async function loadAsinPerformance() {
         <span style="font-size:11px;color:var(--gray-400)">${share}</span>
       </div>`;
 
-      const title = a.productTitle !== a.asin
-        ? `<div style="font-size:12px;font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.productTitle}">${a.productTitle}</div>`
+      // Show model number primarily, full title on hover
+      const displayText = a.modelNumber || a.productTitle;
+      const hoverTitle  = a.productTitle !== a.asin ? a.productTitle : '';
+      const title = displayText && displayText !== a.asin
+        ? `<div style="font-size:12px;font-weight:600;font-family:monospace" title="${hoverTitle}">${displayText}</div>`
         : '<span style="color:var(--gray-400);font-size:11px">—</span>';
 
       return `<tr>
