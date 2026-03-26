@@ -1851,16 +1851,39 @@ async function processReportQueue(clientId, connectionType) {
 
   let processed = 0;
 
-  // Get token once and reuse — avoids Snowflake hit on every report
-  const { getValidToken } = require('../services/amazonAuthService');
-  let cachedToken = await getValidToken(clientId, connectionType);
-  let tokenFetchedAt = Date.now();
+  // Get token by reading directly from Snowflake connections table
+  // Avoids calling getValidToken() which can hang when pool is busy
+  let cachedToken = null;
+  let cachedRefreshToken = null;
+  let tokenFetchedAt = 0;
+
+  async function refreshToken() {
+    const connRows = await query('SELECT connections FROM clients WHERE client_id = ?', [clientId]);
+    const parsed = typeof connRows[0]?.CONNECTIONS === 'string'
+      ? JSON.parse(connRows[0].CONNECTIONS)
+      : connRows[0]?.CONNECTIONS;
+    cachedRefreshToken = parsed?.[connectionType]?.refreshToken;
+    if (!cachedRefreshToken) throw new Error(`No refresh token for ${connectionType}`);
+
+    const tr = await axios.post('https://api.amazon.com/auth/o2/token',
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: cachedRefreshToken,
+        client_id: process.env.LWA_CLIENT_ID,
+        client_secret: process.env.LWA_CLIENT_SECRET
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    cachedToken = tr.data.access_token;
+    tokenFetchedAt = Date.now();
+  }
+
+  await refreshToken();
 
   async function buildPollClient() {
     // Refresh if older than 45 minutes
     if (Date.now() - tokenFetchedAt > 45 * 60 * 1000) {
-      cachedToken = await getValidToken(clientId, connectionType);
-      tokenFetchedAt = Date.now();
+      await refreshToken();
     }
     return axios.create({
       baseURL: ADS_API_BASE,
