@@ -404,6 +404,38 @@ const REPORT_TYPES = [
   }
 ];
 
+// ── Gross & Invalid Traffic ──────────────────────────────────────────────────
+// One report type per ad product — same columns for SP, SB, SD
+const GROSS_INVALID_COLS = [
+  'campaignName', 'campaignStatus', 'date',
+  'impressions', 'grossImpressions', 'invalidImpressions', 'invalidImpressionRate',
+  'clicks',       'grossClickThroughs', 'invalidClickThroughs', 'invalidClickThroughRate'
+];
+
+REPORT_TYPES.push(
+  {
+    key: 'spGrossAndInvalids', adProduct: 'SPONSORED_PRODUCTS',
+    reportTypeId: 'spGrossAndInvalids', groupBy: ['campaign'],
+    columns: GROSS_INVALID_COLS,
+    table: 'sp_gross_and_invalid_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
+  },
+  {
+    key: 'sbGrossAndInvalids', adProduct: 'SPONSORED_BRANDS',
+    reportTypeId: 'sbGrossAndInvalids', groupBy: ['campaign'],
+    columns: GROSS_INVALID_COLS,
+    table: 'sb_gross_and_invalid_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
+  },
+  {
+    key: 'sdGrossAndInvalids', adProduct: 'SPONSORED_DISPLAY',
+    reportTypeId: 'sdGrossAndInvalids', groupBy: ['campaign'],
+    columns: GROSS_INVALID_COLS,
+    table: 'sd_gross_and_invalid_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
+  }
+);
+
 // Build a lookup map: key → REPORT_TYPES entry
 const REPORT_TYPE_MAP = Object.fromEntries(REPORT_TYPES.map(rt => [rt.key, rt]));
 
@@ -1596,27 +1628,72 @@ async function writeSpPurchasedProductReport(clientId, profileId, reportDate, ro
   return written;
 }
 
+// ── Generic Gross & Invalid Traffic writer ──────────────────────────────────
+async function writeGrossAndInvalidReport(table, clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  let written = 0;
+  for (const r of rows) {
+    const rowDate = r.date || r.DATE || getIsoDate(null);
+    try {
+      await query(`
+        MERGE INTO ${table} t
+        USING (SELECT ? AS client_id, ? AS profile_id, ? AS campaign_id, ?::DATE AS date) s
+        ON t.client_id=s.client_id AND t.profile_id=s.profile_id AND t.campaign_id=s.campaign_id AND t.date=s.date
+        WHEN MATCHED THEN UPDATE SET
+          campaign_name=?, campaign_status=?,
+          impressions=?, gross_impressions=?, invalid_impressions=?, invalid_impression_rate=?,
+          clicks=?, gross_click_throughs=?, invalid_click_throughs=?, invalid_click_through_rate=?,
+          synced_at=CURRENT_TIMESTAMP
+        WHEN NOT MATCHED THEN INSERT (
+          client_id, profile_id, campaign_id, date,
+          campaign_name, campaign_status,
+          impressions, gross_impressions, invalid_impressions, invalid_impression_rate,
+          clicks, gross_click_throughs, invalid_click_throughs, invalid_click_through_rate,
+          synced_at
+        ) VALUES (?,?,?,?::DATE,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      `, [
+        clientId, profileId, String(r.campaignId||''), rowDate,
+        r.campaignName||null, r.campaignStatus||null,
+        r.impressions||0, r.grossImpressions||null, r.invalidImpressions||null, r.invalidImpressionRate||null,
+        r.clicks||0, r.grossClickThroughs||null, r.invalidClickThroughs||null, r.invalidClickThroughRate||null,
+        clientId, profileId, String(r.campaignId||''), rowDate,
+        r.campaignName||null, r.campaignStatus||null,
+        r.impressions||0, r.grossImpressions||null, r.invalidImpressions||null, r.invalidImpressionRate||null,
+        r.clicks||0, r.grossClickThroughs||null, r.invalidClickThroughs||null, r.invalidClickThroughRate||null
+      ]);
+      written++;
+    } catch (err) {
+      console.warn(`[${table}] Row error: ${err.message.substring(0,80)}`);
+    }
+  }
+  return written;
+}
+
 // ============================================================
 // WRITE FUNCTION DISPATCH TABLE
 // ============================================================
 
 const WRITE_FNS = {
-  spCampaigns:        writeSpCampaignReport,
-  spAdGroups:         writeSpAdGroupReport,
-  spTargeting:        writeSpTargetingReport,
-  spSearchTerm:       writeSpSearchTermReport,
-  spAdvertisedProduct: writeSpAdvertisedProductReport,
-  spCampaignPlacement: writeSpCampaignPlacementReport,
-  sbCampaigns:        writeSbCampaignReport,
-  sbTargeting:        writeSbKeywordReport,    // key renamed from sbKeywords
-  sbSearchTerms:      writeSbSearchTermReport,
-  sbTargets:          writeSbTargetReport,
-  sbPlacements:       writeSbPlacementReport,
-  spPurchasedProduct: writeSpPurchasedProductReport,
-  sdCampaigns:        writeSdCampaignReport,
-  sdAdGroups:         writeSdAdGroupReport,
-  sdTargeting:        writeSdTargetReport,
-  sdAdvertisedProduct: writeSdProductAdReport  // key renamed from sdProductAds
+  spCampaigns:          writeSpCampaignReport,
+  spAdGroups:           writeSpAdGroupReport,
+  spTargeting:          writeSpTargetingReport,
+  spSearchTerm:         writeSpSearchTermReport,
+  spAdvertisedProduct:  writeSpAdvertisedProductReport,
+  spCampaignPlacement:  writeSpCampaignPlacementReport,
+  spPurchasedProduct:   writeSpPurchasedProductReport,
+  sbCampaigns:          writeSbCampaignReport,
+  sbTargeting:          writeSbKeywordReport,
+  sbSearchTerms:        writeSbSearchTermReport,
+  sbTargets:            writeSbTargetReport,
+  sbPlacements:         writeSbPlacementReport,
+  sdCampaigns:          writeSdCampaignReport,
+  sdAdGroups:           writeSdAdGroupReport,
+  sdTargeting:          writeSdTargetReport,
+  sdAdvertisedProduct:  writeSdProductAdReport,
+  // Gross & Invalid Traffic
+  spGrossAndInvalids: (c,p,d,rows) => writeGrossAndInvalidReport('sp_gross_and_invalid_report',c,p,d,rows),
+  sbGrossAndInvalids: (c,p,d,rows) => writeGrossAndInvalidReport('sb_gross_and_invalid_report',c,p,d,rows),
+  sdGrossAndInvalids: (c,p,d,rows) => writeGrossAndInvalidReport('sd_gross_and_invalid_report',c,p,d,rows),
 };
 
 // ============================================================
