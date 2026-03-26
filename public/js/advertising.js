@@ -68,11 +68,44 @@ async function checkAuth() {
 
 /* ─── Controls ───────────────────────────────────────────────────────── */
 function setupControls() {
-  // Days filter (uses dateUtils.js)
-  setupDateFilter('days-filter', async (days) => {
-    currentDays = days;
-    await loadAll();
-  });
+  // Days filter — direct listener, no external dependency
+  const daysSelect = document.getElementById('days-filter');
+  const customRange = document.getElementById('custom-range');
+  const applyBtn = document.getElementById('apply-custom');
+
+  if (daysSelect) {
+    daysSelect.addEventListener('change', async () => {
+      const val = daysSelect.value;
+      if (val === 'custom') {
+        customRange?.classList.remove('hidden');
+        return;
+      }
+      customRange?.classList.add('hidden');
+      if (val === 'mtd') {
+        const start = new Date(); start.setDate(1);
+        currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      } else if (val === 'ytd') {
+        const start = new Date(new Date().getFullYear(), 0, 1);
+        currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      } else {
+        currentDays = Number(val) || 30;
+      }
+      await loadAll();
+    });
+  }
+
+  if (applyBtn) {
+    applyBtn.addEventListener('click', async () => {
+      const from = document.getElementById('date-from')?.value;
+      const to = document.getElementById('date-to')?.value;
+      if (from && to) {
+        currentDays = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
+        customRange?.classList.add('hidden');
+        daysSelect.value = 'custom';
+        await loadAll();
+      }
+    });
+  }
 
   // Logout
   el('logout-btn').addEventListener('click', async () => {
@@ -336,18 +369,28 @@ async function loadDonut() {
 
     if (donutChart) donutChart.destroy();
     donutChart = new Chart(el('donut-chart'), {
-      type: 'doughnut',
+      type: 'pie',
       data: {
         labels,
-        datasets: [{ data: spend, backgroundColor: colors, borderWidth: 2 }]
+        datasets: [{
+          data: spend,
+          backgroundColor: colors,
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
       },
       options: {
         responsive: true,
+        maintainAspectRatio: true,
         plugins: {
-          legend: { position: 'bottom' },
+          legend: { position: 'bottom', labels: { padding: 16, font: { size: 12 } } },
           tooltip: {
             callbacks: {
-              label: ctx => ` ${ctx.label}: ${fmt$(ctx.raw)}`
+              label: ctx => {
+                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+                return ` ${ctx.label}: ${fmt$(ctx.raw)} (${pct}%)`;
+              }
             }
           }
         }
