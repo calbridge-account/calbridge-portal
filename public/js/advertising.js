@@ -206,6 +206,13 @@ function applyChannelVisibility() {
 /* ─── Load all data ──────────────────────────────────────────────────── */
 async function loadAll() {
   applyChannelVisibility();
+
+  // Show loading state on KPIs
+  ['kpi-spend','kpi-sales','kpi-acos','kpi-roas','kpi-impressions','kpi-clicks'].forEach(id => {
+    const el2 = document.getElementById(id);
+    if (el2) { el2.textContent = '—'; el2.style.opacity = '0.4'; }
+  });
+
   try {
     await Promise.all([
       loadSummary(),
@@ -218,6 +225,12 @@ async function loadAll() {
   } catch (err) {
     console.error('loadAll error:', err);
   }
+
+  // Restore KPI opacity
+  ['kpi-spend','kpi-sales','kpi-acos','kpi-roas','kpi-impressions','kpi-clicks'].forEach(id => {
+    const el2 = document.getElementById(id);
+    if (el2) el2.style.opacity = '1';
+  });
 }
 
 /* ─── Ad Type Breakdown Table ────────────────────────────────────────── */
@@ -338,9 +351,13 @@ async function loadTrend() {
       return s > 0 ? parseFloat(((sp / s) * 100).toFixed(2)) : null;
     });
 
-    // Trend chart
-    if (trendChart) trendChart.destroy();
-    trendChart = new Chart(el('trend-chart'), {
+    // Destroy + replace canvas to avoid Chart.js stale state
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+    const trendCanvas = el('trend-chart');
+    const trendNew = document.createElement('canvas');
+    trendNew.id = 'trend-chart';
+    trendCanvas.parentNode.replaceChild(trendNew, trendCanvas);
+    trendChart = new Chart(trendNew, {
       type: 'line',
       data: {
         labels,
@@ -377,9 +394,12 @@ async function loadTrend() {
       }
     });
 
-    // ACOS trend chart (hidden when DSP)
-    if (acosTrendChart) acosTrendChart.destroy();
-    acosTrendChart = new Chart(el('acos-trend-chart'), {
+    // ACOS trend chart — replace canvas to force clean re-render
+    if (acosTrendChart) { acosTrendChart.destroy(); acosTrendChart = null; }
+    const acosCanvas = el('acos-trend-chart');
+    const acosNew = document.createElement('canvas'); acosNew.id = 'acos-trend-chart';
+    acosCanvas.parentNode.replaceChild(acosNew, acosCanvas);
+    acosTrendChart = new Chart(acosNew, {
       type: 'line',
       data: {
         labels,
@@ -435,8 +455,12 @@ async function loadDonut() {
     const spend  = filtered.map(r => Number(r.SPEND || 0));
     const colors = filtered.map(r => adTypeColors[r.AD_TYPE] || '#9ca3af');
 
-    if (donutChart) donutChart.destroy();
-    donutChart = new Chart(el('donut-chart'), {
+    if (donutChart) { donutChart.destroy(); donutChart = null; }
+    const donutCanvas = el('donut-chart');
+    const donutNew = document.createElement('canvas'); donutNew.id = 'donut-chart';
+    donutNew.style.maxHeight = '260px';
+    donutCanvas.parentNode.replaceChild(donutNew, donutCanvas);
+    donutChart = new Chart(donutNew, {
       type: 'pie',
       data: {
         labels,
