@@ -112,8 +112,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM campaign_performance
-        WHERE client_id = ?
+        FROM (SELECT * FROM campaign_performance WHERE client_id = ?) cp
           AND date >= DATEADD(day, -?, CURRENT_DATE)
       `, [clientId, days])
     ]);

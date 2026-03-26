@@ -25,8 +25,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0 THEN SUM(spend) / SUM(clicks) ELSE NULL END AS cpc
-      FROM campaign_performance
-      WHERE client_id = ?
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ?) cp
         AND date >= DATEADD(day, -?, CURRENT_DATE)
     `, [req.session.clientId, days]);
 
@@ -51,9 +50,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
         SUM(orders)      AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM campaign_performance
-      WHERE client_id = ?
-        AND date >= DATEADD(day, -?, CURRENT_DATE)
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
       GROUP BY ad_type
       ORDER BY SUM(spend) DESC
     `, [req.session.clientId, days]);
@@ -79,9 +76,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
         SUM(orders)             AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM campaign_performance
-      WHERE client_id = ?
-        AND date >= DATEADD(day, -?, CURRENT_DATE)
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
       GROUP BY ad_type
       ORDER BY SUM(spend) DESC
     `, [req.session.clientId, days]);
@@ -106,9 +101,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         SUM(orders)             AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM campaign_performance
-      WHERE client_id = ?
-        AND date >= DATEADD(day, -?, CURRENT_DATE)
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day,-?,CURRENT_DATE)) cp
       GROUP BY date
       ORDER BY date ASC
     `, [req.session.clientId, days]);
