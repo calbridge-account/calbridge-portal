@@ -39,8 +39,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)           ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)    ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)          ELSE NULL END AS cpc
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
-        ${channelFilter(channel, adType)}
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
     `, [req.session.clientId, days]);
     res.json(rows[0] || {});
   } catch (err) { next(err); }
@@ -65,8 +64,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         SUM(orders)                                                               AS orders,
         CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)              ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)              ELSE NULL END AS roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
-        ${channelFilter(channel, adType)}
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
       GROUP BY date
       ORDER BY date ASC
     `, [req.session.clientId, days]);
@@ -125,8 +123,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)        ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)       ELSE NULL END AS cpc
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
-        ${channelFilter(channel, adType)}
+      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
       GROUP BY campaign_id, campaign_name, ad_type, campaign_status, campaign_budget_amount
       ORDER BY SUM(spend) DESC
       LIMIT ?
