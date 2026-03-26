@@ -127,7 +127,7 @@ function startScheduler() {
       const clients = await query(`
         SELECT client_id FROM clients
         WHERE status = 'active'
-        AND TRY_PARSE_JSON(connections):ads:connected::BOOLEAN = TRUE
+        AND TRY_PARSE_JSON(connections):ads:accessToken IS NOT NULL
       `);
       for (const row of clients) {
         const cid = row.CLIENT_ID || row.client_id;
