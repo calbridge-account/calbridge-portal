@@ -1014,24 +1014,20 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
   let written = 0;
   for (const r of rows) {
     // v3 SB field names: purchases, sales, unitsSold (no 14d suffix at campaign level)
+    // All 56 data columns matching sb_campaign_report table exactly
     const vals = [
       clientId, profileId, String(r.campaignId || r.CAMPAIGN_ID || ''), isoDate,
-      r.campaignName || r.CAMPAIGN_NAME || null,
-      r.campaignStatus || r.CAMPAIGN_STATUS || null,
-      r.campaignBudgetAmount || r.CAMPAIGN_BUDGET_AMOUNT || null,
-      r.campaignBudgetType || r.CAMPAIGN_BUDGET_TYPE || null,
-      r.campaignBudgetCurrencyCode || r.CAMPAIGN_BUDGET_CURRENCY_CODE || null,
-      r.costType || r.COST_TYPE || null,
+      r.campaignName || null, r.campaignStatus || null,
+      r.campaignBudgetAmount || null, r.campaignBudgetType || null,
+      r.campaignBudgetCurrencyCode || null, r.costType || null,
       r.impressions || 0, r.clicks || 0, r.cost || 0,
       r.purchases || null, r.purchasesClicks || null, r.purchasesPromoted || null,
       r.sales || null, r.salesClicks || null, r.salesPromoted || null,
       r.unitsSold || null, r.unitsSoldClicks || null,
       r.newToBrandPurchases || null, r.newToBrandPurchasesClicks || null,
       r.newToBrandPurchasesPercentage || null, r.newToBrandPurchasesRate || null,
-      r.newToBrandSales || null, r.newToBrandSalesClicks || null,
-      r.newToBrandSalesPercentage || null,
-      r.newToBrandUnitsSold || null, r.newToBrandUnitsSoldClicks || null,
-      r.newToBrandUnitsSoldPercentage || null,
+      r.newToBrandSales || null, r.newToBrandSalesClicks || null, r.newToBrandSalesPercentage || null,
+      r.newToBrandUnitsSold || null, r.newToBrandUnitsSoldClicks || null, r.newToBrandUnitsSoldPercentage || null,
       r.newToBrandDetailPageViews || null, r.newToBrandDetailPageViewsClicks || null,
       r.newToBrandDetailPageViewRate || null, r.newToBrandECPDetailPageView || null,
       r.detailPageViews || null, r.detailPageViewsClicks || null,
@@ -1043,7 +1039,7 @@ async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
       r.videoMidpointViews || null, r.videoThirdQuartileViews || null, r.videoUnmutes || null,
       r.viewabilityRate || null, r.viewableImpressions || null, r.viewClickThroughRate || null,
       r.kindleEditionNormalizedPagesRead14d || null, r.kindleEditionNormalizedPagesRoyalties14d || null
-    ];
+    ]; // 56 values + CURRENT_TIMESTAMP = 57 cols
     try {
       await query(`
         MERGE INTO sb_campaign_report t
@@ -1690,6 +1686,31 @@ async function processReportQueue(clientId, connectionType) {
 
   let processed = 0;
 
+  // Get token once and reuse — avoids Snowflake hit on every report
+  const { getValidToken } = require('../services/amazonAuthService');
+  let cachedToken = await getValidToken(clientId, connectionType);
+  let tokenFetchedAt = Date.now();
+
+  function buildPollClient(profileId) {
+    // Refresh token if older than 45 minutes
+    if (Date.now() - tokenFetchedAt > 45 * 60 * 1000) {
+      return adsClient(clientId, connectionType).then(c => {
+        cachedToken = c.defaults.headers.Authorization?.replace('Bearer ','');
+        tokenFetchedAt = Date.now();
+        return c;
+      });
+    }
+    return Promise.resolve(axios.create({
+      baseURL: ADS_API_BASE,
+      headers: {
+        'Authorization': `Bearer ${cachedToken}`,
+        'Amazon-Advertising-API-ClientId': process.env.LWA_CLIENT_ID,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    }));
+  }
+
   async function processOne(row) {
     const reportId   = row.REPORT_ID   || row.report_id;
     const profileId  = row.PROFILE_ID  || row.profile_id;
@@ -1697,7 +1718,7 @@ async function processReportQueue(clientId, connectionType) {
     const reportDate = String(row.REPORT_DATE || row.report_date);
 
     try {
-      const pollClient = await adsClient(clientId, connectionType);
+      const pollClient = await buildPollClient(profileId);
       const statusRes  = await pollClient.get(`/reporting/reports/${reportId}`, {
         headers: { 'Amazon-Advertising-API-Scope': profileId }
       });
@@ -1754,10 +1775,10 @@ async function processReportQueue(clientId, connectionType) {
   }
 
   // Parallel batches of 5
-  const BATCH = 5;
-  for (let i = 0; i < pending.length; i += BATCH) {
-    const results = await Promise.allSettled(pending.slice(i, i + BATCH).map(processOne));
-    processed += results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+  // Sequential processing — avoids Snowflake connection pool exhaustion
+  for (const row of pending) {
+    const ok = await processOne(row);
+    if (ok) processed++;
   }
 
   console.log(`[ReportQueue] Completed: ${processed} reports written`);
