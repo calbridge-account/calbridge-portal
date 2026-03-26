@@ -10,6 +10,7 @@
  * Future: one-click actions that write back to Advertising API
  */
 const { query } = require('./snowflakeService');
+const { compute: computeMetric } = require('../config/metrics');
 
 /**
  * Run full decision analysis for a client
@@ -26,8 +27,12 @@ async function analyze(clientId, days = 30) {
   const alerts = [];
 
   // ---- BREAK-EVEN ACOS per ASIN ----
-  // Break-even ACOS = (CM before ad spend) / Revenue
-  // i.e. the max % of revenue you can spend on ads and still break even
+  // Uses metrics.js canonical formula: break_even_acos = cm2 / revenue
+  // NOTE: getContributionMarginData returns legacy fields (no cm2 column).
+  // We approximate cm2 as revenue - cogs - fbaFees (Version A equivalent)
+  // pending DB query upgrade to pull cm2 directly.
+  // ⚠️ See INCONSISTENCIES in src/config/metrics.js for the break_even_acos
+  // discrepancy — this callsite uses Version A until Abe decides canonical.
   const asinMetrics = cmData.map(row => {
     const revenue    = Number(row.TOTAL_REVENUE   || 0);
     const adSpend    = Number(row.TOTAL_AD_SPEND  || 0);
@@ -35,10 +40,10 @@ async function analyze(clientId, days = 30) {
     const cogs       = Number(row.TOTAL_COGS      || 0);
     const cm3        = Number(row.TOTAL_CM        || 0);
 
-    // CM before ad spend = revenue - cogs - fba fees
-    const cmBeforeAds = revenue - cogs - fbaFees;
-    const breakEvenAcos = revenue > 0 ? cmBeforeAds / revenue : null;
-    const actualAcos    = revenue > 0 ? adSpend / revenue     : null;
+    // Approximate CM2 for break-even calculation (Version A proxy — see metrics.js)
+    const cm2Approx = revenue - cogs - fbaFees;
+    const breakEvenAcos = computeMetric('break_even_acos', { cm2: cm2Approx, revenue });
+    const actualAcos    = computeMetric('acos', { adSpend, adAttributedSales: revenue }); // using revenue as proxy
     const cm3Pct        = revenue > 0 ? cm3 / revenue         : null;
 
     return {

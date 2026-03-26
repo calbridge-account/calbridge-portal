@@ -159,4 +159,111 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-module.exports = { getConnection, query, exec };
+// ─── Batch Merge Helper ───────────────────────────────────────────────────────
+//
+// Replaces the row-by-row MERGE loop pattern that causes timeout on large reports.
+//
+// BEFORE (slow): for (const r of rows) { await query(MERGE ...) }  — 1 round-trip per row
+//   3,364 rows × 165ms = 554s — way over the 150s job timeout
+//
+// AFTER (fast): chunked multi-row VALUES MERGE — 1 round-trip per 2,000 rows
+//   3,364 rows → 2 queries × ~5s = ~10s total
+//
+// Usage:
+//   await batchMerge({
+//     table:      'sp_campaign_report',
+//     keyColumns: ['client_id', 'profile_id', 'campaign_id', 'date'],
+//     dataColumns: ['campaign_name', 'impressions', 'clicks', 'cost', ...],
+//     dateColumns: ['date'],   // columns that need ::DATE cast in USING
+//     rows,                    // array of plain objects with all col keys present
+//     chunkSize: 2000          // optional, default 2000
+//   });
+//
+// Row objects must have keys matching exactly the snake_case column names.
+// Include ALL columns (key + data). batchMerge handles dedup via keyColumns.
+//
+// Pipeline conventions:
+//   - Every row must carry: ingested_at, account_id (=client_id), report_id, pipeline_run_id
+//   - Dedup on keyColumns — never duplicate, never silently drop
+//
+async function batchMerge({ table, keyColumns, dataColumns, dateColumns = [], rows, chunkSize = 2000 }) {
+  if (!rows || rows.length === 0) return 0;
+
+  // Deduplicate source rows by keyColumns — Snowflake MERGE throws "Duplicate row detected"
+  // if the source USING clause contains multiple rows matching the same key.
+  {
+    const seen = new Map();
+    for (const row of rows) {
+      const key = keyColumns.map(c => row[c]).join('\x00');
+      seen.set(key, row); // last row wins
+    }
+    rows = Array.from(seen.values());
+  }
+
+  const allColumns  = [...keyColumns, ...dataColumns]; // order matters for VALUES
+  const dateSet     = new Set(dateColumns);
+  let totalWritten  = 0;
+
+  // Split into chunks to keep bind param count reasonable (2000 rows × 26 cols = 52,000 binds)
+  // SDK triggers stage-based binding at 100,000 which requires different handling — stay under it
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const chunk = rows.slice(offset, offset + chunkSize);
+    if (!chunk.length) continue;
+
+    // Build the VALUES placeholder list: (?, ?, ...) per row
+    const valuePlaceholders = chunk.map(() =>
+      '(' + allColumns.map(() => '?').join(', ') + ')'
+    ).join(',\n    ');
+
+    // Build the SELECT column list for the USING clause with optional ::DATE casts
+    const selectCols = allColumns.map(col =>
+      dateSet.has(col)
+        ? `column${allColumns.indexOf(col) + 1}::DATE AS ${col}`
+        : `column${allColumns.indexOf(col) + 1} AS ${col}`
+    ).join(', ');
+
+    // Build the ON match condition
+    const onClause = keyColumns.map(col => `t.${col} = s.${col}`).join(' AND ');
+
+    // Build the UPDATE SET clause (only data columns, not key columns)
+    const updateClause = dataColumns.map(col => `${col} = s.${col}`).join(',\n        ');
+
+    // Build the INSERT columns and VALUES
+    const insertCols = allColumns.join(', ') + ', synced_at';
+    const insertVals = allColumns.map(col => `s.${col}`).join(', ') + ', CURRENT_TIMESTAMP';
+
+    const sql = `
+      MERGE INTO ${table} t
+      USING (
+        SELECT ${selectCols}
+        FROM VALUES
+          ${valuePlaceholders}
+      ) s
+      ON ${onClause}
+      WHEN MATCHED THEN UPDATE SET
+        ${updateClause},
+        synced_at = CURRENT_TIMESTAMP
+      WHEN NOT MATCHED THEN INSERT (${insertCols})
+        VALUES (${insertVals})
+    `;
+
+    // Flatten all column values from all rows into a single binds array
+    const binds = [];
+    for (const row of chunk) {
+      for (const col of allColumns) {
+        const val = row[col];
+        binds.push(val === undefined ? null : val);
+      }
+    }
+
+    const result = await query(sql, binds);
+    // Snowflake MERGE result: [{ "number of rows inserted": N, "number of rows updated": M }]
+    const inserted = result?.[0]?.['number of rows inserted'] ?? 0;
+    const updated  = result?.[0]?.['number of rows updated']  ?? 0;
+    totalWritten += inserted + updated;
+  }
+
+  return totalWritten;
+}
+
+module.exports = { getConnection, query, exec, batchMerge };

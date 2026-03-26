@@ -159,6 +159,20 @@ async function loadOverview() {
       fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' })
     ]);
     const summary = await summaryRes.json();
+
+    // If noBrands came back with no data fields (old bail-out path), show a prompt and stop
+    if (summary.noBrands && summary.totalRetailSales == null) {
+      const banner = $('data-status-banner');
+      if (banner) {
+        banner.style.display = 'flex';
+        banner.style.background = 'var(--brand-light)';
+        banner.style.border = '1px solid var(--brand)';
+        banner.style.color = 'var(--brand)';
+        banner.innerHTML = '🏷️ <strong>Set up your first brand</strong>&nbsp;to start seeing dashboard data. <a href="/account.html" style="color:var(--brand);text-decoration:underline">Go to Account Settings →</a>';
+      }
+      return;
+    }
+
     const { topPerformers, bottomPerformers } = await perfRes.json();
 
     // Top-line KPIs from summary endpoint

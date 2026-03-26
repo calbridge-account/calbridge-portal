@@ -16,6 +16,7 @@
  * Score clamped to [0, 100].
  */
 const { query } = require('./snowflakeService');
+const { compute: computeMetric } = require('../config/metrics');
 
 /**
  * Calculate health score for a single client
@@ -71,9 +72,12 @@ async function scoreClient(clientId) {
       const fees  = Number(acosRows[0].FEES  || 0);
       const spend = Number(acosRows[0].SPEND || 0);
       if (rev > 0) {
-        const breakEven  = (rev - cogs - fees) / rev;
-        const actualAcos = spend / rev;
-        if (actualAcos <= breakEven) {
+        // Uses metrics.js break_even_acos with cm2 approximated as (rev - cogs - fees).
+        // ⚠️ Version A proxy — see INCONSISTENCIES in src/config/metrics.js.
+        const cm2Approx  = rev - cogs - fees;
+        const breakEven  = computeMetric('break_even_acos', { cm2: cm2Approx, revenue: rev });
+        const actualAcos = computeMetric('acos', { adSpend: spend, adAttributedSales: rev });
+        if (breakEven !== null && actualAcos !== null && actualAcos <= breakEven) {
           breakdown.acosVsBreakEven = 20;
         } else {
           breakdown.acosVsBreakEven = -15;

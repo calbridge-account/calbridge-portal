@@ -7,6 +7,7 @@ const { syncClient } = require('../jobs/scheduler');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
 const { getPlanLimits } = require('../middleware/planGate');
+const { compute: computeMetric } = require('../config/metrics');
 
 // ---------------------------------------------------------------------------
 // Brand resolver — resolves brandId for a request.
@@ -82,14 +83,10 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const clientId = req.session.clientId;
 
     // Resolve brand context — attach to response so frontend can show brand name/switcher
+    // NOTE: noBrands does NOT block data — sales/ads queries are client-scoped only.
+    // We still return data even when no brand is configured, and pass noBrands as metadata
+    // so the frontend can prompt the user to set one up.
     const brandCtx = await resolveBrand(clientId, req.query.brandId);
-    if (brandCtx.noBrands) {
-      return res.json({
-        noBrands: true,
-        message:  'No brands configured. Set up your first brand to see data.',
-        days,
-      });
-    }
 
     const [salesRow, adsRow] = await Promise.all([
       // Total retail sales = Seller ordered revenue + Vendor shipped revenue
@@ -112,7 +109,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
+        FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
       `, [clientId, days])
     ]);
 
@@ -121,8 +119,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const totalRetailSales = Number(s.TOTAL_RETAIL_SALES || 0);
     const totalAdSpend     = Number(a.TOTAL_AD_SPEND    || 0);
 
-    // Total ROAS = Total retail sales / Ad spend (true blended ROAS)
-    const totalRoas = totalAdSpend > 0 ? totalRetailSales / totalAdSpend : null;
+    // Total ROAS = Total retail sales / Ad spend (true blended ROAS) — via metrics.js true_roas
+    const totalRoas = computeMetric('true_roas', { totalRetailSales, totalAdSpend });
 
     // CM Breakdown from contribution_margin table
     // Uses correct CM1/CM2/CM3 model:
@@ -434,13 +432,14 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
 
       query(`
         SELECT COALESCE(SUM(spend), 0) AS total_spend
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)) cp
+        FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)
       `, [clientId, days])
     ]);
 
     const totalRevenue = Number(salesRow[0]?.TOTAL_REVENUE || 0);
     const totalSpend   = Number(adsRow[0]?.TOTAL_SPEND     || 0);
-    const tacos        = totalRevenue > 0 ? totalSpend / totalRevenue : null;
+    const tacos        = computeMetric('tacos', { totalAdSpend: totalSpend, totalRetailSales: totalRevenue });
 
     // Also break out TACOS by campaign type (SP / SB / SD / DSP)
     let byType = [];
@@ -450,7 +449,8 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
           ad_type AS campaign_type,
           ad_type AS connection_type,
           SUM(spend) AS spend
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)) cp
+        FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE)
         GROUP BY ad_type
         ORDER BY spend DESC
       `, [clientId, days]);
@@ -693,7 +693,8 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
           THEN SUM(spend) / SUM(new_to_brand_sales) ELSE NULL END AS ntb_acos,
         CASE WHEN SUM(spend) > 0
           THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL) cp
+      FROM campaign_performance
+      WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL
     `, [clientId, days]);
 
     const r = rows[0] || {};
@@ -715,7 +716,8 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
             THEN SUM(new_to_brand_purchases) / SUM(orders) ELSE NULL END AS ntb_order_rate,
           CASE WHEN SUM(spend) > 0
             THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases > 0) cp
+        FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases > 0
         GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
         LIMIT 20
@@ -880,11 +882,11 @@ router.get('/profitability-trend', requireAuth, async (req, res, next) => {
       const profitDays  = yArr.filter(y => y >= 0).length;
       const profitRate  = n > 0 ? profitDays / n : 0;
 
-      // Break-even ACOS (from latest CM2/revenue)
+      // Break-even ACOS (from latest CM2/revenue) — via metrics.js canonical formula
+      // Note: metrics.js returns a ratio (0–1); multiply by 100 for display as percent.
       const latestRow     = series[series.length - 1];
-      const breakEvenAcos = latestRow.revenue > 0 && latestRow.cm2 != null
-        ? (latestRow.cm2 / latestRow.revenue) * 100
-        : null;
+      const beRatio       = computeMetric('break_even_acos', { cm2: latestRow.cm2, revenue: latestRow.revenue });
+      const breakEvenAcos = beRatio != null ? beRatio * 100 : null;
 
       // Signal
       let signal = 'stable';

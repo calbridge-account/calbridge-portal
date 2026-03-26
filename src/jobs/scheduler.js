@@ -118,12 +118,11 @@ function startScheduler() {
   // Full sync every 6 hours
   setInterval(runFullSync, SIX_HOURS);
 
-  // Poll report queue every 5 minutes — runs inside the server process
-  // so Snowflake connections are warm and no external process needed
-  setInterval(async () => {
+  // Poll report queue — starts 2.5 minutes after startup, then every 5 minutes
+  // Offset from the full sync to avoid Snowflake pool contention
+  setTimeout(async function pollQueue() {
     try {
       const { query } = require('../services/snowflakeService');
-      // Get clients with ads connection — check both connections JSON and amazon_connections table
       const clients = await query(`
         SELECT client_id FROM clients
         WHERE status = 'active'
@@ -131,6 +130,7 @@ function startScheduler() {
       `);
       for (const row of clients) {
         const cid = row.CLIENT_ID || row.client_id;
+        console.log('[QueuePoller] Processing queue for', cid);
         await processReportQueue(cid, 'ads').catch(err =>
           console.warn('[QueuePoller] Error for', cid, err.message)
         );
@@ -138,7 +138,9 @@ function startScheduler() {
     } catch (err) {
       console.warn('[QueuePoller] Error:', err.message);
     }
-  }, FIVE_MINUTES);
+    // Schedule next run 5 minutes from now
+    setTimeout(pollQueue, FIVE_MINUTES);
+  }, FIVE_MINUTES / 2); // first run 2.5 min after startup
 }
 
 /**
