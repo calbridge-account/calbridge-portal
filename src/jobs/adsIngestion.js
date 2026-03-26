@@ -50,7 +50,9 @@ const REPORT_TYPES = [
       'sales1d', 'sales7d', 'sales14d',
       'unitsSoldClicks1d', 'unitsSoldClicks7d', 'unitsSoldClicks14d',
       'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
-      'topOfSearchImpressionShare', 'campaignBiddingStrategy', 'portfolioId'
+      'topOfSearchImpressionShare', 'campaignBiddingStrategy',
+      'campaignRuleBasedBudgetAmount', 'campaignApplicableBudgetRuleId', 'campaignApplicableBudgetRuleName',
+      'campaignStatus', 'date', 'spend'
     ],
     table:      'sp_campaign_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'date']
@@ -1752,39 +1754,54 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
     const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
     let   queued      = 0;
 
-    // Calculate date range — one request per report type covers all days
-    const endDate   = new Date();
-    endDate.setDate(endDate.getDate() - 1); // yesterday
-    const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - (daysBack - 1));
+    // Amazon max range per request: 31 days
+    // Split daysBack into 31-day chunks — one request per chunk per report type
+    const MAX_RANGE = 31;
 
-    const startIso = startDate.toISOString().split('T')[0];
-    const endIso   = endDate.toISOString().split('T')[0];
+    // Build date windows (oldest to newest)
+    const endDateBase = new Date();
+    endDateBase.setDate(endDateBase.getDate() - 1); // yesterday
 
-    // Use a single range key for deduplication (startIso_endIso)
-    const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
+    const windows = [];
+    let remaining = daysBack;
+    let windowEnd = new Date(endDateBase);
+    while (remaining > 0) {
+      const chunkDays = Math.min(remaining, MAX_RANGE);
+      const windowStart = new Date(windowEnd);
+      windowStart.setDate(windowStart.getDate() - (chunkDays - 1));
+      windows.unshift({ // oldest first
+        startIso: windowStart.toISOString().split('T')[0],
+        endIso:   windowEnd.toISOString().split('T')[0]
+      });
+      windowEnd = new Date(windowStart);
+      windowEnd.setDate(windowEnd.getDate() - 1);
+      remaining -= chunkDays;
+    }
 
-    console.log(`[performance] Requesting ${daysBack} days (${startIso} → ${endIso}) as ${REPORT_TYPES.length} range reports`);
+    console.log(`[performance] ${daysBack} days → ${windows.length} chunks of ≤${MAX_RANGE} days, ${REPORT_TYPES.length} report types = up to ${windows.length * REPORT_TYPES.length} requests`);
 
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
 
-      for (const rt of REPORT_TYPES) {
-        try {
-          await new Promise(r => setImmediate(r)); // yield event loop
+      for (const { startIso, endIso } of windows) {
+        const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
 
-          // Deduplicate: skip if already pending/completed for this type+range+profile
-          const existing = await query(`
-            SELECT COUNT(*) as cnt FROM ads_report_queue
-            WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
-            AND status IN ('pending','completed')
-          `, [clientId, rt.key, rangeKey, profileId]);
-          if (Number(existing[0]?.CNT || 0) > 0) continue;
+        for (const rt of REPORT_TYPES) {
+          try {
+            await new Promise(r => setImmediate(r)); // yield event loop
 
-          const freshClient = await adsClient(clientId, connectionType);
-          const reportId    = await requestV3Report(
-            freshClient, profileId, startIso,
-            rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters,
+            // Deduplicate: skip if already pending/completed for this type+range+profile
+            const existing = await query(`
+              SELECT COUNT(*) as cnt FROM ads_report_queue
+              WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
+              AND status IN ('pending','completed')
+            `, [clientId, rt.key, rangeKey, profileId]);
+            if (Number(existing[0]?.CNT || 0) > 0) continue;
+
+            const freshClient = await adsClient(clientId, connectionType);
+            const reportId    = await requestV3Report(
+              freshClient, profileId, startIso,
+              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters,
             endIso  // pass endDate to cover full range
           );
           if (!reportId) continue;
@@ -1800,12 +1817,13 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
           await sleep(100);
         } catch (err) {
           const body = err.response?.data ? JSON.stringify(err.response.data).substring(0,200) : '';
-          console.warn(`[performance] Failed ${rt.key}: ${err.message} ${body}`);
+          console.warn(`[performance] Failed ${rt.key} ${startIso}→${endIso}: ${err.message} ${body}`);
         }
-      }
-    }
+      } // end report types loop
+      } // end windows loop
+    } // end profiles loop
 
-    console.log(`[performance] Queued ${queued} range reports (${startIso}→${endIso})`);
+    console.log(`[performance] Queued ${queued} reports total`);
     return { recordsWritten: 0, queued };
   });
 }
