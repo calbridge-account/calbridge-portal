@@ -123,11 +123,11 @@ function startScheduler() {
   setInterval(async () => {
     try {
       const { query } = require('../services/snowflakeService');
-      // Get all active clients with ads connected
+      // Get clients with ads connection — check both connections JSON and amazon_connections table
       const clients = await query(`
-        SELECT client_id FROM amazon_connections
-        WHERE connection_type = 'ads'
-        GROUP BY client_id
+        SELECT client_id FROM clients
+        WHERE status = 'active'
+        AND TRY_PARSE_JSON(connections):ads:connected::BOOLEAN = TRUE
       `);
       for (const row of clients) {
         const cid = row.CLIENT_ID || row.client_id;
