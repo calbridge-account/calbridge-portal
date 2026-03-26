@@ -1633,10 +1633,17 @@ async function ensureAdsSchema() {
 
   // Split into individual statements — Snowflake doesn't support multi-statement
   // Execute all CREATE TABLE statements
+  // Split on CREATE TABLE boundaries (handles comment blocks between statements)
   const statements = sql
-    .split(';')
+    .split(/(?=CREATE TABLE IF NOT EXISTS )/i)
     .map(s => s.trim())
-    .filter(s => s.length > 10 && !s.startsWith('--'));
+    .filter(s => s.toUpperCase().startsWith('CREATE'))
+    .map(s => {
+      // Extract just up to the closing ); of the CREATE TABLE
+      const match = s.match(/CREATE TABLE[\s\S]+?\)\s*$/m);
+      return match ? match[0] : s.replace(/;$/, '');
+    })
+    .filter(s => s.length > 20);
 
   let executed = 0;
   for (const stmt of statements) {
