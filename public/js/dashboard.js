@@ -2,9 +2,11 @@
 
 const $ = id => document.getElementById(id);
 let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;
-let currentDays  = 30;
-let currentStart = null; // ISO date string for custom range start (null = rolling)
-let currentEnd   = null; // ISO date string for custom range end   (null = rolling)
+// Default to Month to Date — computed at page load
+const _mtdStart = new Date(); _mtdStart.setDate(1); _mtdStart.setHours(0,0,0,0);
+let currentDays  = Math.max(1, Math.ceil((new Date() - _mtdStart) / 86400000)) || 1;
+let currentStart = _mtdStart.toISOString().split('T')[0];
+let currentEnd   = new Date().toISOString().split('T')[0];
 
 // Build date query params — uses explicit startDate/endDate for custom/MTD/YTD ranges
 // so the API queries the exact historical window instead of rolling back from today.

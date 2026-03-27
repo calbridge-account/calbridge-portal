@@ -7,9 +7,11 @@
 
 /* ─── State ──────────────────────────────────────────────────────────── */
 let activeChannel  = 'all';   // 'all' | 'ads' | 'dsp'
-let currentDays    = 30;
-let currentStart   = null; // ISO date for custom range start
-let currentEnd     = null; // ISO date for custom range end
+// Default to Month to Date — computed at page load
+const _mtdStart = new Date(); _mtdStart.setDate(1); _mtdStart.setHours(0,0,0,0);
+let currentDays    = Math.max(1, Math.ceil((new Date() - _mtdStart) / 86400000)) || 1;
+let currentStart   = _mtdStart.toISOString().split('T')[0];
+let currentEnd     = new Date().toISOString().split('T')[0];
 
 // Build date query params — uses explicit startDate/endDate for fixed historical windows
 function dateParams() {
