@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
+const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
+const { responseCache } = require('../middleware/responseCache');
+
+// Cache all GET responses for 60 seconds.
+// With 2-3 simultaneous users on the same client account, this means only the
+// first request hits Snowflake — subsequent identical requests are served instantly.
+// Cache is keyed on (clientId + full URL), so different date ranges are cached separately.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return responseCache(60_000)(req, res, next);
+  next();
+});
 
 /**
  * Build a Snowflake WHERE fragment that filters by channel.
@@ -43,6 +54,30 @@ function dateFilter(col, days, startDate, endDate) {
 }
 
 /**
+ * Response cache middleware factory.
+ * Wraps a route handler and caches its JSON response for ttlMs milliseconds.
+ * Key = clientId + method + originalUrl (includes all query params).
+ * Cache is invalidated on POST /sync.
+ */
+function withCache(ttlMs, handler) {
+  return async (req, res, next) => {
+    const clientId = req.session?.clientId;
+    if (!clientId) return handler(req, res, next);
+    const ck = cacheKey(clientId, req.originalUrl);
+    const hit = await cachedQuery(ck, ttlMs, async () => {
+      // Intercept res.json to capture the response
+      return new Promise((resolve, reject) => {
+        const originalJson = res.json.bind(res);
+        res.json = (body) => { resolve(body); return originalJson(body); };
+        Promise.resolve(handler(req, res, next)).catch(reject);
+      });
+    });
+    // If already sent (first call), don't send again
+    if (!res.headersSent) res.json(hit);
+  };
+}
+
+/**
  * GET /advertising/summary?days=30&channel=ads|dsp
  * Aggregated KPI totals
  */
@@ -54,7 +89,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const channel   = req.query.channel;
     const adType    = req.query.adType;
     // Aggregate inside the CTE to avoid Snowflake nested-aggregate error on views
-    const rows = await query(`
+    const ck = cacheKey(req.session.clientId, 'summary', days, startDate, endDate, channel, adType);
+    const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
       WITH cp AS (
         SELECT
           COALESCE(SUM(impressions), 0)  AS total_impressions,
@@ -74,7 +110,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN total_impressions > 0 THEN total_clicks / total_impressions    ELSE NULL END AS ctr,
         CASE WHEN total_clicks > 0      THEN total_spend / total_clicks          ELSE NULL END AS cpc
       FROM cp
-    `, [req.session.clientId]);
+    `, [req.session.clientId]));
     res.json(rows[0] || {});
   } catch (err) { next(err); }
 });

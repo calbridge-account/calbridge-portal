@@ -6,8 +6,16 @@ const { getTopPerformers, getAsinTrend } = require('../jobs/contributionMargin')
 const { syncClient } = require('../jobs/scheduler');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
+const { cachedQuery, cacheKey, invalidateClient, DEFAULT_TTL_MS } = require('../services/queryCache');
 const { getPlanLimits } = require('../middleware/planGate');
 const { compute: computeMetric } = require('../config/metrics');
+const { responseCache } = require('../middleware/responseCache');
+
+// Cache all GET responses for 60 seconds — same client, same URL = one Snowflake call.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return responseCache(60_000)(req, res, next);
+  next();
+});
 
 /**
  * Build a Snowflake date range WHERE fragment.
@@ -22,6 +30,30 @@ function dateFilter(col, days, startDate, endDate) {
     return `AND ${col} BETWEEN '${startDate}' AND '${endDate}'`;
   }
   return `AND ${col} >= DATEADD(day, -${Number(days)}, CURRENT_DATE)`;
+}
+
+/**
+ * Response cache middleware factory.
+ * Wraps a route handler and caches its JSON response for ttlMs milliseconds.
+ * Key = clientId + method + originalUrl (includes all query params).
+ * Cache is invalidated on POST /sync.
+ */
+function withCache(ttlMs, handler) {
+  return async (req, res, next) => {
+    const clientId = req.session?.clientId;
+    if (!clientId) return handler(req, res, next);
+    const ck = cacheKey(clientId, req.originalUrl);
+    const hit = await cachedQuery(ck, ttlMs, async () => {
+      // Intercept res.json to capture the response
+      return new Promise((resolve, reject) => {
+        const originalJson = res.json.bind(res);
+        res.json = (body) => { resolve(body); return originalJson(body); };
+        Promise.resolve(handler(req, res, next)).catch(reject);
+      });
+    });
+    // If already sent (first call), don't send again
+    if (!res.headersSent) res.json(hit);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +452,9 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
 router.post('/sync', requireAuth, async (req, res, next) => {
   try {
     const connections = await getConnectionStatus(req.session.clientId);
+    // Invalidate all cached responses for this client so the next page load
+    // fetches fresh data after the sync completes.
+    invalidateClient(req.session.clientId);
     // Fire sync in background — don't await
     syncClient(req.session.clientId, connections).catch(err =>
       console.error(`[Manual sync] Client ${req.session.clientId}:`, err.message)
