@@ -1967,11 +1967,19 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
  *   - If FAILURE: mark failed in queue
  */
 async function processReportQueue(clientId, connectionType) {
-  // Fetch token FIRST before acquiring more connections
-  // This reduces peak connection usage
+  // Fetch token FIRST before acquiring more connections.
+  // Use owner_client_id if set — DSP reports are queued under individual client IDs
+  // but the token that can download them belongs to the agency account (CyberPower).
   let earlyToken = null;
   try {
-    const connRows = await query('SELECT connections FROM clients WHERE client_id = ?', [clientId]);
+    // Check if any pending reports for this client have a different token owner
+    const ownerRows = await query(
+      'SELECT DISTINCT owner_client_id FROM ads_report_queue WHERE client_id = ? AND connection_type = ? AND status IN (\'pending\',\'ready\') AND owner_client_id IS NOT NULL LIMIT 1',
+      [clientId, connectionType]
+    ).catch(() => []);
+    const tokenClientId = ownerRows[0]?.OWNER_CLIENT_ID || clientId;
+
+    const connRows = await query('SELECT connections FROM clients WHERE client_id = ?', [tokenClientId]);
     const parsed = typeof connRows[0]?.CONNECTIONS === 'string'
       ? JSON.parse(connRows[0].CONNECTIONS)
       : connRows[0]?.CONNECTIONS;
@@ -1982,6 +1990,9 @@ async function processReportQueue(clientId, connectionType) {
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
       earlyToken = tr.data.access_token;
+      if (tokenClientId !== clientId) {
+        console.log(`[ReportQueue] Using token from owner ${tokenClientId.slice(0,8)} for client ${clientId.slice(0,8)}`);
+      }
     }
   } catch (err) {
     console.warn('[ReportQueue] Token pre-fetch failed:', err.message);
@@ -2297,8 +2308,8 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
 
             if (reportId) {
               await query(
-                'INSERT INTO ads_report_queue (report_id,client_id,connection_type,profile_id,report_type,report_date,status,requested_at) SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP',
-                [reportId, targetClientId, connectionType, queueProfileId, rt.key, windowKey, 'pending']
+                'INSERT INTO ads_report_queue (report_id,client_id,connection_type,profile_id,report_type,report_date,status,owner_client_id,requested_at) SELECT ?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP',
+                [reportId, targetClientId, connectionType, queueProfileId, rt.key, windowKey, 'pending', clientId]
               );
               console.log(`[DSP] Queued ${name} ${startDate}→${endDate} (${reportId.substring(0,8)})`);
               totalQueued++;
