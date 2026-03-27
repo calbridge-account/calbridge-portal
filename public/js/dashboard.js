@@ -2,7 +2,18 @@
 
 const $ = id => document.getElementById(id);
 let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;
-let currentDays = 30;
+let currentDays  = 30;
+let currentStart = null; // ISO date string for custom range start (null = rolling)
+let currentEnd   = null; // ISO date string for custom range end   (null = rolling)
+
+// Build date query params — uses explicit startDate/endDate for custom/MTD/YTD ranges
+// so the API queries the exact historical window instead of rolling back from today.
+function dateParams() {
+  if (currentStart && currentEnd) {
+    return `days=${currentDays}&startDate=${currentStart}&endDate=${currentEnd}`;
+  }
+  return `days=${currentDays}`;
+}
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
@@ -73,8 +84,10 @@ function setupNav() {
 }
 
 function setupFilters() {
-  setupDateFilter('days-filter', async (days, label) => {
-    currentDays = days;
+  setupDateFilter('days-filter', async (days, label, startDate, endDate) => {
+    currentDays  = days;
+    currentStart = startDate || null;
+    currentEnd   = endDate   || null;
     $('section-sub').textContent = label;
     await loadAll();
   });
@@ -106,7 +119,7 @@ async function loadPerformance() {
   if (performanceLoaded) return;
   performanceLoaded = true;
   try {
-    const res = await fetch(`/dashboard/sales-performance?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/dashboard/sales-performance?${dateParams()}`, { credentials: 'include' });
     if (!res.ok) return;
     const data = await res.json();
 
@@ -161,8 +174,8 @@ async function loadPerformance() {
 async function loadOverview() {
   try {
     const [summaryRes, perfRes] = await Promise.all([
-      fetch(`/dashboard/summary?days=${currentDays}`, { credentials: 'include' }),
-      fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' })
+      fetch(`/dashboard/summary?${dateParams()}`, { credentials: 'include' }),
+      fetch(`/dashboard/performance?${dateParams()}&limit=20`, { credentials: 'include' })
     ]);
     const summary = await summaryRes.json();
 
@@ -263,12 +276,12 @@ async function loadOverview() {
 
 async function loadCmTrend() {
   try {
-    const asinRes = await fetch(`/dashboard/performance?days=${currentDays}&limit=1`, { credentials: 'include' });
+    const asinRes = await fetch(`/dashboard/performance?${dateParams()}&limit=1`, { credentials: 'include' });
     const { topPerformers } = await asinRes.json();
     if (!topPerformers.length) return;
 
     const topAsin = topPerformers[0].ASIN || topPerformers[0].asin;
-    const trendRes = await fetch(`/dashboard/asin/${topAsin}?days=${currentDays}`, { credentials: 'include' });
+    const trendRes = await fetch(`/dashboard/asin/${topAsin}?${dateParams()}`, { credentials: 'include' });
     const { trend, summary: trendSummary } = await trendRes.json();
 
     if (!trend?.length) return;
@@ -336,7 +349,7 @@ function renderRevSpend(rows) {
 
 async function loadCampaignData() {
   try {
-    const res = await fetch(`/dashboard/performance?days=${currentDays}&limit=20`, { credentials: 'include' });
+    const res = await fetch(`/dashboard/performance?${dateParams()}&limit=20`, { credentials: 'include' });
     const { topPerformers } = await res.json();
     if (!topPerformers.length) return;
 
@@ -541,7 +554,7 @@ let insightsData = [];
 
 async function loadDecisions() {
   try {
-    const res = await fetch(`/decisions?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/decisions?${dateParams()}`, { credentials: 'include' });
     const { insights } = await res.json();
     insightsData = (insights || []).slice(0, 3); // top 3 only
 
@@ -675,7 +688,7 @@ function renderCmWaterfall(cm) {
 // ---- TACOS KPI ----
 async function loadTacos() {
   try {
-    const res = await fetch(`/dashboard/tacos?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/dashboard/tacos?${dateParams()}`, { credentials: 'include' });
     if (!res.ok) return;
     const data = await res.json();
     const card = $('kpi-tacos-card');
@@ -844,7 +857,7 @@ async function loadNtb() {
   if (ntbLoaded) return;
   ntbLoaded = true;
   try {
-    const res = await fetch(`/dashboard/ntb?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/dashboard/ntb?${dateParams()}`, { credentials: 'include' });
     if (!res.ok) return;
     const data = await res.json();
 

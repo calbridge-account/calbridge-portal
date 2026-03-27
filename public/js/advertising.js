@@ -8,6 +8,16 @@
 /* ─── State ──────────────────────────────────────────────────────────── */
 let activeChannel  = 'all';   // 'all' | 'ads' | 'dsp'
 let currentDays    = 30;
+let currentStart   = null; // ISO date for custom range start
+let currentEnd     = null; // ISO date for custom range end
+
+// Build date query params — uses explicit startDate/endDate for fixed historical windows
+function dateParams() {
+  if (currentStart && currentEnd) {
+    return `days=${currentDays}&startDate=${currentStart}&endDate=${currentEnd}`;
+  }
+  return `days=${currentDays}`;
+}
 let trendView      = 'daily'; // 'daily' | 'weekly'
 let trendChart     = null;
 let adTypeChart    = null;
@@ -79,12 +89,18 @@ function setupControls() {
     customRange?.classList.add('hidden');
     if (val === 'mtd') {
       const start = new Date(); start.setDate(1);
-      currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      currentDays  = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      currentStart = start.toISOString().split('T')[0];
+      currentEnd   = new Date().toISOString().split('T')[0];
     } else if (val === 'ytd') {
       const start = new Date(new Date().getFullYear(), 0, 1);
-      currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      currentDays  = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+      currentStart = start.toISOString().split('T')[0];
+      currentEnd   = new Date().toISOString().split('T')[0];
     } else {
-      currentDays = Number(val) || 30;
+      currentDays  = Number(val) || 30;
+      currentStart = null;
+      currentEnd   = null;
     }
     await loadAll();
   });
@@ -93,7 +109,9 @@ function setupControls() {
     const from = el('date-from')?.value;
     const to   = el('date-to')?.value;
     if (from && to) {
-      currentDays = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
+      currentDays  = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
+      currentStart = from;
+      currentEnd   = to;
       customRange?.classList.add('hidden');
       await loadAll();
     }
@@ -233,8 +251,8 @@ async function loadAll() {
 async function loadSummary() {
   try {
     const [summaryRes, roasRes] = await Promise.all([
-      fetch(`/advertising/summary?days=${currentDays}${channelParam()}`, { credentials: 'include' }),
-      fetch(`/advertising/roas-by-type?days=${currentDays}`, { credentials: 'include' })
+      fetch(`/advertising/summary?${dateParams()}${channelParam()}`, { credentials: 'include' }),
+      fetch(`/advertising/roas-by-type?${dateParams()}`, { credentials: 'include' })
     ]);
 
     if (!summaryRes.ok) throw new Error(`Summary ${summaryRes.status}`);
@@ -280,7 +298,7 @@ async function loadSummary() {
 /* ─── Section 3: Spend & Sales Trend ────────────────────────────────── */
 async function loadTrend() {
   try {
-    const res = await fetch(`/advertising/trend?days=${currentDays}${channelParam()}`, { credentials: 'include' });
+    const res = await fetch(`/advertising/trend?${dateParams()}${channelParam()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Trend ${res.status}`);
     let rows = await res.json();
 
@@ -386,7 +404,7 @@ async function loadChannelBreakdown() {
   container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px">Loading…</div>';
 
   try {
-    const res = await fetch(`/advertising/by-channel?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/advertising/by-channel?${dateParams()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Channel ${res.status}`);
     const rows = await res.json();
 
@@ -470,7 +488,7 @@ async function loadAdTypeComposition() {
   if (!canvas) return;
 
   try {
-    const res = await fetch(`/advertising/by-campaign-type?days=${currentDays}`, { credentials: 'include' });
+    const res = await fetch(`/advertising/by-campaign-type?${dateParams()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Composition ${res.status}`);
     const rows = await res.json();
 
@@ -541,7 +559,7 @@ async function loadAdTypeComposition() {
 async function loadCampaigns() {
   el('campaign-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">Loading…</td></tr>';
   try {
-    const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=500${channelParam()}`, { credentials: 'include' });
+    const res = await fetch(`/advertising/campaigns?${dateParams()}&limit=500${channelParam()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Campaigns ${res.status}`);
     campaignData = await res.json();
     campaignPage = 0;
@@ -634,7 +652,7 @@ function renderCampaignPage() {
 async function loadAsins() {
   el('asin-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Loading…</td></tr>';
   try {
-    const res = await fetch(`/advertising/asin-performance?days=${currentDays}&limit=200`, { credentials: 'include' });
+    const res = await fetch(`/advertising/asin-performance?${dateParams()}&limit=200`, { credentials: 'include' });
     if (!res.ok) throw new Error(`ASINs ${res.status}`);
     const data = await res.json();
 
@@ -734,7 +752,7 @@ function renderAsinPage() {
 async function loadKeywords() {
   el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">Loading…</td></tr>';
   try {
-    const res = await fetch(`/advertising/keyword-efficiency?days=${currentDays}&limit=50`, { credentials: 'include' });
+    const res = await fetch(`/advertising/keyword-efficiency?${dateParams()}&limit=50`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Keywords ${res.status}`);
     const data = await res.json();
 

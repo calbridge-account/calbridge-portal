@@ -22,21 +22,39 @@ function createConnectionConfig() {
     warehouse: process.env.SNOWFLAKE_WAREHOUSE,
     database:  process.env.SNOWFLAKE_DATABASE,
     schema:    process.env.SNOWFLAKE_SCHEMA,
+    // Force UTC so CURRENT_DATE matches the server/app timezone.
+    // Without this, Snowflake uses the account's default TZ (e.g. PDT = UTC-7),
+    // causing date range queries to be 1 day behind UTC — data from today
+    // appears missing and MTD/rolling windows are off by one day.
+    // Note: also enforced via ALTER SESSION after connect (see createConnection).
+    sessionParameters: { TIMEZONE: 'UTC' },
     loginTimeout: 15,
     networkTimeout: 30000
   };
 }
 
 async function createConnection() {
-  return new Promise((resolve, reject) => {
+  const conn = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Snowflake connect timeout')), CONNECT_TIMEOUT);
-    const conn = snowflake.createConnection(createConnectionConfig());
-    conn.connect((err, c) => {
+    const c = snowflake.createConnection(createConnectionConfig());
+    c.connect((err, conn) => {
       clearTimeout(timer);
       if (err) return reject(err);
-      resolve(c);
+      resolve(conn);
     });
   });
+
+  // Belt-and-suspenders: enforce UTC timezone via ALTER SESSION after connect.
+  // The sessionParameters config key handles it at login time; this covers any
+  // edge cases where the SDK doesn't propagate it (e.g. reconnects, older SDK versions).
+  await new Promise((resolve, reject) => {
+    conn.execute({
+      sqlText: "ALTER SESSION SET TIMEZONE = 'UTC'",
+      complete: (err) => err ? reject(err) : resolve()
+    });
+  });
+
+  return conn;
 }
 
 function isAlive(entry) {

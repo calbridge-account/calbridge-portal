@@ -9,6 +9,21 @@ const { query } = require('../services/snowflakeService');
 const { getPlanLimits } = require('../middleware/planGate');
 const { compute: computeMetric } = require('../config/metrics');
 
+/**
+ * Build a Snowflake date range WHERE fragment.
+ * When startDate + endDate are provided (custom range), uses BETWEEN for exact historical windows.
+ * Otherwise falls back to rolling DATEADD(day, -N, CURRENT_DATE).
+ * Without this, custom date range selections (e.g. "January 2026") would show the wrong data
+ * because DATEADD always rolls back from today, not from a fixed anchor.
+ */
+function dateFilter(col, days, startDate, endDate) {
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (startDate && endDate && isoRe.test(startDate) && isoRe.test(endDate)) {
+    return `AND ${col} BETWEEN '${startDate}' AND '${endDate}'`;
+  }
+  return `AND ${col} >= DATEADD(day, -${Number(days)}, CURRENT_DATE)`;
+}
+
 // ---------------------------------------------------------------------------
 // Brand resolver — resolves brandId for a request.
 //
@@ -80,6 +95,8 @@ router.get('/', requireAuth, async (req, res, next) => {
 router.get('/summary', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     // Resolve brand context — attach to response so frontend can show brand name/switcher
@@ -98,12 +115,12 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           COALESCE(SUM(units_ordered), 0)    AS total_units
         FROM sales
         WHERE client_id = ?
-          AND order_date >= DATEADD(day, -?, CURRENT_DATE)
-      `, [clientId, days]),
+          ${dateFilter("order_date", days, startDate, endDate)}
+      `, [clientId]),
 
       // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
       query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE))
+        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
         SELECT
           COALESCE(SUM(spend), 0)   AS total_ad_spend,
           COALESCE(SUM(sales), 0)   AS total_ad_sales,
@@ -111,7 +128,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
         FROM cp
-      `, [clientId, days])
+      `, [clientId])
     ]);
 
     const [s, a] = [salesRow[0] || {}, adsRow[0] || {}];
@@ -144,8 +161,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           BOOLOR_AGG(vendor_cm1_is_estimate)                    AS vendor_cm1_is_estimate
         FROM contribution_margin
         WHERE client_id = ?
-          AND calc_date >= DATEADD(day, -?, CURRENT_DATE)
-      `, [clientId, days]);
+          ${dateFilter("calc_date", days, startDate, endDate)}
+      `, [clientId]);
 
       if (cmRows.length) {
         const cm = cmRows[0];
@@ -325,6 +342,8 @@ router.get('/asin/:asin', requireAuth, async (req, res, next) => {
 router.get('/sales-performance', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     const [topAsins, dailyTrend, channelSplit] = await Promise.all([
@@ -339,11 +358,11 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         FROM sales s
         LEFT JOIN products p ON s.client_id = p.client_id AND s.asin = p.asin
         WHERE s.client_id = ?
-          AND s.order_date >= DATEADD(day, -?, CURRENT_DATE)
+          ${dateFilter("s.order_date", days, startDate, endDate)}
         GROUP BY s.asin
         ORDER BY revenue DESC
         LIMIT 10
-      `, [clientId, days]),
+      `, [clientId]),
 
       // Daily revenue trend
       query(`
@@ -353,10 +372,10 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
           SUM(units_ordered) AS daily_units
         FROM sales
         WHERE client_id = ?
-          AND order_date >= DATEADD(day, -?, CURRENT_DATE)
+          ${dateFilter("order_date", days, startDate, endDate)}
         GROUP BY order_date
         ORDER BY order_date ASC
-      `, [clientId, days]),
+      `, [clientId]),
 
       // Channel split: Seller vs Vendor
       query(`
@@ -366,9 +385,9 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
           SUM(units_ordered) AS channel_units
         FROM sales
         WHERE client_id = ?
-          AND order_date >= DATEADD(day, -?, CURRENT_DATE)
+          ${dateFilter("order_date", days, startDate, endDate)}
         GROUP BY connection_type
-      `, [clientId, days])
+      `, [clientId])
     ]);
 
     res.json({
@@ -420,6 +439,8 @@ router.post('/sync', requireAuth, async (req, res, next) => {
 router.get('/tacos', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     const [salesRow, adsRow] = await Promise.all([
@@ -427,13 +448,13 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
         SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue
         FROM sales
         WHERE client_id = ?
-          AND order_date >= DATEADD(day, -?, CURRENT_DATE)
-      `, [clientId, days]),
+          ${dateFilter("order_date", days, startDate, endDate)}
+      `, [clientId]),
 
       query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE))
+        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
         SELECT COALESCE(SUM(spend), 0) AS total_spend FROM cp
-      `, [clientId, days])
+      `, [clientId])
     ]);
 
     const totalRevenue = Number(salesRow[0]?.TOTAL_REVENUE || 0);
@@ -444,7 +465,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     let byType = [];
     try {
       const typeRows = await query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE))
+        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
         SELECT
           ad_type AS campaign_type,
           ad_type AS connection_type,
@@ -452,7 +473,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
         FROM cp
         GROUP BY ad_type
         ORDER BY spend DESC
-      `, [clientId, days]);
+      `, [clientId]);
 
       byType = typeRows.map(r => ({
         campaignType:   r.CAMPAIGN_TYPE || r.CONNECTION_TYPE,
@@ -485,6 +506,8 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
 router.get('/forecast', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 90;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     const dailyRows = await query(`
@@ -493,10 +516,10 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
         SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS daily_revenue
       FROM sales
       WHERE client_id = ?
-        AND order_date >= DATEADD(day, -?, CURRENT_DATE)
+        ${dateFilter("order_date", days, startDate, endDate)}
       GROUP BY order_date
       ORDER BY order_date ASC
-    `, [clientId, days]);
+    `, [clientId]);
 
     if (!dailyRows.length) {
       return res.json({ available: false, reason: 'No sales data', days });
@@ -674,10 +697,12 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
 router.get('/ntb', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     const rows = await query(`
-      WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases IS NOT NULL)
+      WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases IS NOT NULL)
       SELECT
         COALESCE(SUM(orders), 0)               AS total_orders,
         COALESCE(SUM(sales), 0)                AS total_sales,
@@ -694,7 +719,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0
           THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
       FROM cp
-    `, [clientId, days]);
+    `, [clientId]);
 
     const r = rows[0] || {};
 
@@ -702,7 +727,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
     let byCampaign = [];
     try {
       const campRows = await query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, 0 - ?, CURRENT_DATE) AND new_to_brand_purchases > 0)
+        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases > 0)
         SELECT
           campaign_id,
           campaign_name,
@@ -720,7 +745,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
         GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
         LIMIT 20
-      `, [clientId, days]);
+      `, [clientId]);
 
       byCampaign = campRows.map(row => ({
         campaignId:    String(row.CAMPAIGN_ID),
@@ -766,6 +791,8 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
 router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
     const rows = await query(`
@@ -783,11 +810,11 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
       FROM sp_advertised_product_report r
       LEFT JOIN products p ON r.client_id = p.client_id AND r.advertised_asin = p.asin
       WHERE r.client_id = ?
-        AND r.date >= DATEADD(day, -?, CURRENT_DATE)
+        ${dateFilter("r.date", days, startDate, endDate)}
       GROUP BY COALESCE(r.advertised_asin, 'UNATTRIBUTED')
       ORDER BY total_spend DESC
       LIMIT 50
-    `, [clientId, days]);
+    `, [clientId]);
 
     const totalSpend = rows.reduce((s, r) => s + Number(r.TOTAL_SPEND || 0), 0);
     const unattributed = rows.find(r => r.ASIN === 'UNATTRIBUTED');
@@ -821,6 +848,8 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
 router.get('/profitability-trend', requireAuth, async (req, res, next) => {
   try {
     const days      = Number(req.query.days)  || 90;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
     const limit     = Number(req.query.limit) || 20;
     const clientId  = req.session.clientId;
 
@@ -829,10 +858,10 @@ router.get('/profitability-trend', requireAuth, async (req, res, next) => {
       SELECT DISTINCT asin
       FROM contribution_margin
       WHERE client_id = ?
-        AND calc_date >= DATEADD(day, -?, CURRENT_DATE)
+        ${dateFilter("calc_date", days, startDate, endDate)}
         AND cm3 IS NOT NULL
       LIMIT ?
-    `, [clientId, days, limit]);
+    `, [clientId, limit]);
 
     if (!asinRows.length) {
       return res.json({ available: false, reason: 'No CM3 data yet — upload COGS to unlock profitability trends', days, asins: [] });

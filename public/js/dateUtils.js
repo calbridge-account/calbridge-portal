@@ -6,27 +6,35 @@
 function getDateRange(filterValue, customFrom, customTo) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
 
   switch (filterValue) {
     case 'mtd': {
       const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      const startStr = start.toISOString().split('T')[0];
       const days = Math.ceil((today - start) / 86400000) || 1;
-      return { days, label: 'Month to Date' };
+      // Use explicit startDate/endDate so the API queries the exact calendar month,
+      // not a rolling window that drifts as the month progresses.
+      return { days, label: 'Month to Date', startDate: startStr, endDate: todayStr };
     }
     case 'ytd': {
       const start = new Date(today.getFullYear(), 0, 1);
+      const startStr = start.toISOString().split('T')[0];
       const days = Math.ceil((today - start) / 86400000) || 1;
-      return { days, label: 'Year to Date' };
+      return { days, label: 'Year to Date', startDate: startStr, endDate: todayStr };
     }
     case 'custom': {
-      if (!customFrom || !customTo) return { days: 30, label: 'Last 30 days' };
+      if (!customFrom || !customTo) return { days: 30, label: 'Last 30 days', startDate: null, endDate: null };
       const from = new Date(customFrom);
       const to   = new Date(customTo);
       const days = Math.ceil((to - from) / 86400000) + 1;
-      return { days: Math.max(days, 1), label: `${customFrom} → ${customTo}` };
+      // Pass explicit dates — the 'days' param alone would query backwards from TODAY,
+      // not from the selected historical window. This was showing Jan data as Feb/Mar data.
+      return { days: Math.max(days, 1), label: `${customFrom} → ${customTo}`, startDate: customFrom, endDate: customTo };
     }
     default:
-      return { days: Number(filterValue) || 30, label: `Last ${filterValue} days` };
+      // Rolling window — no fixed anchor needed, rolling from today is correct
+      return { days: Number(filterValue) || 30, label: `Last ${filterValue} days`, startDate: null, endDate: null };
   }
 }
 
@@ -57,12 +65,12 @@ function setupDateFilter(selectId, onChange) {
       return; // wait for Apply
     }
     customRange?.classList.add('hidden');
-    const { days, label } = getDateRange(val);
-    onChange(days, label);
+    const { days, label, startDate, endDate } = getDateRange(val);
+    onChange(days, label, startDate, endDate);
   });
 
   applyBtn?.addEventListener('click', () => {
-    const { days, label } = getDateRange('custom', dateFrom?.value, dateTo?.value);
-    onChange(days, label);
+    const { days, label, startDate, endDate } = getDateRange('custom', dateFrom?.value, dateTo?.value);
+    onChange(days, label, startDate, endDate);
   });
 }
