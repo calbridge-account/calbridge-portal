@@ -16,6 +16,16 @@ const path = require('path');
 const fs   = require('fs');
 const zlib = require('zlib');
 const axios = require('axios');
+
+// Safe JSON parser that preserves large integers as strings.
+// Standard JSON.parse() silently truncates integers > Number.MAX_SAFE_INTEGER (2^53-1),
+// which corrupts Amazon DSP advertiser IDs (e.g. 577089618135015252 → 577089618135015300).
+// json-bigint with storeAsString:true returns big ints as strings, safe for VARCHAR storage.
+const JSONbig = require('json-bigint')({ storeAsString: true });
+function safeParse(str) {
+  try { return JSONbig.parse(str); }
+  catch { return JSON.parse(str); } // fallback to native if json-bigint fails
+}
 const { query, batchMerge } = require('../services/snowflakeService');
 const { getValidToken } = require('../services/amazonAuthService');
 const { runJob } = require('./ingestionRunner');
@@ -614,7 +624,7 @@ async function downloadReport(client, profileId, reportId, maxWaitMs = 300000) {
     if (status === 'COMPLETED' && url) {
       const dl  = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
       const buf = zlib.gunzipSync(Buffer.from(dl.data));
-      return JSON.parse(buf.toString('utf8'));
+      return safeParse(buf.toString('utf8'));
     }
 
     if (status === 'FAILURE') {
@@ -2083,7 +2093,7 @@ async function processReportQueue(clientId, connectionType) {
 
       if (status === 'COMPLETED' && url) {
         const dl     = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
-        const data   = JSON.parse(zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8'));
+        const data   = safeParse(zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8'));
         const rows   = Array.isArray(data) ? data : [];
         const writeFn = WRITE_FNS[reportType];
 
@@ -2149,11 +2159,16 @@ async function processReportQueue(clientId, connectionType) {
  */
 async function fetchDspAdvertisers(client, profileId) {
   try {
+    // Use responseType: 'text' + safeParse to prevent JS float truncation of large advertiser IDs.
+    // Axios's default JSON parsing silently corrupts IDs > Number.MAX_SAFE_INTEGER (2^53-1).
     const res = await client.get('/dsp/advertisers', {
       headers: { 'Amazon-Advertising-API-Scope': profileId },
-      params: { pageSize: 100 }
+      params: { pageSize: 100 },
+      responseType: 'text',
+      transformResponse: [data => data] // disable Axios auto-parse
     });
-    const data = res.data?.response || res.data?.advertisers || res.data || [];
+    const parsed = safeParse(res.data);
+    const data = parsed?.response || parsed?.advertisers || parsed || [];
     return Array.isArray(data) ? data : [];
   } catch (err) {
     console.warn(`[DSP] fetchDspAdvertisers profile ${profileId}: ${err.message}`);
