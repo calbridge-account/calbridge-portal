@@ -450,7 +450,7 @@ async function loadChannelBreakdown() {
             <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(spend)}</div>
           </div>
           <div>
-            <div class="kpi-label" title="Ad-attributed sales only (30-day click window). Does not equal total revenue.">Ad-Attr. Sales ⓘ</div>
+            <div class="kpi-label" title="${isDsp ? 'Total attributed sales (halo effect — all products attributed to DSP impressions, not click-direct only). This is the correct DSP measurement metric.' : 'Ad-attributed sales (30-day click window). Does not equal total revenue.'}">${isDsp ? 'Total Sales ⓘ' : 'Ad-Attr. Sales ⓘ'}</div>
             <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(sales)}</div>
           </div>
           <div>
