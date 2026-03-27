@@ -38,6 +38,17 @@ let asinSortDir    = -1;
 let asinPage       = 0;
 const ASIN_PAGE_SIZE = 20;
 
+// Keyword table state
+let keywordData     = [];
+let keywordFiltered = [];
+let keywordSortCol  = 'spend';
+let keywordSortDir  = -1;
+let keywordPage     = 0;
+const KW_PAGE_SIZE  = 25;
+
+// Keyword type chart
+let kwTypeChart = null;
+
 /* ─── Bootstrap ──────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
@@ -190,6 +201,27 @@ function setupControls() {
   // Pagination — asin
   el('asin-prev')?.addEventListener('click', () => { asinPage--; renderAsinPage(); });
   el('asin-next')?.addEventListener('click', () => { asinPage++; renderAsinPage(); });
+
+  // Keyword search
+  el('keyword-search')?.addEventListener('input', () => {
+    keywordPage = 0;
+    filterAndRenderKeywords();
+  });
+
+  // Keyword table sort
+  document.querySelectorAll('#keyword-table thead th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (keywordSortCol === col) keywordSortDir = -keywordSortDir;
+      else { keywordSortCol = col; keywordSortDir = -1; }
+      keywordPage = 0;
+      filterAndRenderKeywords();
+    });
+  });
+
+  // Pagination — keyword
+  el('keyword-prev')?.addEventListener('click', () => { keywordPage--; renderKeywordPage(); });
+  el('keyword-next')?.addEventListener('click', () => { keywordPage++; renderKeywordPage(); });
 }
 
 /* ─── Subtitle & visibility ──────────────────────────────────────────── */
@@ -237,7 +269,8 @@ async function loadAll() {
     loadAdTypeComposition(),
     loadCampaigns(),
     loadAsins(),
-    loadKeywords()
+    loadKeywords(),
+    loadKeywordTypeChart()
   ]);
 
   // Restore KPI opacity
@@ -748,46 +781,169 @@ function renderAsinPage() {
   }).join('');
 }
 
-/* ─── Section 7: Keyword Efficiency ─────────────────────────────────── */
+/* ─── Section 7: Keyword Targeting Table ────────────────────────────── */
 async function loadKeywords() {
-  el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">Loading…</td></tr>';
+  el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Loading…</td></tr>';
   try {
-    const res = await fetch(`/advertising/keyword-efficiency?${dateParams()}&limit=50`, { credentials: 'include' });
+    // Keep the keyword-efficiency API call (don't remove it per spec — topByRoas still used by backend)
+    await fetch(`/advertising/keyword-efficiency?${dateParams()}&limit=50`, { credentials: 'include' });
+
+    // Load full keyword targeting data for the table
+    const res = await fetch(`/advertising/keyword-targeting?${dateParams()}&limit=500`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Keywords ${res.status}`);
-    const data = await res.json();
-
-    const wasted = data.wastedSpend || [];
-    if (!wasted.length) {
-      el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">No wasted spend candidates found. 🎉</td></tr>';
-      return;
-    }
-
-    el('keyword-tbody').innerHTML = wasted.map(kw => {
-      const acos = kw.acos != null ? (kw.acos * 100).toFixed(1) + '%' : '—';
-      const acosCls = kw.orders === 0 ? 'cm-negative'
-        : kw.acos != null && kw.acos > 0.80 ? 'cm-negative'
-        : kw.acos != null && kw.acos > 0.45 ? 'cm-neutral'
-        : '';
-
-      const matchBadge = kw.matchType
-        ? `<span style="background:var(--gray-100);color:var(--gray-600);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600">${escHtml(kw.matchType)}</span>`
-        : '<span style="color:var(--gray-400)">—</span>';
-
-      return `<tr>
-        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
-            title="${escHtml(kw.searchTerm)}">${escHtml(kw.searchTerm)}</td>
-        <td style="font-size:12px;color:var(--gray-600)">${kw.keyword ? escHtml(kw.keyword) : '<span style="color:var(--gray-400)">—</span>'}</td>
-        <td>${matchBadge}</td>
-        <td><strong>${fmt$(kw.spend)}</strong></td>
-        <td>${fmt$(kw.sales)}</td>
-        <td class="${acosCls}"><strong>${acos}</strong></td>
-        <td>${fmtN(kw.clicks)}</td>
-        <td>${fmtN(kw.orders)}</td>
-      </tr>`;
-    }).join('');
+    keywordData = await res.json();
+    keywordPage = 0;
+    filterAndRenderKeywords();
   } catch (err) {
     console.error('loadKeywords:', err);
-    el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">Error loading keyword data.</td></tr>';
+    el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Error loading keyword data.</td></tr>';
+  }
+}
+
+function filterAndRenderKeywords() {
+  const q = (el('keyword-search')?.value || '').toLowerCase().trim();
+  keywordFiltered = q
+    ? keywordData.filter(k =>
+        (k.keyword    || '').toLowerCase().includes(q) ||
+        (k.matchType  || '').toLowerCase().includes(q) ||
+        (k.campaignName || '').toLowerCase().includes(q)
+      )
+    : [...keywordData];
+
+  keywordFiltered.sort((a, b) => {
+    const av = keywordSortCol in a ? a[keywordSortCol] : null;
+    const bv = keywordSortCol in b ? b[keywordSortCol] : null;
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string') return av.localeCompare(bv) * keywordSortDir;
+    return (av - bv) * keywordSortDir;
+  });
+
+  updateSortArrows('#keyword-table', keywordSortCol, keywordSortDir, 'col');
+  renderKeywordPage();
+}
+
+function renderKeywordPage() {
+  const total = keywordFiltered.length;
+  const pages = Math.max(1, Math.ceil(total / KW_PAGE_SIZE));
+  keywordPage = Math.max(0, Math.min(keywordPage, pages - 1));
+  const start = keywordPage * KW_PAGE_SIZE;
+  const slice = keywordFiltered.slice(start, start + KW_PAGE_SIZE);
+
+  el('keyword-page-info').textContent = total
+    ? `${start + 1}–${Math.min(start + KW_PAGE_SIZE, total)} of ${total}`
+    : '0 results';
+  el('keyword-prev').disabled = keywordPage === 0;
+  el('keyword-next').disabled = keywordPage >= pages - 1;
+
+  if (!slice.length) {
+    el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">No keywords found.</td></tr>';
+    return;
+  }
+
+  el('keyword-tbody').innerHTML = slice.map(k => {
+    const acos    = k.acos != null ? (k.acos * 100).toFixed(1) + '%' : '—';
+    const roas    = k.roas != null ? k.roas.toFixed(2) + 'x'         : '—';
+    const cpc     = k.cpc  != null ? fmt$(k.cpc)                     : '—';
+    const acosCls = k.acos != null
+      ? k.acos < 0.20 ? 'cm-positive' : k.acos > 0.45 ? 'cm-negative' : 'cm-neutral'
+      : '';
+
+    const matchBadge = k.matchType
+      ? `<span style="background:var(--gray-100);color:var(--gray-600);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600">${escHtml(k.matchType)}</span>`
+      : '<span style="color:var(--gray-400)">—</span>';
+
+    return `<tr>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+          title="${escHtml(k.keyword)}">${escHtml(k.keyword)}</td>
+      <td>${matchBadge}</td>
+      <td><strong>${fmt$(k.spend)}</strong></td>
+      <td>${fmt$(k.sales)}</td>
+      <td>${roas}</td>
+      <td class="${acosCls}"><strong>${acos}</strong></td>
+      <td>${fmtN(k.orders)}</td>
+      <td>${fmtN(k.clicks)}</td>
+      <td>${cpc}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Section 8: SP Keyword Type Breakdown Chart ────────────────────── */
+async function loadKeywordTypeChart() {
+  // Only show for all/ads channels (not DSP)
+  const card = el('kw-type-card');
+  if (activeChannel === 'dsp') {
+    if (card) card.style.display = 'none';
+    return;
+  }
+  if (card) card.style.display = '';
+
+  try {
+    const res = await fetch(`/advertising/keyword-type-breakdown?${dateParams()}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`KwType ${res.status}`);
+    const rows = await res.json();
+
+    if (!rows.length) return;
+
+    // Canonical order
+    const ORDER = ['AUTO', 'BROAD', 'PHRASE', 'EXACT'];
+    const sorted = ORDER
+      .map(mt => rows.find(r => r.matchType?.toUpperCase() === mt) || { matchType: mt, spend: 0, sales: 0 })
+      .filter(r => r.spend > 0 || r.sales > 0);
+
+    const labels   = sorted.map(r => r.matchType);
+    const spendArr = sorted.map(r => r.spend);
+    const salesArr = sorted.map(r => r.sales);
+
+    if (kwTypeChart) { kwTypeChart.destroy(); kwTypeChart = null; }
+
+    const canvas = el('kw-type-chart');
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'kw-type-chart';
+    newCanvas.style.cssText = 'max-height:220px;min-height:160px;width:100%';
+    canvas.parentNode.replaceChild(newCanvas, canvas);
+
+    kwTypeChart = new Chart(newCanvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Spend',
+            data: spendArr,
+            backgroundColor: 'rgba(200,30,30,0.75)',
+            borderRadius: 4
+          },
+          {
+            label: 'Sales',
+            data: salesArr,
+            backgroundColor: 'rgba(45,90,39,0.75)',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${fmt$(ctx.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { callback: v => '$' + fmtK(v) },
+            grid: { color: 'rgba(0,0,0,.05)' }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.error('loadKeywordTypeChart:', err);
   }
 }
 

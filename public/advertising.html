@@ -205,30 +205,47 @@
         </div>
       </div>
 
-      <!-- Keyword efficiency / wasted spend table -->
+      <!-- SP Keyword Targeting Type Chart -->
+      <div class="table-card" style="padding:20px;margin-bottom:24px" id="kw-type-card">
+        <div class="table-header-row" style="padding:0 0 16px;border-bottom:none">
+          <h3>SP Spend &amp; Sales by Targeting Type</h3>
+          <span style="font-size:12px;color:var(--gray-400)">Auto · Broad · Phrase · Exact</span>
+        </div>
+        <canvas id="kw-type-chart" style="max-height:220px;min-height:160px;width:100%"></canvas>
+      </div>
+
+      <!-- Keyword Targeting Table -->
       <div class="table-card" style="margin-bottom:24px">
         <div class="table-header-row">
-          <h3>⚠️ Wasted Spend — Search Terms</h3>
-          <span style="font-size:12px;color:var(--gray-400)">High spend · zero or low conversion</span>
+          <h3>Keyword Targeting</h3>
+          <input type="text" id="keyword-search" class="days-select" placeholder="Search keywords…" style="width:220px" />
         </div>
         <div style="overflow-x:auto">
-          <table class="data-table">
+          <table class="data-table" id="keyword-table">
             <thead>
               <tr>
-                <th>Search Term</th>
-                <th>Keyword</th>
-                <th>Match</th>
-                <th>Spend</th>
-                <th>Sales</th>
-                <th>ACoS</th>
-                <th>Clicks</th>
-                <th>Orders</th>
+                <th class="sortable" data-col="keyword">Keyword <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="matchType">Match <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="spend">Spend <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="sales">Sales <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="roas">ROAS <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="acos">ACoS <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="orders">Orders <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="clicks">Clicks <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="cpc">CPC <span class="sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="keyword-tbody">
-              <tr><td colspan="8" class="loading-cell">Loading…</td></tr>
+              <tr><td colspan="9" class="loading-cell">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+        <div class="table-pagination">
+          <span id="keyword-page-info"></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" id="keyword-prev" disabled>← Prev</button>
+            <button class="btn-secondary" id="keyword-next" disabled>Next →</button>
+          </div>
         </div>
       </div>
 
