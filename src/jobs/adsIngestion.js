@@ -1988,9 +1988,9 @@ async function processReportQueue(clientId, connectionType) {
   }
 
   const pending = await query(`
-    SELECT report_id, profile_id, report_type, report_date
+    SELECT report_id, profile_id, report_type, report_date, status, download_url
     FROM ads_report_queue
-    WHERE client_id = ? AND connection_type = ? AND status = 'pending'
+    WHERE client_id = ? AND connection_type = ? AND status IN ('pending', 'ready')
     ORDER BY requested_at ASC
     LIMIT 20
   `, [clientId, connectionType]);
@@ -2046,11 +2046,21 @@ async function processReportQueue(clientId, connectionType) {
       : rawProfileId;
 
     try {
-      const pollClient = await buildPollClient();
-      const statusRes  = await pollClient.get(`/reporting/reports/${reportId}`, {
-        headers: { 'Amazon-Advertising-API-Scope': profileId }
-      });
-      const { status, url, failureReason } = statusRes.data;
+      // If already marked 'ready' with a stored download URL, skip the poll and download directly
+      const rowStatus = row.STATUS || row.status;
+      const storedUrl = row.DOWNLOAD_URL || row.download_url;
+
+      let status, url, failureReason;
+      if (rowStatus === 'ready' && storedUrl) {
+        status = 'COMPLETED';
+        url    = storedUrl;
+      } else {
+        const pollClient = await buildPollClient();
+        const statusRes  = await pollClient.get(`/reporting/reports/${reportId}`, {
+          headers: { 'Amazon-Advertising-API-Scope': profileId }
+        });
+        ({ status, url, failureReason } = statusRes.data);
+      }
 
       if (status === 'PENDING' || status === 'PROCESSING') return false;
 
