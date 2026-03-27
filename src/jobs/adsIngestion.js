@@ -2235,6 +2235,20 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
     );
     if (!advertiserRows.length) return { recordsWritten: 0 };
 
+    // Build advertiser_id → client_id lookup from dsp_advertiser_client_map.
+    // Falls back to the triggering clientId if no mapping found.
+    // This allows one agency-level sync to correctly route each advertiser's data
+    // to the right client dashboard without cross-contamination.
+    let advertiserClientMap = {};
+    try {
+      const mapRows = await query('SELECT advertiser_id, client_id FROM dsp_advertiser_client_map WHERE is_active = TRUE');
+      for (const r of mapRows) {
+        advertiserClientMap[String(r.ADVERTISER_ID || r.advertiser_id)] = r.CLIENT_ID || r.client_id;
+      }
+    } catch (err) {
+      console.warn('[DSP] advertiser_client_map lookup failed, using default clientId:', err.message);
+    }
+
     // Build 31-day windows (Amazon max range per request)
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
     const windows = [];
@@ -2259,13 +2273,20 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
       const name           = row.NAME          || row.name;
       const queueProfileId = advertiserId + '|' + profileId;
 
+      // Route this advertiser's data to the correct client dashboard.
+      // Falls back to triggering clientId if no mapping exists.
+      const targetClientId = advertiserClientMap[String(advertiserId)] || clientId;
+      if (targetClientId !== clientId) {
+        console.log(`[DSP] ${name} → routing to client ${targetClientId.slice(0,8)} (mapped)`);
+      }
+
       for (const { startDate, endDate } of windows) {
         const windowKey = startDate.replace(/-/g,'') + '_' + endDate.replace(/-/g,'');
 
         for (const rt of DSP_REPORT_TYPES) {
           const existing = await query(
             'SELECT COUNT(*) as cnt FROM ads_report_queue WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=? AND status IN (?,?)',
-            [clientId, rt.key, windowKey, queueProfileId, 'pending', 'completed']
+            [targetClientId, rt.key, windowKey, queueProfileId, 'pending', 'completed']
           );
           if (Number(existing[0]?.CNT||0) > 0) continue;
 
@@ -2277,7 +2298,7 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
             if (reportId) {
               await query(
                 'INSERT INTO ads_report_queue (report_id,client_id,connection_type,profile_id,report_type,report_date,status,requested_at) SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP',
-                [reportId, clientId, connectionType, queueProfileId, rt.key, windowKey, 'pending']
+                [reportId, targetClientId, connectionType, queueProfileId, rt.key, windowKey, 'pending']
               );
               console.log(`[DSP] Queued ${name} ${startDate}→${endDate} (${reportId.substring(0,8)})`);
               totalQueued++;
