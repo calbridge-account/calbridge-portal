@@ -6,6 +6,12 @@ let currentDays = 30;
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
+  // SP-API info banner dismiss
+  document.getElementById('spapi-banner-dismiss')?.addEventListener('click', () => {
+    const banner = document.getElementById('spapi-banner');
+    if (banner) banner.style.display = 'none';
+  });
+
   await checkAuth();
   setupNav();
   setupFilters();

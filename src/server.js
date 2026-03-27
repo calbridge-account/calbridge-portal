@@ -1,12 +1,20 @@
 const app = require('./app');
-const { startScheduler } = require('./jobs/scheduler');
+
+// Legacy scheduler — kept for reference, superseded by cron.js
+// const { startScheduler } = require('./jobs/scheduler');
+
+// New cron runner — owns all platform job scheduling
+const { startCron } = require('./jobs/cron');
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`Calbridge Portal running on port ${PORT}`);
   if (process.env.ENABLE_SCHEDULER !== 'false') {
-    startScheduler();
+    // New cron runner — handles all jobs including report polling
+    startCron({ runImmediately: true });
+
+    // Weekly email still registered here until it's folded into cron.js
     registerWeeklyEmailCron();
   }
 });

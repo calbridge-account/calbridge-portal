@@ -1,23 +1,16 @@
 /**
- * Calbridge — Advertising Dashboard
- * No inline scripts: all logic lives here for CSP compliance.
+ * Calbridge — Advertising Dashboard (rebuilt)
+ * Decision-support dashboard: spend, ROAS, ACoS, TACoS, channel breakdown,
+ * campaign table, ASIN table, keyword efficiency.
+ * CSP compliant: no inline scripts, all JS here.
  */
 
-/* ─── State ─────────────────────────────────────────────────────────── */
-let activeChannel = 'all';   // 'all' | 'ads' | 'SP' | 'SB' | 'SD' | 'dsp'
-let currentDays   = 30;
-
-let trendChart    = null;
-let donutChart    = null;
-let acosTrendChart = null;
-
-// ASIN table state
-let asinData       = [];      // full dataset from API
-let asinFiltered   = [];      // after search filter
-let asinSortCol    = 'spend';
-let asinSortDir    = -1;      // -1 = desc, 1 = asc
-let asinPage       = 0;
-const ASIN_PAGE_SIZE = 25;
+/* ─── State ──────────────────────────────────────────────────────────── */
+let activeChannel  = 'all';   // 'all' | 'ads' | 'dsp'
+let currentDays    = 30;
+let trendView      = 'daily'; // 'daily' | 'weekly'
+let trendChart     = null;
+let adTypeChart    = null;
 
 // Campaign table state
 let campaignData     = [];
@@ -27,7 +20,15 @@ let campaignSortDir  = -1;
 let campaignPage     = 0;
 const CAMP_PAGE_SIZE = 25;
 
-/* ─── Bootstrap ─────────────────────────────────────────────────────── */
+// ASIN table state
+let asinData       = [];
+let asinFiltered   = [];
+let asinSortCol    = 'spend';
+let asinSortDir    = -1;
+let asinPage       = 0;
+const ASIN_PAGE_SIZE = 20;
+
+/* ─── Bootstrap ──────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   setupControls();
@@ -45,70 +46,61 @@ async function checkAuth() {
     // Brand logo
     try {
       const profileRes = await fetch('/account/profile', { credentials: 'include' });
-      const profile    = await profileRes.json();
+      const profile = await profileRes.json();
       if (profile.logoUrl) {
         const logoEl = document.querySelector('.sidebar-logo img');
-        if (logoEl) { logoEl.src = profile.logoUrl; }
+        if (logoEl) logoEl.src = profile.logoUrl;
       }
-    } catch (_) { /* logo is cosmetic, ignore */ }
+    } catch (_) {}
 
     // Redirect if no ads connection
     try {
       const connRes = await fetch('/amazon/status', { credentials: 'include' });
-      const conn    = await connRes.json();
+      const conn = await connRes.json();
       if (!conn.ads?.connected && !conn.dsp?.connected) {
         window.location.href = '/account.html';
       }
-    } catch (_) { /* if status check fails, allow through */ }
+    } catch (_) {}
   } catch (e) {
-    console.error('Auth check failed:', e);
     window.location.href = '/index.html';
   }
 }
 
 /* ─── Controls ───────────────────────────────────────────────────────── */
 function setupControls() {
-  // Days filter — direct listener, no external dependency
-  const daysSelect = document.getElementById('days-filter');
-  const customRange = document.getElementById('custom-range');
-  const applyBtn = document.getElementById('apply-custom');
+  // Days filter
+  const daysSelect  = el('days-filter');
+  const customRange = el('custom-range');
+  const applyBtn    = el('apply-custom');
 
-  if (daysSelect) {
-    daysSelect.addEventListener('change', async () => {
-      const val = daysSelect.value;
-      if (val === 'custom') {
-        customRange?.classList.remove('hidden');
-        return;
-      }
+  daysSelect?.addEventListener('change', async () => {
+    const val = daysSelect.value;
+    if (val === 'custom') { customRange?.classList.remove('hidden'); return; }
+    customRange?.classList.add('hidden');
+    if (val === 'mtd') {
+      const start = new Date(); start.setDate(1);
+      currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+    } else if (val === 'ytd') {
+      const start = new Date(new Date().getFullYear(), 0, 1);
+      currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
+    } else {
+      currentDays = Number(val) || 30;
+    }
+    await loadAll();
+  });
+
+  applyBtn?.addEventListener('click', async () => {
+    const from = el('date-from')?.value;
+    const to   = el('date-to')?.value;
+    if (from && to) {
+      currentDays = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
       customRange?.classList.add('hidden');
-      if (val === 'mtd') {
-        const start = new Date(); start.setDate(1);
-        currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
-      } else if (val === 'ytd') {
-        const start = new Date(new Date().getFullYear(), 0, 1);
-        currentDays = Math.max(1, Math.ceil((new Date() - start) / 86400000));
-      } else {
-        currentDays = Number(val) || 30;
-      }
       await loadAll();
-    });
-  }
-
-  if (applyBtn) {
-    applyBtn.addEventListener('click', async () => {
-      const from = document.getElementById('date-from')?.value;
-      const to = document.getElementById('date-to')?.value;
-      if (from && to) {
-        currentDays = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
-        customRange?.classList.add('hidden');
-        daysSelect.value = 'custom';
-        await loadAll();
-      }
-    });
-  }
+    }
+  });
 
   // Logout
-  el('logout-btn').addEventListener('click', async () => {
+  el('logout-btn')?.addEventListener('click', async () => {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
     window.location.href = '/';
   });
@@ -119,306 +111,249 @@ function setupControls() {
       document.querySelectorAll('#channel-toggle .tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeChannel = btn.dataset.channel;
-
-      const subtitles = {
-        all: 'Amazon Ads + DSP — unified view',
-        ads: 'Sponsored Ads — SP · SB · SD',
-        SP:  'Sponsored Products',
-        SB:  'Sponsored Brands',
-        SD:  'Sponsored Display',
-        dsp: 'Amazon DSP — programmatic display'
-      };
-      el('channel-subtitle').textContent = subtitles[activeChannel] || activeChannel;
-
-      // Show/hide DSP-incompatible metrics
+      updateSubtitle();
       applyChannelVisibility();
-
       await loadAll();
     });
   });
 
-  // ASIN search
-  el('asin-search').addEventListener('input', () => {
-    asinPage = 0;
-    filterAndRenderAsins();
+  // Trend daily/weekly toggle
+  el('trend-daily-btn')?.addEventListener('click', () => {
+    trendView = 'daily';
+    el('trend-daily-btn').classList.add('active');
+    el('trend-weekly-btn').classList.remove('active');
+    loadTrend();
+  });
+  el('trend-weekly-btn')?.addEventListener('click', () => {
+    trendView = 'weekly';
+    el('trend-weekly-btn').classList.add('active');
+    el('trend-daily-btn').classList.remove('active');
+    loadTrend();
   });
 
   // Campaign search
-  el('campaign-search').addEventListener('input', () => {
+  el('campaign-search')?.addEventListener('input', () => {
     campaignPage = 0;
     filterAndRenderCampaigns();
   });
 
-  // ASIN table header sort
-  document.querySelectorAll('#asin-table thead th.sortable').forEach(th => {
-    th.style.cursor = 'pointer';
-    th.addEventListener('click', () => {
-      const col = th.dataset.col;
-      if (asinSortCol === col) {
-        asinSortDir = -asinSortDir;
-      } else {
-        asinSortCol = col;
-        asinSortDir = -1;
-      }
-      asinPage = 0;
-      filterAndRenderAsins();
-    });
+  // ASIN search
+  el('asin-search')?.addEventListener('input', () => {
+    asinPage = 0;
+    filterAndRenderAsins();
   });
 
-  // Campaign table header sort
+  // Campaign table sort
   document.querySelectorAll('#campaign-table thead th.sortable').forEach(th => {
-    th.style.cursor = 'pointer';
     th.addEventListener('click', () => {
       const col = th.dataset.col;
-      if (campaignSortCol === col) {
-        campaignSortDir = -campaignSortDir;
-      } else {
-        campaignSortCol = col;
-        campaignSortDir = -1;
-      }
+      if (campaignSortCol === col) campaignSortDir = -campaignSortDir;
+      else { campaignSortCol = col; campaignSortDir = -1; }
       campaignPage = 0;
       filterAndRenderCampaigns();
     });
   });
 
-  // Pagination — ASIN
-  el('asin-prev').addEventListener('click', () => { asinPage--; renderAsinPage(); });
-  el('asin-next').addEventListener('click', () => { asinPage++; renderAsinPage(); });
+  // ASIN table sort
+  document.querySelectorAll('#asin-table thead th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (asinSortCol === col) asinSortDir = -asinSortDir;
+      else { asinSortCol = col; asinSortDir = -1; }
+      asinPage = 0;
+      filterAndRenderAsins();
+    });
+  });
 
-  // Pagination — Campaign
-  el('campaign-prev').addEventListener('click', () => { campaignPage--; renderCampaignPage(); });
-  el('campaign-next').addEventListener('click', () => { campaignPage++; renderCampaignPage(); });
+  // Pagination — campaign
+  el('campaign-prev')?.addEventListener('click', () => { campaignPage--; renderCampaignPage(); });
+  el('campaign-next')?.addEventListener('click', () => { campaignPage++; renderCampaignPage(); });
+
+  // Pagination — asin
+  el('asin-prev')?.addEventListener('click', () => { asinPage--; renderAsinPage(); });
+  el('asin-next')?.addEventListener('click', () => { asinPage++; renderAsinPage(); });
 }
 
-/* ─── Channel visibility ─────────────────────────────────────────────── */
+/* ─── Subtitle & visibility ──────────────────────────────────────────── */
+function updateSubtitle() {
+  const labels = {
+    all:  'Amazon Ads + DSP — unified view',
+    ads:  'Sponsored Products · Sponsored Brands · Sponsored Display',
+    dsp:  'Amazon DSP — programmatic display'
+  };
+  el('channel-subtitle').textContent = labels[activeChannel] || activeChannel;
+}
+
 function applyChannelVisibility() {
   const isDsp = activeChannel === 'dsp';
-  // For SP/SB/SD subtypes, show sponsored ads metrics (ACOS, CTR)
-
-  // ACOS card — hide for DSP
-  toggleEl('kpi-acos-card',   !isDsp);
-  // CTR card — hide for DSP
-  toggleEl('kpi-ctr-card',    !isDsp);
-  // ACOS trend row — hide for DSP
-  toggleEl('acos-trend-row',  !isDsp);
-}
-
-/* ─── Load all data ──────────────────────────────────────────────────── */
-async function loadAll() {
-  applyChannelVisibility();
-
-  // Show loading state on KPIs
-  ['kpi-spend','kpi-sales','kpi-acos','kpi-roas','kpi-impressions','kpi-clicks'].forEach(id => {
-    const el2 = document.getElementById(id);
-    if (el2) { el2.textContent = '—'; el2.style.opacity = '0.4'; }
-  });
-
-  try {
-    await Promise.all([
-      loadSummary(),
-      loadTrend(),
-      loadDonut(),
-      loadAdTypeBreakdown(),
-      loadAsinPerformance(),
-      loadCampaigns()
-    ]);
-  } catch (err) {
-    console.error('loadAll error:', err);
-  }
-
-  // Restore KPI opacity
-  ['kpi-spend','kpi-sales','kpi-acos','kpi-roas','kpi-impressions','kpi-clicks'].forEach(id => {
-    const el2 = document.getElementById(id);
-    if (el2) el2.style.opacity = '1';
-  });
-}
-
-/* ─── Ad Type Breakdown Table ────────────────────────────────────────── */
-async function loadAdTypeBreakdown() {
-  const tbody = document.getElementById('adtype-tbody');
-  if (!tbody) return;
-  try {
-    // Always fetch all types for comparison — not filtered by activeChannel
-    const res = await fetch(`/advertising/by-channel?days=${currentDays}`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`${res.status}`);
-    const rows = await res.json();
-
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">No data</td></tr>';
-      return;
-    }
-
-    const TYPE_COLORS = { SP: '#1a56db', SB: '#c05621', SD: '#065f46', DSP: '#5b21b6' };
-    const totals = rows.reduce((s, r) => ({
-      spend: s.spend + Number(r.SPEND||0),
-      sales: s.sales + Number(r.SALES||0)
-    }), { spend: 0, sales: 0 });
-
-    tbody.innerHTML = rows.map(r => {
-      const spend = Number(r.SPEND||0), sales = Number(r.SALES||0);
-      const orders = Number(r.ORDERS||0), clicks = Number(r.CLICKS||0), impr = Number(r.IMPRESSIONS||0);
-      const acos  = sales  > 0 ? (spend / sales * 100).toFixed(1) + '%' : '—';
-      const roas  = spend  > 0 ? (sales / spend).toFixed(2) + 'x' : '—';
-      const ctr   = impr   > 0 ? (clicks / impr * 100).toFixed(2) + '%' : '—';
-      const cpc   = clicks > 0 ? fmt$(spend / clicks) : '—';
-      const pct   = totals.spend > 0 ? (spend / totals.spend * 100).toFixed(1) : 0;
-      const type  = r.AD_TYPE || r.CAMPAIGN_TYPE;
-      const color = TYPE_COLORS[type] || '#6b7280';
-      const isDspRow = type === 'DSP';
-
-      return `<tr style="${activeChannel !== 'all' && activeChannel !== (isDspRow?'dsp':type==='ads'?'ads':type) && !(['SP','SB','SD'].includes(activeChannel)&&!isDspRow) ? 'opacity:0.4' : ''}">
-        <td><span class="badge-${type?.toLowerCase()}" style="background:${color}20;color:${color};padding:3px 8px;border-radius:4px;font-weight:700;font-size:12px">${type}</span></td>
-        <td><strong>${fmt$(spend)}</strong> <span style="font-size:11px;color:var(--gray-400)">(${pct}%)</span></td>
-        <td>${fmt$(sales)}</td>
-        <td>${orders.toLocaleString()}</td>
-        <td class="${Number(acos)>40?'cm-negative':Number(acos)<15?'cm-positive':''}">${isDspRow?'—':acos}</td>
-        <td>${roas}</td>
-        <td>${impr.toLocaleString()}</td>
-        <td>${clicks.toLocaleString()}</td>
-        <td>${isDspRow?'—':ctr}</td>
-        <td>${isDspRow?'—':cpc}</td>
-      </tr>`;
-    }).join('');
-
-    // Totals row
-    const totalSpend = totals.spend, totalSales = totals.sales;
-    const totalAcos = totalSales > 0 ? (totalSpend/totalSales*100).toFixed(1)+'%' : '—';
-    const totalRoas = totalSpend > 0 ? (totalSales/totalSpend).toFixed(2)+'x' : '—';
-    tbody.innerHTML += `<tr style="font-weight:700;border-top:2px solid var(--gray-200)">
-      <td>Total</td><td>${fmt$(totalSpend)}</td><td>${fmt$(totalSales)}</td>
-      <td colspan="7">${totalAcos} ACOS · ${totalRoas} ROAS</td>
-    </tr>`;
-
-  } catch (err) {
-    console.error('loadAdTypeBreakdown:', err);
-    tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">Error loading data</td></tr>';
-  }
+  // ACoS and CTR aren't meaningful for DSP
+  toggleEl('kpi-acos-card', !isDsp);
+  toggleEl('kpi-ctr-card',  !isDsp);
+  // Composition chart only shown when All or Sponsored Ads selected
+  const showComposition = (activeChannel === 'all' || activeChannel === 'ads');
+  const compCard = el('ad-type-composition-card');
+  if (compCard) compCard.style.display = showComposition ? '' : 'none';
 }
 
 /* ─── Channel param helper ───────────────────────────────────────────── */
 function channelParam() {
-  if (activeChannel === 'ads') return '&channel=ads';
   if (activeChannel === 'dsp') return '&channel=dsp';
-  if (['SP','SB','SD'].includes(activeChannel)) return '&channel=ads&adType=' + activeChannel;
-  return '';
+  if (activeChannel === 'ads') return '&channel=ads';
+  return ''; // 'all' = no filter
 }
 
-/* ─── Summary KPIs ───────────────────────────────────────────────────── */
+/* ─── Load everything ────────────────────────────────────────────────── */
+async function loadAll() {
+  applyChannelVisibility();
+
+  // Dim KPIs while loading
+  ['kpi-spend','kpi-sales','kpi-roas','kpi-acos','kpi-tacos','kpi-ctr'].forEach(id => {
+    const node = el(id);
+    if (node) { node.textContent = '—'; node.style.opacity = '0.35'; }
+  });
+
+  await Promise.allSettled([
+    loadSummary(),
+    loadTrend(),
+    loadChannelBreakdown(),
+    loadAdTypeComposition(),
+    loadCampaigns(),
+    loadAsins(),
+    loadKeywords()
+  ]);
+
+  // Restore KPI opacity
+  ['kpi-spend','kpi-sales','kpi-roas','kpi-acos','kpi-tacos','kpi-ctr'].forEach(id => {
+    const node = el(id);
+    if (node) node.style.opacity = '1';
+  });
+}
+
+/* ─── Section 2: Summary KPIs ────────────────────────────────────────── */
 async function loadSummary() {
   try {
-    const res = await fetch(`/advertising/summary?days=${currentDays}${channelParam()}`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`Summary ${res.status}`);
-    const d = await res.json();
+    const [summaryRes, roasRes] = await Promise.all([
+      fetch(`/advertising/summary?days=${currentDays}${channelParam()}`, { credentials: 'include' }),
+      fetch(`/advertising/roas-by-type?days=${currentDays}`, { credentials: 'include' })
+    ]);
 
-    // Raw sums
+    if (!summaryRes.ok) throw new Error(`Summary ${summaryRes.status}`);
+    const d = await summaryRes.json();
+
     const spend       = Number(d.TOTAL_SPEND       || 0);
     const sales       = Number(d.TOTAL_SALES       || 0);
     const impressions = Number(d.TOTAL_IMPRESSIONS || 0);
     const clicks      = Number(d.TOTAL_CLICKS      || 0);
+    const roas        = spend > 0 ? sales / spend      : null;
+    const acos        = sales > 0 ? spend / sales      : null;
+    const ctr         = impressions > 0 ? clicks / impressions : null;
 
-    // Computed from raw facts
-    const roas  = spend > 0 ? sales / spend : null;
-    const acos  = sales > 0 ? spend / sales : null;
-    const ctr   = impressions > 0 ? clicks / impressions : null;
+    el('kpi-spend').textContent = fmt$(spend);
+    el('kpi-sales').textContent = fmt$(sales);
+    el('kpi-roas').textContent  = roas != null ? roas.toFixed(2) + 'x' : '—';
+    el('kpi-acos').textContent  = acos != null ? (acos * 100).toFixed(1) + '%' : '—';
+    el('kpi-ctr').textContent   = ctr  != null ? (ctr * 100).toFixed(2) + '%' : '—';
+    el('kpi-clicks-sub').textContent = fmtN(clicks) + ' clicks';
 
-    el('kpi-spend').textContent       = fmt$(spend);
-    el('kpi-sales').textContent       = fmt$(sales);
-    el('kpi-roas').textContent        = roas  != null ? roas.toFixed(2) + 'x'          : '—';
-    el('kpi-acos').textContent        = acos  != null ? (acos * 100).toFixed(1) + '%'  : '—';
-    el('kpi-impressions').textContent = fmtN(impressions);
-    el('kpi-ctr').textContent         = ctr   != null ? (ctr * 100).toFixed(2) + '%'   : '—';
-    el('kpi-clicks-sub').textContent  = fmtN(clicks) + ' clicks';
+    // Color-code ACoS
+    if (acos != null) {
+      const acosEl = el('kpi-acos');
+      acosEl.className = 'kpi-value ' + (acos < 0.20 ? 'cm-positive' : acos > 0.45 ? 'cm-negative' : 'cm-neutral');
+    }
+
+    // TACoS from roas-by-type endpoint
+    if (roasRes.ok) {
+      const roasData = await roasRes.json();
+      if (roasData.tacosPercent != null) {
+        el('kpi-tacos').textContent = roasData.tacosPercent.toFixed(1) + '%';
+        el('kpi-tacos-card').style.display = '';
+      } else {
+        el('kpi-tacos').textContent = '—';
+      }
+    }
+
   } catch (err) {
     console.error('loadSummary:', err);
   }
 }
 
-/* ─── Trend chart ────────────────────────────────────────────────────── */
+/* ─── Section 3: Spend & Sales Trend ────────────────────────────────── */
 async function loadTrend() {
   try {
     const res = await fetch(`/advertising/trend?days=${currentDays}${channelParam()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Trend ${res.status}`);
-    const rows = await res.json();
+    let rows = await res.json();
 
-    const labels = rows.map(r => fmtDate(r.REPORT_DATE));
-    const spend  = rows.map(r => Number(r.SPEND  || 0));
-    const sales  = rows.map(r => Number(r.SALES  || 0));
+    // Weekly aggregation
+    if (trendView === 'weekly') {
+      rows = aggregateWeekly(rows);
+    }
 
-    // ACOS computed from raw facts per day
-    const acosPct = rows.map(r => {
-      const s = Number(r.SALES || 0);
-      const sp = Number(r.SPEND || 0);
-      return s > 0 ? parseFloat(((sp / s) * 100).toFixed(2)) : null;
-    });
+    const labels = rows.map(r => fmtDate(r.REPORT_DATE || r.report_date || r.week));
+    const spend  = rows.map(r => Number(r.SPEND  || r.spend  || 0));
+    const sales  = rows.map(r => Number(r.SALES  || r.sales  || 0));
 
-    // Destroy + replace canvas to avoid Chart.js stale state
     if (trendChart) { trendChart.destroy(); trendChart = null; }
-    const trendCanvas = el('trend-chart');
-    const trendNew = document.createElement('canvas');
-    trendNew.id = 'trend-chart';
-    trendCanvas.parentNode.replaceChild(trendNew, trendCanvas);
-    trendChart = new Chart(trendNew, {
+
+    const canvas = el('trend-chart');
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'trend-chart';
+    newCanvas.style.cssText = 'max-height:260px;min-height:200px;width:100%';
+    canvas.parentNode.replaceChild(newCanvas, canvas);
+
+    trendChart = new Chart(newCanvas, {
       type: 'line',
       data: {
         labels,
         datasets: [
           {
-            label: 'Sales',
+            label: 'Attributed Sales',
             data: sales,
-            borderColor: '#1a56db',
-            backgroundColor: 'rgba(26,86,219,.08)',
-            tension: 0.4,
+            borderColor: '#2d5a27',
+            backgroundColor: 'rgba(45,90,39,.08)',
+            tension: 0.35,
             fill: true,
-            yAxisID: 'y',
-            pointRadius: labels.length > 45 ? 0 : 3
+            yAxisID: 'ySales',
+            pointRadius: labels.length > 60 ? 0 : 3,
+            pointHoverRadius: 5
           },
           {
             label: 'Spend',
             data: spend,
             borderColor: '#c81e1e',
-            backgroundColor: 'rgba(200,30,30,.07)',
-            tension: 0.4,
+            backgroundColor: 'rgba(200,30,30,.06)',
+            tension: 0.35,
             fill: true,
-            yAxisID: 'y',
-            pointRadius: labels.length > 45 ? 0 : 3
+            yAxisID: 'ySpend',
+            pointRadius: labels.length > 60 ? 0 : 3,
+            pointHoverRadius: 5
           }
         ]
       },
       options: {
         responsive: true,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { position: 'top' } },
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${fmt$(ctx.raw)}`
+            }
+          }
+        },
         scales: {
-          y: { ticks: { callback: v => '$' + fmtK(v) } }
-        }
-      }
-    });
-
-    // ACOS trend chart — replace canvas to force clean re-render
-    if (acosTrendChart) { acosTrendChart.destroy(); acosTrendChart = null; }
-    const acosCanvas = el('acos-trend-chart');
-    const acosNew = document.createElement('canvas'); acosNew.id = 'acos-trend-chart';
-    acosCanvas.parentNode.replaceChild(acosNew, acosCanvas);
-    acosTrendChart = new Chart(acosNew, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'ACOS %',
-          data: acosPct,
-          borderColor: '#b45309',
-          backgroundColor: 'rgba(180,83,9,.07)',
-          tension: 0.4,
-          fill: true,
-          spanGaps: true,
-          pointRadius: labels.length > 45 ? 0 : 3
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'top' } },
-        scales: {
-          y: { ticks: { callback: v => v + '%' } }
+          ySales: {
+            type: 'linear',
+            position: 'left',
+            ticks: { callback: v => '$' + fmtK(v) },
+            grid: { color: 'rgba(0,0,0,.05)' }
+          },
+          ySpend: {
+            type: 'linear',
+            position: 'right',
+            ticks: { callback: v => '$' + fmtK(v), color: '#c81e1e' },
+            grid: { drawOnChartArea: false }
+          }
         }
       }
     });
@@ -427,60 +362,169 @@ async function loadTrend() {
   }
 }
 
-/* ─── Donut chart (by ad type) ───────────────────────────────────────── */
-async function loadDonut() {
+function aggregateWeekly(rows) {
+  const weeks = {};
+  rows.forEach(r => {
+    const dateStr = fmtDate(r.REPORT_DATE || r.report_date);
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    const day = d.getDay();
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((day + 6) % 7));
+    const key = monday.toISOString().slice(0, 10);
+    if (!weeks[key]) weeks[key] = { week: key, spend: 0, sales: 0 };
+    weeks[key].spend += Number(r.SPEND || r.spend || 0);
+    weeks[key].sales += Number(r.SALES || r.sales || 0);
+  });
+  return Object.values(weeks).sort((a, b) => a.week.localeCompare(b.week));
+}
+
+/* ─── Section 4: Channel Breakdown Cards ────────────────────────────── */
+async function loadChannelBreakdown() {
+  const container = el('channel-cards');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px">Loading…</div>';
+
   try {
     const res = await fetch(`/advertising/by-channel?days=${currentDays}`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`By-channel ${res.status}`);
+    if (!res.ok) throw new Error(`Channel ${res.status}`);
     const rows = await res.json();
 
-    // When a specific channel is selected, filter the donut to that channel
-    let filtered = rows;
-    if (activeChannel === 'ads') filtered = rows.filter(r => ['SP','SB','SD'].includes(r.AD_TYPE));
-    if (activeChannel === 'dsp') filtered = rows.filter(r => r.AD_TYPE === 'DSP');
-
-    if (!filtered.length) {
-      if (donutChart) donutChart.destroy();
+    if (!rows.length) {
+      container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px">No channel data available.</div>';
       return;
     }
 
-    const adTypeColors = {
+    // Filter to active channel if narrowed
+    let visible = rows;
+    if (activeChannel === 'dsp')  visible = rows.filter(r => r.AD_TYPE === 'DSP');
+    else if (activeChannel === 'ads') visible = rows.filter(r => r.AD_TYPE !== 'DSP');
+
+    // Break-even ROAS threshold — simplistic default (1.0x = "covering spend")
+    const BREAKEVEN_ROAS = 2.0;
+
+    const COLORS = { SP: '#1a56db', SB: '#c66a10', SD: '#057a55', DSP: '#6b21e8' };
+    const cols = visible.length === 1 ? 1 : visible.length === 2 ? 2 : visible.length === 3 ? 3 : 4;
+    container.style.gridTemplateColumns = `repeat(${Math.min(cols, 4)}, 1fr)`;
+
+    container.innerHTML = visible.map(r => {
+      const type   = r.AD_TYPE;
+      const spend  = Number(r.SPEND       || 0);
+      const sales  = Number(r.SALES       || 0);
+      const impr   = Number(r.IMPRESSIONS || 0);
+      const clicks = Number(r.CLICKS      || 0);
+      const roas   = r.ROAS != null ? Number(r.ROAS) : (spend > 0 ? sales / spend : null);
+      const acos   = r.ACOS != null ? Number(r.ACOS) : (sales > 0 ? spend / sales : null);
+      const isDsp  = type === 'DSP';
+      const color  = COLORS[type] || '#9ca3af';
+      const roasOk = roas != null && roas >= BREAKEVEN_ROAS;
+      const borderColor = roas == null ? 'var(--gray-200)' : (roasOk ? 'var(--success)' : 'var(--danger)');
+      const bgColor     = roas == null ? '' : (roasOk ? 'rgba(45,90,39,.03)' : 'rgba(200,30,30,.03)');
+
+      return `<div class="kpi-card" style="border-left:3px solid ${borderColor};background:${bgColor || '#fff'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span class="badge-ad-type badge-${type?.toLowerCase().replace('dsp','dsp-type')}" style="font-size:13px;padding:3px 10px">${escHtml(type)}</span>
+          <span style="font-size:11px;font-weight:600;color:${roasOk ? 'var(--success)' : roas == null ? 'var(--gray-400)' : 'var(--danger)'}">${roas != null ? roas.toFixed(2) + 'x ROAS' : '—'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div class="kpi-label">Spend</div>
+            <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(spend)}</div>
+          </div>
+          <div>
+            <div class="kpi-label" title="Ad-attributed sales only (30-day click window). Does not equal total revenue.">Ad-Attr. Sales ⓘ</div>
+            <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(sales)}</div>
+          </div>
+          <div>
+            <div class="kpi-label">ACoS</div>
+            <div style="font-size:15px;font-weight:600" class="${isDsp ? '' : acos != null ? (acos < 0.20 ? 'cm-positive' : acos > 0.45 ? 'cm-negative' : 'cm-neutral') : ''}">${isDsp ? '—' : acos != null ? (acos * 100).toFixed(1) + '%' : '—'}</div>
+          </div>
+          <div>
+            <div class="kpi-label">Impressions</div>
+            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${fmtN(impr)}</div>
+          </div>
+          <div>
+            <div class="kpi-label">Clicks</div>
+            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${fmtN(clicks)}</div>
+          </div>
+          <div>
+            <div class="kpi-label">CTR</div>
+            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${isDsp ? '—' : impr > 0 ? (clicks / impr * 100).toFixed(2) + '%' : '—'}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+  } catch (err) {
+    console.error('loadChannelBreakdown:', err);
+    container.innerHTML = '<div style="color:var(--danger);font-size:13px;padding:8px">Error loading channel data.</div>';
+  }
+}
+
+/* ─── Section 4b: Ad Type Composition Chart ─────────────────────────── */
+async function loadAdTypeComposition() {
+  // Only relevant when All or Sponsored Ads is selected
+  if (activeChannel === 'dsp') return;
+
+  const canvas = el('ad-type-chart');
+  if (!canvas) return;
+
+  try {
+    const res = await fetch(`/advertising/by-campaign-type?days=${currentDays}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Composition ${res.status}`);
+    const rows = await res.json();
+
+    if (!rows.length) return;
+
+    const COLORS = {
       SP:  '#1a56db',
-      SB:  '#e07b22',
+      SB:  '#c66a10',
       SD:  '#057a55',
-      DSP: '#7e3af2'
+      DSP: '#6b21e8'
     };
+    const ORDER = ['SP', 'SB', 'SD', 'DSP'];
 
-    const labels = filtered.map(r => r.AD_TYPE);
-    const spend  = filtered.map(r => Number(r.SPEND || 0));
-    const colors = filtered.map(r => adTypeColors[r.AD_TYPE] || '#9ca3af');
+    // Sort by canonical order
+    const sorted = ORDER
+      .map(type => rows.find(r => (r.CAMPAIGN_TYPE || r.campaign_type) === type))
+      .filter(Boolean);
 
-    if (donutChart) { donutChart.destroy(); donutChart = null; }
-    const donutCanvas = el('donut-chart');
-    const donutNew = document.createElement('canvas'); donutNew.id = 'donut-chart';
-    donutNew.style.maxHeight = '260px';
-    donutCanvas.parentNode.replaceChild(donutNew, donutCanvas);
-    donutChart = new Chart(donutNew, {
-      type: 'pie',
+    const labels = sorted.map(r => r.CAMPAIGN_TYPE || r.campaign_type);
+    const spendData = sorted.map(r => Number(r.SPEND || r.spend || 0));
+    const colors = labels.map(l => COLORS[l] || '#9ca3af');
+
+    if (adTypeChart) { adTypeChart.destroy(); adTypeChart = null; }
+
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'ad-type-chart';
+    newCanvas.style.cssText = 'max-height:220px;min-height:160px;width:100%';
+    canvas.parentNode.replaceChild(newCanvas, canvas);
+
+    adTypeChart = new Chart(newCanvas, {
+      type: 'doughnut',
       data: {
         labels,
         datasets: [{
-          data: spend,
+          data: spendData,
           backgroundColor: colors,
           borderWidth: 2,
-          borderColor: '#fff'
+          borderColor: '#fff',
+          hoverOffset: 6
         }]
       },
       options: {
         responsive: true,
-        maintainAspectRatio: true,
+        cutout: '60%',
         plugins: {
-          legend: { position: 'bottom', labels: { padding: 16, font: { size: 12 } } },
+          legend: {
+            position: 'right',
+            labels: { font: { size: 12 }, padding: 14 }
+          },
           tooltip: {
             callbacks: {
               label: ctx => {
                 const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : '0.0';
                 return ` ${ctx.label}: ${fmt$(ctx.raw)} (${pct}%)`;
               }
             }
@@ -489,20 +533,113 @@ async function loadDonut() {
       }
     });
   } catch (err) {
-    console.error('loadDonut:', err);
+    console.error('loadAdTypeComposition:', err);
   }
 }
 
-/* ─── ASIN Performance ───────────────────────────────────────────────── */
-async function loadAsinPerformance() {
-  el('asin-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">Loading…</td></tr>';
+/* ─── Section 5: Campaign Table ──────────────────────────────────────── */
+async function loadCampaigns() {
+  el('campaign-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">Loading…</td></tr>';
+  try {
+    const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=500${channelParam()}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Campaigns ${res.status}`);
+    campaignData = await res.json();
+    campaignPage = 0;
+    filterAndRenderCampaigns();
+  } catch (err) {
+    console.error('loadCampaigns:', err);
+    el('campaign-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">Error loading campaigns.</td></tr>';
+  }
+}
+
+function filterAndRenderCampaigns() {
+  const q = (el('campaign-search')?.value || '').toLowerCase().trim();
+  campaignFiltered = q
+    ? campaignData.filter(r => (r.CAMPAIGN_NAME || '').toLowerCase().includes(q))
+    : [...campaignData];
+
+  campaignFiltered.sort((a, b) => {
+    const av = a[campaignSortCol], bv = b[campaignSortCol];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string') return av.localeCompare(bv) * campaignSortDir;
+    return (Number(av) - Number(bv)) * campaignSortDir;
+  });
+
+  updateSortArrows('#campaign-table', campaignSortCol, campaignSortDir, 'col');
+  renderCampaignPage();
+}
+
+function renderCampaignPage() {
+  const total  = campaignFiltered.length;
+  const pages  = Math.max(1, Math.ceil(total / CAMP_PAGE_SIZE));
+  campaignPage = Math.max(0, Math.min(campaignPage, pages - 1));
+  const start  = campaignPage * CAMP_PAGE_SIZE;
+  const slice  = campaignFiltered.slice(start, start + CAMP_PAGE_SIZE);
+
+  el('campaign-page-info').textContent = total
+    ? `${start + 1}–${Math.min(start + CAMP_PAGE_SIZE, total)} of ${total}`
+    : '0 results';
+  el('campaign-prev').disabled = campaignPage === 0;
+  el('campaign-next').disabled = campaignPage >= pages - 1;
+
+  if (!slice.length) {
+    el('campaign-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">No campaigns found.</td></tr>';
+    return;
+  }
+
+  const adTypeBadge = {
+    SP:  '<span class="badge-ad-type badge-sp">SP</span>',
+    SB:  '<span class="badge-ad-type badge-sb">SB</span>',
+    SD:  '<span class="badge-ad-type badge-sd">SD</span>',
+    DSP: '<span class="badge-ad-type badge-dsp-type">DSP</span>'
+  };
+
+  el('campaign-tbody').innerHTML = slice.map(r => {
+    const spend  = Number(r.SPEND       || 0);
+    const sales  = Number(r.SALES       || 0);
+    const impr   = Number(r.IMPRESSIONS || 0);
+    const clicks = Number(r.CLICKS      || 0);
+    const acos   = sales  > 0 ? spend / sales      : null;
+    const roas   = spend  > 0 ? sales / spend      : null;
+    const ctr    = r.CTR  != null ? Number(r.CTR)  : (impr > 0 ? clicks / impr : null);
+    const cvr    = r.CVR  != null ? Number(r.CVR)  : null;
+    const isDsp  = r.AD_TYPE === 'DSP';
+
+    const acosCls = acos != null
+      ? acos < 0.20 ? 'cm-positive' : acos > 0.45 ? 'cm-negative' : 'cm-neutral'
+      : '';
+
+    const name   = r.CAMPAIGN_NAME || r.CAMPAIGN_ID || '—';
+    const badge  = adTypeBadge[r.AD_TYPE] || `<span class="badge-ad-type">${escHtml(r.AD_TYPE || '—')}</span>`;
+
+    return `<tr>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+          title="${escHtml(name)}">${escHtml(name)}</td>
+      <td>${badge}</td>
+      <td><strong>${fmt$(spend)}</strong></td>
+      <td>${fmt$(sales)}</td>
+      <td>${roas != null ? roas.toFixed(2) + 'x' : '—'}</td>
+      <td class="${acosCls}">${isDsp ? '—' : acos != null ? (acos * 100).toFixed(1) + '%' : '—'}</td>
+      <td>${fmtN(impr)}</td>
+      <td>${fmtN(clicks)}</td>
+      <td>${isDsp ? '—' : ctr != null ? (ctr * 100).toFixed(2) + '%' : '—'}</td>
+      <td>${isDsp ? '—' : cvr != null ? (cvr * 100).toFixed(1) + '%' : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Section 6: ASIN Table ──────────────────────────────────────────── */
+async function loadAsins() {
+  el('asin-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Loading…</td></tr>';
   try {
     const res = await fetch(`/advertising/asin-performance?days=${currentDays}&limit=200`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`ASIN ${res.status}`);
+    if (!res.ok) throw new Error(`ASINs ${res.status}`);
     const data = await res.json();
 
     if (!data.asins?.length) {
-      el('asin-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">No ASIN data — syncing from Amazon</td></tr>';
+      el('asin-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">No ASIN data — syncing from Amazon.</td></tr>';
       return;
     }
 
@@ -510,13 +647,13 @@ async function loadAsinPerformance() {
     asinPage = 0;
     filterAndRenderAsins();
   } catch (err) {
-    console.error('loadAsinPerformance:', err);
-    el('asin-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">Error loading ASIN data</td></tr>';
+    console.error('loadAsins:', err);
+    el('asin-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Error loading ASIN data.</td></tr>';
   }
 }
 
 function filterAndRenderAsins() {
-  const q = (el('asin-search').value || '').toLowerCase().trim();
+  const q = (el('asin-search')?.value || '').toLowerCase().trim();
   asinFiltered = q
     ? asinData.filter(a =>
         (a.asin || '').toLowerCase().includes(q) ||
@@ -525,7 +662,6 @@ function filterAndRenderAsins() {
       )
     : [...asinData];
 
-  // Sort
   asinFiltered.sort((a, b) => {
     const av = asinSortCol in a ? a[asinSortCol] : null;
     const bv = asinSortCol in b ? b[asinSortCol] : null;
@@ -541,155 +677,103 @@ function filterAndRenderAsins() {
 }
 
 function renderAsinPage() {
-  const total   = asinFiltered.length;
-  const pages   = Math.max(1, Math.ceil(total / ASIN_PAGE_SIZE));
-  asinPage      = Math.max(0, Math.min(asinPage, pages - 1));
-  const start   = asinPage * ASIN_PAGE_SIZE;
-  const slice   = asinFiltered.slice(start, start + ASIN_PAGE_SIZE);
+  const total = asinFiltered.length;
+  const pages = Math.max(1, Math.ceil(total / ASIN_PAGE_SIZE));
+  asinPage    = Math.max(0, Math.min(asinPage, pages - 1));
+  const start = asinPage * ASIN_PAGE_SIZE;
+  const slice = asinFiltered.slice(start, start + ASIN_PAGE_SIZE);
 
   el('asin-page-info').textContent = total
     ? `${start + 1}–${Math.min(start + ASIN_PAGE_SIZE, total)} of ${total}`
     : '0 results';
-
   el('asin-prev').disabled = asinPage === 0;
   el('asin-next').disabled = asinPage >= pages - 1;
 
   if (!slice.length) {
-    el('asin-tbody').innerHTML = '<tr><td colspan="10" class="loading-cell">No results</td></tr>';
+    el('asin-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">No results.</td></tr>';
     return;
   }
 
   el('asin-tbody').innerHTML = slice.map(a => {
-    const acos  = a.acos  != null ? (a.acos  * 100).toFixed(1) + '%' : '—';
-    const roas  = a.roas  != null ? a.roas.toFixed(2) + 'x'          : '—';
-    const ctr   = a.ctr   != null ? (a.ctr   * 100).toFixed(2) + '%' : '—';
-    const cpc   = a.cpc   != null ? fmt$(a.cpc)                       : '—';
+    const acos  = a.acos != null ? (a.acos * 100).toFixed(1) + '%' : '—';
+    const roas  = a.roas != null ? a.roas.toFixed(2) + 'x'         : '—';
+    const ctr   = a.ctr  != null ? (a.ctr  * 100).toFixed(2) + '%' : '—';
     const share = (a.spendShare * 100).toFixed(1) + '%';
 
     const acosCls = a.acos != null
-      ? a.acos < 0.15 ? 'cm-positive' : a.acos > 0.40 ? 'cm-negative' : 'cm-neutral'
+      ? a.acos < 0.20 ? 'cm-positive' : a.acos > 0.45 ? 'cm-negative' : 'cm-neutral'
       : '';
 
-    const shareBar = `
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:56px;height:5px;background:var(--gray-200);border-radius:3px;overflow:hidden">
-          <div style="width:${Math.min(a.spendShare * 100, 100)}%;height:100%;background:var(--brand);border-radius:3px"></div>
-        </div>
-        <span style="font-size:11px;color:var(--gray-400)">${share}</span>
-      </div>`;
+    const model = a.modelNumber || '';
+    const title = a.productTitle && a.productTitle !== a.asin ? a.productTitle : '';
 
-    const modelDisplay = a.modelNumber || '';
-    const hoverTitle   = a.productTitle && a.productTitle !== a.asin ? a.productTitle : '';
+    const shareBar = `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:48px;height:5px;background:var(--gray-200);border-radius:3px;overflow:hidden">
+        <div style="width:${Math.min(a.spendShare * 100, 100)}%;height:100%;background:var(--brand);border-radius:3px"></div>
+      </div>
+      <span style="font-size:11px;color:var(--gray-400)">${share}</span>
+    </div>`;
 
     return `<tr>
       <td><a href="https://www.amazon.com/dp/${escHtml(a.asin)}" target="_blank" rel="noopener"
             style="font-family:monospace;font-size:12px;color:var(--brand)">${escHtml(a.asin)}</a></td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
-          title="${escHtml(hoverTitle)}">${escHtml(modelDisplay) || '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+          title="${escHtml(title)}">${escHtml(model) || '<span style="color:var(--gray-400)">—</span>'}</td>
       <td><strong>${fmt$(a.spend)}</strong></td>
       <td>${fmt$(a.sales)}</td>
-      <td>${fmtN(a.purchases)}</td>
-      <td class="${acosCls}"><strong>${acos}</strong></td>
       <td>${roas}</td>
+      <td class="${acosCls}"><strong>${acos}</strong></td>
+      <td>${fmtN(a.purchases)}</td>
       <td>${ctr}</td>
-      <td>${cpc}</td>
       <td>${shareBar}</td>
     </tr>`;
   }).join('');
 }
 
-/* ─── Campaign Table ─────────────────────────────────────────────────── */
-async function loadCampaigns() {
-  el('campaign-tbody').innerHTML = '<tr><td colspan="7" class="loading-cell">Loading…</td></tr>';
+/* ─── Section 7: Keyword Efficiency ─────────────────────────────────── */
+async function loadKeywords() {
+  el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">Loading…</td></tr>';
   try {
-    const res = await fetch(`/advertising/campaigns?days=${currentDays}&limit=200${channelParam()}`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`Campaigns ${res.status}`);
-    campaignData = await res.json();
-    campaignPage = 0;
-    filterAndRenderCampaigns();
+    const res = await fetch(`/advertising/keyword-efficiency?days=${currentDays}&limit=50`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Keywords ${res.status}`);
+    const data = await res.json();
+
+    const wasted = data.wastedSpend || [];
+    if (!wasted.length) {
+      el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">No wasted spend candidates found. 🎉</td></tr>';
+      return;
+    }
+
+    el('keyword-tbody').innerHTML = wasted.map(kw => {
+      const acos = kw.acos != null ? (kw.acos * 100).toFixed(1) + '%' : '—';
+      const acosCls = kw.orders === 0 ? 'cm-negative'
+        : kw.acos != null && kw.acos > 0.80 ? 'cm-negative'
+        : kw.acos != null && kw.acos > 0.45 ? 'cm-neutral'
+        : '';
+
+      const matchBadge = kw.matchType
+        ? `<span style="background:var(--gray-100);color:var(--gray-600);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600">${escHtml(kw.matchType)}</span>`
+        : '<span style="color:var(--gray-400)">—</span>';
+
+      return `<tr>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+            title="${escHtml(kw.searchTerm)}">${escHtml(kw.searchTerm)}</td>
+        <td style="font-size:12px;color:var(--gray-600)">${kw.keyword ? escHtml(kw.keyword) : '<span style="color:var(--gray-400)">—</span>'}</td>
+        <td>${matchBadge}</td>
+        <td><strong>${fmt$(kw.spend)}</strong></td>
+        <td>${fmt$(kw.sales)}</td>
+        <td class="${acosCls}"><strong>${acos}</strong></td>
+        <td>${fmtN(kw.clicks)}</td>
+        <td>${fmtN(kw.orders)}</td>
+      </tr>`;
+    }).join('');
   } catch (err) {
-    console.error('loadCampaigns:', err);
-    el('campaign-tbody').innerHTML = '<tr><td colspan="7" class="loading-cell">Error loading campaigns</td></tr>';
+    console.error('loadKeywords:', err);
+    el('keyword-tbody').innerHTML = '<tr><td colspan="8" class="loading-cell">Error loading keyword data.</td></tr>';
   }
 }
 
-function filterAndRenderCampaigns() {
-  const q = (el('campaign-search').value || '').toLowerCase().trim();
-  campaignFiltered = q
-    ? campaignData.filter(r => (r.CAMPAIGN_NAME || '').toLowerCase().includes(q))
-    : [...campaignData];
-
-  // Sort
-  campaignFiltered.sort((a, b) => {
-    const av = a[campaignSortCol];
-    const bv = b[campaignSortCol];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (typeof av === 'string') return av.localeCompare(bv) * campaignSortDir;
-    return (Number(av) - Number(bv)) * campaignSortDir;
-  });
-
-  updateSortArrows('#campaign-table', campaignSortCol, campaignSortDir, 'col');
-  renderCampaignPage();
-}
-
-function renderCampaignPage() {
-  const total   = campaignFiltered.length;
-  const pages   = Math.max(1, Math.ceil(total / CAMP_PAGE_SIZE));
-  campaignPage  = Math.max(0, Math.min(campaignPage, pages - 1));
-  const start   = campaignPage * CAMP_PAGE_SIZE;
-  const slice   = campaignFiltered.slice(start, start + CAMP_PAGE_SIZE);
-
-  el('campaign-page-info').textContent = total
-    ? `${start + 1}–${Math.min(start + CAMP_PAGE_SIZE, total)} of ${total}`
-    : '0 results';
-
-  el('campaign-prev').disabled = campaignPage === 0;
-  el('campaign-next').disabled = campaignPage >= pages - 1;
-
-  if (!slice.length) {
-    el('campaign-tbody').innerHTML = '<tr><td colspan="7" class="loading-cell">No campaigns found</td></tr>';
-    return;
-  }
-
-  const adTypeBadge = {
-    SP:  '<span class="badge-ad-type badge-sp">SP</span>',
-    SB:  '<span class="badge-ad-type badge-sb">SB</span>',
-    SD:  '<span class="badge-ad-type badge-sd">SD</span>',
-    DSP: '<span class="badge-ad-type badge-dsp-type">DSP</span>'
-  };
-
-  el('campaign-tbody').innerHTML = slice.map(r => {
-    const spend  = Number(r.SPEND  || 0);
-    const sales  = Number(r.SALES  || 0);
-    // Compute from raw facts
-    const acos   = sales > 0 ? spend / sales         : null;
-    const roas   = spend > 0 ? sales / spend         : null;
-
-    const acosFmt  = acos  != null ? (acos * 100).toFixed(1) + '%' : '—';
-    const roasFmt  = roas  != null ? roas.toFixed(2) + 'x'         : '—';
-    const acosCls  = acos  != null
-      ? acos < 0.15 ? 'cm-positive' : acos > 0.40 ? 'cm-negative' : 'cm-neutral'
-      : '';
-
-    const badge = adTypeBadge[r.AD_TYPE] || `<span class="badge-ad-type">${escHtml(r.AD_TYPE || '—')}</span>`;
-    const name  = r.CAMPAIGN_NAME || r.CAMPAIGN_ID || '—';
-
-    return `<tr>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
-          title="${escHtml(name)}">${escHtml(name)}</td>
-      <td>${badge}</td>
-      <td><strong>${fmt$(spend)}</strong></td>
-      <td>${fmt$(sales)}</td>
-      <td>${fmtN(r.ORDERS)}</td>
-      <td class="${acosCls}">${acosFmt}</td>
-      <td>${roasFmt}</td>
-    </tr>`;
-  }).join('');
-}
-
-/* ─── Sort arrow utility ─────────────────────────────────────────────── */
+/* ─── Sort arrows ────────────────────────────────────────────────────── */
 function updateSortArrows(tableSelector, activeCol, dir, attrName) {
   document.querySelectorAll(`${tableSelector} thead th.sortable`).forEach(th => {
     const arrow = th.querySelector('.sort-arrow');
@@ -709,16 +793,17 @@ function el(id) { return document.getElementById(id); }
 
 function toggleEl(id, show) {
   const node = el(id);
-  if (!node) return;
-  node.style.display = show ? '' : 'none';
+  if (node) node.style.display = show ? '' : 'none';
 }
 
-function fmt$(n)  {
+function fmt$(n) {
   return '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function fmtN(n)  { return Number(n || 0).toLocaleString('en-US'); }
-function fmtK(v)  {
-  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
+function fmtN(n) { return Number(n || 0).toLocaleString('en-US'); }
+function fmtK(v) {
+  const abs = Math.abs(v);
+  if (abs >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  if (abs >= 1000)    return (v / 1000).toFixed(1) + 'k';
   return v.toFixed(0);
 }
 function fmtDate(d) {

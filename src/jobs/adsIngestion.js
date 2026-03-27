@@ -1108,32 +1108,71 @@ async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
   const mapped = rows.map(r => ({
-    client_id: clientId,
-    profile_id: profileId,
-    keyword_id: String(r.keywordId),
+    client_id:   clientId,
+    profile_id:  profileId,
+    keyword_id:  String(r.keywordId || r.targetingId || ''),
     report_date: getIsoDate(r),
     campaign_id: String(r.campaignId || ''),
+    campaign_name: r.campaignName || null,
+    campaign_status: r.campaignStatus || null,
+    campaign_budget_amount: r.campaignBudgetAmount || null,
+    campaign_budget_type: r.campaignBudgetType || null,
+    campaign_budget_currency_code: r.campaignBudgetCurrencyCode || null,
     ad_group_id: String(r.adGroupId || ''),
+    ad_group_name: r.adGroupName || null,
+    keyword_text: r.keywordText || r.targetingText || null,
+    keyword_type: r.keywordType || null,
+    match_type:  r.matchType || null,
+    keyword_bid: r.keywordBid || null,
+    ad_keyword_status: r.adKeywordStatus || null,
+    targeting_expression: r.targetingExpression || null,
+    targeting_id: String(r.targetingId || ''),
+    targeting_text: r.targetingText || null,
+    targeting_type: r.targetingType || null,
     top_of_search_impression_share: r.topOfSearchImpressionShare || null,
-    search_term_impression_rank: r.searchTermImpressionRank || null,
-    search_term_impression_share: r.searchTermImpressionShare || null,
     impressions: r.impressions || 0,
-    clicks: r.clicks || 0,
-    cost: r.cost || 0,
-    attributed_sales_14_d: r.attributedSales14d || null,
-    attributed_conversions_14_d: r.attributedConversions14d || null,
-    attributed_orders_new_to_brand_14_d: r.attributedOrdersNewToBrand14d || null,
-    attributed_sales_new_to_brand_14_d: r.attributedSalesNewToBrand14d || null,
+    clicks:      r.clicks || 0,
+    cost:        r.cost || 0,
+    cost_type:   r.costType || null,
+    purchases:   r.purchases || null,
+    purchases_clicks: r.purchasesClicks || null,
+    purchases_promoted: r.purchasesPromoted || null,
+    sales:       r.sales || null,
+    sales_clicks: r.salesClicks || null,
+    sales_promoted: r.salesPromoted || null,
+    units_sold:  r.unitsSold || null,
+    new_to_brand_purchases: r.newToBrandPurchases || null,
+    new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks || null,
+    new_to_brand_sales: r.newToBrandSales || null,
+    new_to_brand_sales_clicks: r.newToBrandSalesClicks || null,
+    new_to_brand_units_sold: r.newToBrandUnitsSold || null,
+    detail_page_views: r.detailPageViews || null,
+    detail_page_views_clicks: r.detailPageViewsClicks || null,
+    add_to_cart: r.addToCart || null,
+    add_to_cart_clicks: r.addToCartClicks || null,
+    branded_searches: r.brandedSearches || null,
+    branded_searches_clicks: r.brandedSearchesClicks || null,
+    add_to_list: r.addToList || null,
+    add_to_list_from_clicks: r.addToListFromClicks || null,
   }));
   return batchMerge({
     table: 'sb_keyword_report',
     keyColumns: ['client_id', 'profile_id', 'keyword_id', 'report_date'],
     dataColumns: [
-      'campaign_id', 'ad_group_id',
-      'top_of_search_impression_share', 'search_term_impression_rank', 'search_term_impression_share',
-      'impressions', 'clicks', 'cost',
-      'attributed_sales_14_d', 'attributed_conversions_14_d',
-      'attributed_orders_new_to_brand_14_d', 'attributed_sales_new_to_brand_14_d',
+      'campaign_id', 'campaign_name', 'campaign_status', 'campaign_budget_amount',
+      'campaign_budget_type', 'campaign_budget_currency_code',
+      'ad_group_id', 'ad_group_name', 'keyword_text', 'keyword_type', 'match_type',
+      'keyword_bid', 'ad_keyword_status', 'targeting_expression', 'targeting_id',
+      'targeting_text', 'targeting_type', 'top_of_search_impression_share',
+      'impressions', 'clicks', 'cost', 'cost_type',
+      'purchases', 'purchases_clicks', 'purchases_promoted',
+      'sales', 'sales_clicks', 'sales_promoted', 'units_sold',
+      'new_to_brand_purchases', 'new_to_brand_purchases_clicks',
+      'new_to_brand_sales', 'new_to_brand_sales_clicks', 'new_to_brand_units_sold',
+      'detail_page_views', 'detail_page_views_clicks',
+      'add_to_cart', 'add_to_cart_clicks',
+      'branded_searches', 'branded_searches_clicks',
+      'add_to_list', 'add_to_list_from_clicks',
     ],
     dateColumns: ['report_date'],
     rows: mapped,
@@ -1147,29 +1186,56 @@ async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
   const mapped = rows.map(r => ({
-    client_id: clientId,
-    profile_id: profileId,
-    keyword_id: String(r.keywordId),
-    query_term: r.queryTerm || '',
+    client_id:   clientId,
+    profile_id:  profileId,
+    keyword_id:  String(r.keywordId || ''),
+    search_term: r.searchTerm || r.queryTerm || r.query || '',
     report_date: getIsoDate(r),
     campaign_id: String(r.campaignId || ''),
+    campaign_name: r.campaignName || null,
+    campaign_status: r.campaignStatus || null,
+    campaign_budget_amount: r.campaignBudgetAmount || null,
+    campaign_budget_type: r.campaignBudgetType || null,
+    campaign_budget_currency_code: r.campaignBudgetCurrencyCode || null,
     ad_group_id: String(r.adGroupId || ''),
-    search_term_impression_rank: r.searchTermImpressionRank || null,
-    search_term_impression_share: r.searchTermImpressionShare || null,
+    ad_group_name: r.adGroupName || null,
+    keyword_text: r.keywordText || null,
+    match_type:  r.matchType || null,
+    keyword_bid: r.keywordBid || null,
+    cost_type:   r.costType || null,
     impressions: r.impressions || 0,
-    clicks: r.clicks || 0,
-    cost: r.cost || 0,
-    attributed_sales_14_d: r.attributedSales14d || null,
-    attributed_conversions_14_d: r.attributedConversions14d || null,
+    clicks:      r.clicks || 0,
+    cost:        r.cost || 0,
+    purchases:   r.purchases || null,
+    purchases_clicks: r.purchasesClicks || null,
+    sales:       r.sales || null,
+    sales_clicks: r.salesClicks || null,
+    units_sold:  r.unitsSold || null,
+    video_5_second_view_rate: r.video5SecondViewRate || null,
+    video_5_second_views: r.video5SecondViews || null,
+    video_complete_views: r.videoCompleteViews || null,
+    video_first_quartile_views: r.videoFirstQuartileViews || null,
+    video_midpoint_views: r.videoMidpointViews || null,
+    video_third_quartile_views: r.videoThirdQuartileViews || null,
+    video_unmutes: r.videoUnmutes || null,
+    viewability_rate: r.viewabilityRate || null,
+    viewable_impressions: r.viewableImpressions || null,
+    view_click_through_rate: r.viewClickThroughRate || null,
+    add_to_list: r.addToList || null,
   }));
   return batchMerge({
     table: 'sb_search_term_report',
-    keyColumns: ['client_id', 'profile_id', 'keyword_id', 'query_term', 'report_date'],
+    keyColumns: ['client_id', 'profile_id', 'keyword_id', 'search_term', 'report_date'],
     dataColumns: [
-      'campaign_id', 'ad_group_id',
-      'search_term_impression_rank', 'search_term_impression_share',
+      'campaign_id', 'campaign_name', 'campaign_status', 'campaign_budget_amount',
+      'campaign_budget_type', 'campaign_budget_currency_code',
+      'ad_group_id', 'ad_group_name', 'keyword_text', 'match_type', 'keyword_bid', 'cost_type',
       'impressions', 'clicks', 'cost',
-      'attributed_sales_14_d', 'attributed_conversions_14_d',
+      'purchases', 'purchases_clicks', 'sales', 'sales_clicks', 'units_sold',
+      'video_5_second_view_rate', 'video_5_second_views', 'video_complete_views',
+      'video_first_quartile_views', 'video_midpoint_views', 'video_third_quartile_views',
+      'video_unmutes', 'viewability_rate', 'viewable_impressions', 'view_click_through_rate',
+      'add_to_list',
     ],
     dateColumns: ['report_date'],
     rows: mapped,
@@ -1220,26 +1286,73 @@ async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
   const mapped = rows.map(r => ({
-    client_id: clientId,
-    profile_id: profileId,
-    campaign_id: String(r.campaignId),
-    placement: r.placement || '',
+    client_id:   clientId,
+    profile_id:  profileId,
+    campaign_id: String(r.campaignId || ''),
+    placement:   r.placement || 'SUMMARY',
     report_date: getIsoDate(r),
+    campaign_name: r.campaignName || null,
+    campaign_status: r.campaignStatus || null,
+    campaign_budget_amount: r.campaignBudgetAmount || null,
+    campaign_budget_type: r.campaignBudgetType || null,
+    campaign_budget_currency_code: r.campaignBudgetCurrencyCode || null,
+    placement_classification: r.placementClassification || null,
+    cost_type:   r.costType || null,
     impressions: r.impressions || 0,
-    clicks: r.clicks || 0,
-    cost: r.cost || 0,
-    attributed_sales_14_d: r.attributedSales14d || null,
-    attributed_conversions_14_d: r.attributedConversions14d || null,
-    attributed_orders_new_to_brand_14_d: r.attributedOrdersNewToBrand14d || null,
-    attributed_sales_new_to_brand_14_d: r.attributedSalesNewToBrand14d || null,
+    clicks:      r.clicks || 0,
+    cost:        r.cost || 0,
+    purchases:   r.purchases || null,
+    purchases_clicks: r.purchasesClicks || null,
+    purchases_promoted: r.purchasesPromoted || null,
+    sales:       r.sales || null,
+    sales_clicks: r.salesClicks || null,
+    sales_promoted: r.salesPromoted || null,
+    units_sold:  r.unitsSold || null,
+    units_sold_clicks: r.unitsSoldClicks || null,
+    new_to_brand_purchases: r.newToBrandPurchases || null,
+    new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks || null,
+    new_to_brand_sales: r.newToBrandSales || null,
+    new_to_brand_sales_clicks: r.newToBrandSalesClicks || null,
+    new_to_brand_units_sold: r.newToBrandUnitsSold || null,
+    new_to_brand_units_sold_clicks: r.newToBrandUnitsSoldClicks || null,
+    new_to_brand_detail_page_views: r.newToBrandDetailPageViews || null,
+    new_to_brand_detail_page_views_clicks: r.newToBrandDetailPageViewsClicks || null,
+    detail_page_views: r.detailPageViews || null,
+    detail_page_views_clicks: r.detailPageViewsClicks || null,
+    add_to_cart: r.addToCart || null,
+    add_to_cart_clicks: r.addToCartClicks || null,
+    video_5_second_views: r.video5SecondViews || null,
+    video_complete_views: r.videoCompleteViews || null,
+    video_first_quartile_views: r.videoFirstQuartileViews || null,
+    video_midpoint_views: r.videoMidpointViews || null,
+    video_third_quartile_views: r.videoThirdQuartileViews || null,
+    video_unmutes: r.videoUnmutes || null,
+    viewability_rate: r.viewabilityRate || null,
+    viewable_impressions: r.viewableImpressions || null,
+    add_to_list: r.addToList || null,
+    add_to_list_from_clicks: r.addToListFromClicks || null,
   }));
   return batchMerge({
     table: 'sb_placement_report',
     keyColumns: ['client_id', 'profile_id', 'campaign_id', 'placement', 'report_date'],
     dataColumns: [
+      'campaign_name', 'campaign_status', 'campaign_budget_amount',
+      'campaign_budget_type', 'campaign_budget_currency_code',
+      'placement_classification', 'cost_type',
       'impressions', 'clicks', 'cost',
-      'attributed_sales_14_d', 'attributed_conversions_14_d',
-      'attributed_orders_new_to_brand_14_d', 'attributed_sales_new_to_brand_14_d',
+      'purchases', 'purchases_clicks', 'purchases_promoted',
+      'sales', 'sales_clicks', 'sales_promoted',
+      'units_sold', 'units_sold_clicks',
+      'new_to_brand_purchases', 'new_to_brand_purchases_clicks',
+      'new_to_brand_sales', 'new_to_brand_sales_clicks',
+      'new_to_brand_units_sold', 'new_to_brand_units_sold_clicks',
+      'new_to_brand_detail_page_views', 'new_to_brand_detail_page_views_clicks',
+      'detail_page_views', 'detail_page_views_clicks',
+      'add_to_cart', 'add_to_cart_clicks',
+      'video_5_second_views', 'video_complete_views', 'video_first_quartile_views',
+      'video_midpoint_views', 'video_third_quartile_views', 'video_unmutes',
+      'viewability_rate', 'viewable_impressions',
+      'add_to_list', 'add_to_list_from_clicks',
     ],
     dateColumns: ['report_date'],
     rows: mapped,
@@ -1741,6 +1854,107 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
 }
 
 // ============================================================
+// RANGE-BASED BACKFILL
+// ============================================================
+
+/**
+ * Backfill performance reports for an explicit date range.
+ * Uses the same 31-day chunking and dedup as ingestPerformance().
+ *
+ * @param {string} clientId
+ * @param {string} connectionType  - 'ads'
+ * @param {string} startDate       - ISO date string, e.g. '2025-01-01'
+ * @param {string} endDate         - ISO date string, e.g. '2025-12-31'
+ * @param {string[]} [reportTypeFilter] - optional array of rt.key values to include
+ *                                        e.g. ['spCampaigns'] — if omitted, runs all REPORT_TYPES
+ */
+async function ingestPerformanceRange(clientId, connectionType, startDate, endDate, reportTypeFilter = null) {
+  return runJob(clientId, connectionType, 'performanceRange', async () => {
+    const allProfiles = await fetchProfiles(clientId, connectionType);
+    const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
+    let   queued      = 0;
+    let   skipped     = 0;
+
+    const activeTypes = reportTypeFilter
+      ? REPORT_TYPES.filter(rt => reportTypeFilter.includes(rt.key))
+      : REPORT_TYPES;
+
+    // Amazon max range per request: 31 days
+    // Build date windows by iterating forward from startDate in 31-day chunks
+    const MAX_RANGE = 31;
+    const rangeStart = new Date(startDate);
+    const rangeEnd   = new Date(endDate);
+
+    const windows = [];
+    let cursor = new Date(rangeStart);
+    while (cursor <= rangeEnd) {
+      const windowStart = new Date(cursor);
+      const windowEnd   = new Date(cursor);
+      windowEnd.setDate(windowEnd.getDate() + (MAX_RANGE - 1));
+      if (windowEnd > rangeEnd) windowEnd.setTime(rangeEnd.getTime());
+      windows.push({
+        startIso: windowStart.toISOString().split('T')[0],
+        endIso:   windowEnd.toISOString().split('T')[0]
+      });
+      cursor = new Date(windowEnd);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    console.log(`[performanceRange] ${startDate}→${endDate}: ${windows.length} chunks of ≤${MAX_RANGE} days, ${activeTypes.length} report type(s) = up to ${windows.length * activeTypes.length * profiles.length} requests`);
+
+    for (const profile of profiles) {
+      const profileId = String(profile.profileId);
+
+      for (const { startIso, endIso } of windows) {
+        const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
+
+        for (const rt of activeTypes) {
+          try {
+            await new Promise(r => setImmediate(r)); // yield event loop
+
+            // Deduplicate: skip if already pending/completed for this type+range+profile
+            const existing = await query(`
+              SELECT COUNT(*) as cnt FROM ads_report_queue
+              WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
+              AND status IN ('pending','completed')
+            `, [clientId, rt.key, rangeKey, profileId]);
+            if (Number(existing[0]?.CNT || 0) > 0) {
+              console.log(`[performanceRange] Skip (exists) ${rt.key} ${startIso}→${endIso} profile=${profileId}`);
+              skipped++;
+              continue;
+            }
+
+            const freshClient = await adsClient(clientId, connectionType);
+            const reportId    = await requestV3Report(
+              freshClient, profileId, startIso,
+              rt.reportTypeId, rt.adProduct, rt.groupBy, rt.columns, rt.filters,
+              endIso
+            );
+            if (!reportId) continue;
+
+            await query(`
+              INSERT INTO ads_report_queue
+                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
+              VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+            `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey]);
+
+            console.log(`[performanceRange] Queued ${rt.key} ${startIso}→${endIso} profile=${profileId} (${reportId.substring(0,8)})`);
+            queued++;
+            await sleep(100);
+          } catch (err) {
+            const body = err.response?.data ? JSON.stringify(err.response.data).substring(0,200) : '';
+            console.warn(`[performanceRange] Failed ${rt.key} ${startIso}→${endIso}: ${err.message} ${body}`);
+          }
+        } // end report types loop
+      } // end windows loop
+    } // end profiles loop
+
+    console.log(`[performanceRange] Done — queued=${queued} skipped=${skipped}`);
+    return { recordsWritten: 0, queued, skipped, windows: windows.length };
+  });
+}
+
+// ============================================================
 // REPORT QUEUE PROCESSING (Phase 2: Download + Write)
 // ============================================================
 
@@ -2075,6 +2289,7 @@ module.exports = {
   // Core ingestion
   ingestCampaigns,
   ingestPerformance,
+  ingestPerformanceRange,
   processReportQueue,
   ingestDsp,
   ensureAdsSchema,

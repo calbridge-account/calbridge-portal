@@ -4,6 +4,12 @@ const $ = id => document.getElementById(id);
 let profile = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // SP-API info banner dismiss
+  document.getElementById('spapi-banner-dismiss')?.addEventListener('click', () => {
+    const banner = document.getElementById('spapi-banner');
+    if (banner) banner.style.display = 'none';
+  });
+
   await checkAuth();
   await Promise.all([loadProfile(), loadConnections(), loadTeam(), loadCogs()]);
   setupForms();

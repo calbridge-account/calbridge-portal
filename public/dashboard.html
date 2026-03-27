@@ -66,6 +66,13 @@
       </div>
     </header>
 
+    <!-- SP-API info banner — shown until retail data is connected -->
+    <div id="spapi-banner" style="display:flex;align-items:center;gap:10px;padding:10px 20px;background:#eff6ff;border-bottom:1px solid #bfdbfe;font-size:13px;color:#1e40af">
+      <span style="font-size:15px">ℹ️</span>
+      <span>We're finalizing our SP-API connection to enable retail sales data. This will be available soon.</span>
+      <button id="spapi-banner-dismiss" style="margin-left:auto;background:none;border:none;color:#6b7280;cursor:pointer;font-size:16px;line-height:1;padding:0 4px" title="Dismiss">×</button>
+    </div>
+
     <!-- Overview Section -->
     <section id="section-overview" class="dashboard-section active">
 
@@ -80,7 +87,7 @@
           <div class="kpi-sub" id="kpi-revenue-sub">Seller + Vendor</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Ad Attributed Sales</div>
+          <div class="kpi-label">Ad Attributed Sales <span class="tooltip-icon" title="Sales attributed to ad clicks within a 30-day window. This is not total revenue — it's what Amazon credits to your ads. Compare against Total Retail Sales above for full picture.">ⓘ</span></div>
           <div class="kpi-value" id="kpi-ad-sales">—</div>
           <div class="kpi-sub" id="kpi-ad-sales-sub"></div>
         </div>

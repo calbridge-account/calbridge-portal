@@ -8,15 +8,15 @@
  * applies scoring logic v1, applies account-level human overrides, and
  * writes scored opportunities to CALBRIDGE.METRICS.OPPORTUNITY_SCORES.
  *
- * ─── Scoring Formula v1 ──────────────────────────────────────────────────────
+ * ─── Scoring Formula v1.3.0 — confirmed by Abe 2026-03-26 ───────────────────
  *
- *   base_score       = (cm_headroom / max_cm_headroom_in_account) * 60  [60% weight]
- *   efficiency_score = (current_roas / break_even_roas - 1) * 40        [40% weight]
- *   score            = clamp(base_score + efficiency_score, 0, 100)
+ *   Score = (0.7 × CM_Headroom_norm + 0.3 × mROAS_norm)
+ *           × Confidence_Factor
+ *           × Scalability_Factor
+ *           × Payback_Adjustment
  *
- * ⚠️  WEIGHTS NEED ABE SIGN-OFF before live client use.
- *     Formula is functional and produces reasonable outputs but the
- *     60/40 split is a first-pass estimate. See MEMORY.md for status.
+ *   Result clamped to [0, 100].
+ *   CM_Headroom and mROAS are normalized within account scope (÷ max in account).
  *
  * ─── Opportunity Types ───────────────────────────────────────────────────────
  *
@@ -247,30 +247,103 @@ function classifyOpportunity({
 // ─── Compute score 0-100 ──────────────────────────────────────────────────────
 
 /**
- * Score formula v1:
- *   base_score       = (cm_headroom / max_cm_headroom_in_account) * 60
- *   efficiency_score = (current_roas / break_even_roas - 1) * 40
- *   score            = clamp(base_score + efficiency_score, 0, 100)
- *
- * ⚠️ Weights (60/40) need Abe sign-off before live client use.
+ * Confidence factor: discounts noisy low-spend signals.
+ * High spend + stable data = 1.0. Low spend + noisy = 0.4.
  */
-function computeScore({ cmHeadroom, maxCmHeadroomInAccount, currentRoas, breakEvenRoas }) {
-  let baseScore = 0;
-  if (
+function _computeConfidenceFactor(spendMonthly, dataPoints, dataAgeHours) {
+  let base;
+  if (spendMonthly >= 1000 && dataPoints >= 30 && dataAgeHours <= 25) base = 1.0;
+  else if (spendMonthly >= 500 && dataPoints >= 14 && dataAgeHours <= 48) base = 0.8;
+  else if (spendMonthly >= 100 && dataPoints >= 7 && dataAgeHours <= 72) base = 0.6;
+  else base = 0.4;
+  if (dataAgeHours > 72) base *= 0.5; // stale data penalty
+  return Math.max(0.1, Math.min(1.0, base));
+}
+
+/**
+ * Scalability factor: can this channel actually absorb more spend?
+ * Accounts for learning phase and budget constraint status.
+ * Creative/audience fatigue: future enhancement, defaults to 1.0.
+ */
+function _computeScalabilityFactor(campaignAgeDays, impressionShareLostToBudget) {
+  // Learning phase factor
+  let ageFactor;
+  if (campaignAgeDays < 7) ageFactor = 0.5;
+  else if (campaignAgeDays < 14) ageFactor = 0.75;
+  else ageFactor = 1.0;
+  // Budget constraint factor: if budget-constrained, scaling is straightforward
+  const budgetFactor = (impressionShareLostToBudget > 0) ? 1.0 : 0.7;
+  return Math.max(0.3, Math.min(1.0, ageFactor * budgetFactor));
+}
+
+/**
+ * Payback adjustment: same ROAS, different cash impact.
+ * 7-day payback vs 90-day payback should score differently.
+ * If payback not computable (no NTB/CAC data), returns 1.0 (no adjustment).
+ */
+function _computePaybackAdjustment(paybackDays, targetPaybackDays = 60) {
+  if (paybackDays == null || isNaN(paybackDays)) return 1.0; // not computable
+  if (paybackDays <= targetPaybackDays / 2) return 1.0;
+  if (paybackDays <= targetPaybackDays) return 0.85;
+  if (paybackDays <= targetPaybackDays * 1.5) return 0.7;
+  return 0.5;
+}
+
+/**
+ * Score formula v1.3.0 — confirmed by Abe 2026-03-26:
+ *
+ *   Score = (0.7 × CM_Headroom_norm + 0.3 × mROAS_norm)
+ *           × Confidence_Factor
+ *           × Scalability_Factor
+ *           × Payback_Adjustment
+ *
+ *   Result clamped to [0, 100].
+ */
+function computeScore({
+  cmHeadroom,
+  maxCmHeadroomInAccount,
+  currentRoas,
+  maxRoasInAccount,
+  spendMonthly,
+  dataPoints,
+  dataAgeHours,
+  campaignAgeDays,
+  impressionShareLostToBudget,
+  paybackDays,
+  targetPaybackDays,
+}) {
+  // Normalize CM headroom within account scope
+  const cmHeadroomNorm = (
     cmHeadroom != null &&
     maxCmHeadroomInAccount != null &&
     maxCmHeadroomInAccount > 0
-  ) {
-    baseScore = (cmHeadroom / maxCmHeadroomInAccount) * 60;
-  }
+  )
+    ? Math.max(0, cmHeadroom / maxCmHeadroomInAccount)
+    : 0;
 
-  let efficiencyScore = 0;
-  if (currentRoas != null && breakEvenRoas != null && breakEvenRoas > 0) {
-    efficiencyScore = (currentRoas / breakEvenRoas - 1) * 40;
-  }
+  // Normalize mROAS within account scope
+  const mroasNorm = (
+    currentRoas != null &&
+    maxRoasInAccount != null &&
+    maxRoasInAccount > 0
+  )
+    ? Math.max(0, currentRoas / maxRoasInAccount)
+    : 0;
 
-  const raw = baseScore + efficiencyScore;
-  return Math.round(Math.max(0, Math.min(100, raw)) * 100) / 100;
+  const rawScore  = 0.7 * cmHeadroomNorm + 0.3 * mroasNorm;
+  const confidence  = _computeConfidenceFactor(spendMonthly, dataPoints, dataAgeHours);
+  const scalability = _computeScalabilityFactor(campaignAgeDays, impressionShareLostToBudget);
+  const payback     = _computePaybackAdjustment(paybackDays, targetPaybackDays);
+
+  const final = rawScore * confidence * scalability * payback * 100;
+  return {
+    score:              Math.round(Math.max(0, Math.min(100, final)) * 100) / 100,
+    cmHeadroomNorm,
+    mroasNorm,
+    confidenceFactor:   confidence,
+    scalabilityFactor:  scalability,
+    paybackAdjustment:  payback,
+  };
 }
 
 // ─── Determine recommended action and delta ───────────────────────────────────
@@ -577,10 +650,17 @@ async function scoreAccount(accountId, options = {}) {
     return [];
   }
 
-  // Compute max CM headroom in account for normalization
+  // Compute account-level normalization denominators
   const maxCmHeadroom = Math.max(
     ...tuples
       .map(t => t.cmHeadroom)
+      .filter(v => v != null && v > 0),
+    0 // fallback to 0 to avoid -Infinity
+  );
+
+  const maxRoasInAccount = Math.max(
+    ...tuples
+      .map(t => t.currentRoas)
       .filter(v => v != null && v > 0),
     0 // fallback to 0 to avoid -Infinity
   );
@@ -609,12 +689,23 @@ async function scoreAccount(accountId, options = {}) {
       opportunityType,
     });
 
-    const score = computeScore({
-      cmHeadroom:              tuple.cmHeadroom,
-      maxCmHeadroomInAccount:  maxCmHeadroom,
-      currentRoas:             tuple.currentRoas,
-      breakEvenRoas:           tuple.breakEvenRoas,
+    // Load account-level payback target override if present
+    const targetPaybackDays = overrides.payback_target_days?.[0]?.value?.days ?? 60;
+
+    const scoreResult = computeScore({
+      cmHeadroom:                tuple.cmHeadroom,
+      maxCmHeadroomInAccount:    maxCmHeadroom,
+      currentRoas:               tuple.currentRoas,
+      maxRoasInAccount,
+      spendMonthly:              tuple.totalSpend,  // 30-day spend as monthly proxy
+      dataPoints:                tuple.dataPointDays,
+      dataAgeHours:              tuple.dataAgeHours,
+      campaignAgeDays:           tuple.firstSeenDaysAgo,
+      impressionShareLostToBudget: tuple.budgetConstrained ? 1 : 0,
+      paybackDays:               null, // NTB/CAC payback not yet available in pipeline
+      targetPaybackDays,
     });
+    const score = scoreResult.score;
 
     const { action, deltaUsd } = getRecommendation(
       opportunityType,
@@ -648,27 +739,31 @@ async function scoreAccount(accountId, options = {}) {
       overrideReason:      reason,
       // Full inputs snapshot for explainability
       inputs: {
-        currentRoas:       tuple.currentRoas,
-        actualAcos:        tuple.actualAcos,
-        breakEvenRoas:     tuple.breakEvenRoas,
-        breakEvenAcos:     tuple.breakEvenAcos,
-        daysOfSupply:      tuple.daysOfSupply,
-        firstSeenDaysAgo:  tuple.firstSeenDaysAgo,
-        budgetConstrained: tuple.budgetConstrained,
-        dataPointDays:     tuple.dataPointDays,
-        dataAgeHours:      tuple.dataAgeHours,
-        avgDailyBudget:    tuple.avgDailyBudget,
-        avgDailySpend:     tuple.avgDailySpend,
-        cmHeadroom:        tuple.cmHeadroom,
-        maxCmHeadroomInAccount: maxCmHeadroom,
-        cm2:               tuple.cm2,
-        overspentPeriods:  tuple.overspentPeriods,
-        scoringFormula: {
-          version:         'v1',
-          baseWeight:      0.60,
-          efficiencyWeight: 0.40,
-          formulaNote:     'PENDING_ABE_SIGNOFF',
-        },
+        // Raw metrics
+        cm_headroom_raw:         tuple.cmHeadroom,
+        cm_headroom_norm:        scoreResult.cmHeadroomNorm,
+        mroas_norm:              scoreResult.mroasNorm,
+        confidence_factor:       scoreResult.confidenceFactor,
+        scalability_factor:      scoreResult.scalabilityFactor,
+        payback_adjustment:      scoreResult.paybackAdjustment,
+        final_score:             score,
+        formula_version:         '1.3.0',
+        // Supporting context
+        currentRoas:             tuple.currentRoas,
+        actualAcos:              tuple.actualAcos,
+        breakEvenRoas:           tuple.breakEvenRoas,
+        breakEvenAcos:           tuple.breakEvenAcos,
+        daysOfSupply:            tuple.daysOfSupply,
+        firstSeenDaysAgo:        tuple.firstSeenDaysAgo,
+        budgetConstrained:       tuple.budgetConstrained,
+        dataPointDays:           tuple.dataPointDays,
+        dataAgeHours:            tuple.dataAgeHours,
+        avgDailyBudget:          tuple.avgDailyBudget,
+        avgDailySpend:           tuple.avgDailySpend,
+        maxCmHeadroomInAccount:  maxCmHeadroom,
+        maxRoasInAccount,
+        cm2:                     tuple.cm2,
+        overspentPeriods:        tuple.overspentPeriods,
       },
     };
 

@@ -646,6 +646,12 @@ function listMetrics() {
 //                         cmHeadroom×50% + conversionEfficiency×30% + inventoryHealth×20%.
 //                         METRIC_REGISTRY_VERSION constant added. getMetricVersion() exported.
 //
+//   1.3.0 (2026-03-26) — Confirmed opportunity score formula: 0.7×CM_Headroom + 0.3×mROAS
+//                         × Confidence × Scalability × Payback — confirmed by Abe 2026-03-26.
+//                         Replaces v1 60/40 split. Adds three factor functions:
+//                         _computeConfidenceFactor, _computeScalabilityFactor,
+//                         _computePaybackAdjustment. Both metrics normalized within account.
+//
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -653,7 +659,7 @@ function listMetrics() {
  * Bump on every formula/weight change. Store alongside every scored output row.
  * @type {string}
  */
-const METRIC_REGISTRY_VERSION = '1.2.0';
+const METRIC_REGISTRY_VERSION = '1.3.0';
 
 /**
  * Returns the current metric registry version.

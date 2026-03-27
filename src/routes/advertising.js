@@ -9,12 +9,11 @@ const { query } = require('../services/snowflakeService');
  * channel = 'dsp'  → DSP only
  * channel = falsy  → all
  */
-function channelFilter(channel, adType, tableAlias) {
-  const col = tableAlias ? `${tableAlias}.ad_type` : 'ad_type';
+function channelFilter(channel, adType) {
   // Specific subtype (SP, SB, SD) takes priority
-  if (adType && ['SP','SB','SD','DSP'].includes(adType)) return `AND ${col} = '${adType}'`;
-  if (channel === 'ads') return `AND ${col} IN ('SP','SB','SD')`;
-  if (channel === 'dsp') return `AND ${col} = 'DSP'`;
+  if (adType && ['SP','SB','SD','DSP'].includes(adType)) return `AND ad_type = '${adType}'`;
+  if (channel === 'ads') return `AND ad_type IN ('SP','SB','SD')`;
+  if (channel === 'dsp') return `AND ad_type = 'DSP'`;
   return '';
 }
 
@@ -27,7 +26,13 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const days    = Number(req.query.days) || 30;
     const channel = req.query.channel;
     const adType  = req.query.adType;
+    // Wrap in subquery to avoid nested-aggregate error when campaign_performance is a grouped view
     const rows = await query(`
+      WITH cp AS (
+        SELECT * FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter(channel, adType)}
+      )
       SELECT
         COALESCE(SUM(impressions), 0)  AS total_impressions,
         COALESCE(SUM(clicks), 0)       AS total_clicks,
@@ -39,7 +44,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)           ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)    ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)          ELSE NULL END AS cpc
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
+      FROM cp
     `, [req.session.clientId, days]);
     res.json(rows[0] || {});
   } catch (err) { next(err); }
@@ -55,6 +60,11 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const channel = req.query.channel;
     const adType  = req.query.adType;
     const rows = await query(`
+      WITH cp AS (
+        SELECT * FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter(channel, adType)}
+      )
       SELECT
         date                                                                      AS report_date,
         SUM(impressions)                                                          AS impressions,
@@ -64,7 +74,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         SUM(orders)                                                               AS orders,
         CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)              ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)              ELSE NULL END AS roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
+      FROM cp
       GROUP BY date
       ORDER BY date ASC
     `, [req.session.clientId, days]);
@@ -74,12 +84,16 @@ router.get('/trend', requireAuth, async (req, res, next) => {
 
 /**
  * GET /advertising/by-channel?days=30
- * Spend split by ad_type (SP / SB / SD / DSP) — used for donut chart
+ * Spend split by ad_type (SP / SB / SD / DSP) — used for channel breakdown cards
  */
 router.get('/by-channel', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const rows = await query(`
+      WITH cp AS (
+        SELECT * FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+      )
       SELECT
         ad_type,
         SUM(impressions) AS impressions,
@@ -89,7 +103,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
         SUM(orders)      AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
+      FROM cp
       GROUP BY ad_type
       ORDER BY SUM(spend) DESC
     `, [req.session.clientId, days]);
@@ -108,6 +122,11 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const channel = req.query.channel;
     const adType  = req.query.adType;
     const rows = await query(`
+      WITH cp AS (
+        SELECT * FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+        ${channelFilter(channel, adType)}
+      )
       SELECT
         campaign_id,
         campaign_name,
@@ -122,8 +141,10 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)        ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)        ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr,
-        CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)       ELSE NULL END AS cpc
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)${channelFilter(channel, adType)}) cp
+        CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)       ELSE NULL END AS cpc,
+        CASE WHEN SUM(clicks) > 0      THEN SUM(orders) / SUM(clicks)      ELSE NULL END AS cvr,
+        SUM(units_sold)                                                                    AS units_sold
+      FROM cp
       GROUP BY campaign_id, campaign_name, ad_type, campaign_status, campaign_budget_amount
       ORDER BY SUM(spend) DESC
       LIMIT ?
@@ -134,12 +155,16 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
 
 /**
  * GET /advertising/by-campaign-type?days=30
- * Kept for backwards compat — proxies to by-channel
+ * Ad type breakdown for composition chart (SP / SB / SD / DSP)
  */
 router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const rows = await query(`
+      WITH cp AS (
+        SELECT * FROM campaign_performance
+        WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+      )
       SELECT
         ad_type AS campaign_type,
         ad_type AS connection_type,
@@ -150,7 +175,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
         SUM(orders)      AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
+      FROM cp
       GROUP BY ad_type
       ORDER BY SUM(spend) DESC
     `, [req.session.clientId, days]);
@@ -168,6 +193,10 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
 
     const [roasRows, salesRow] = await Promise.all([
       query(`
+        WITH cp AS (
+          SELECT * FROM campaign_performance
+          WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)
+        )
         SELECT
           ad_type AS campaign_type,
           ad_type AS connection_type,
@@ -179,7 +208,7 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
           CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)        ELSE NULL END AS roas,
           CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)        ELSE NULL END AS acos,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
-        FROM (SELECT * FROM campaign_performance WHERE client_id = ? AND date >= DATEADD(day, -?, CURRENT_DATE)) cp
+        FROM cp
         GROUP BY ad_type
         ORDER BY SUM(spend) DESC
       `, [clientId, days]),
@@ -313,6 +342,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
       SELECT
         st.search_term                                                            AS search_term,
         st.keyword                                                                AS keyword,
+        MAX(st.match_type)                                                        AS match_type,
         SUM(st.cost)                                                              AS total_spend,
         SUM(st.sales_30_d)                                                        AS total_sales,
         SUM(st.purchases_30_d)                                                    AS total_orders,
@@ -320,7 +350,8 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
         SUM(st.impressions)                                                       AS total_impressions,
         CASE WHEN SUM(st.cost) > 0           THEN SUM(st.sales_30_d) / SUM(st.cost)           ELSE NULL END AS roas,
         CASE WHEN SUM(st.sales_30_d) > 0     THEN SUM(st.cost) / SUM(st.sales_30_d)           ELSE NULL END AS acos,
-        CASE WHEN SUM(st.impressions) > 0    THEN SUM(st.clicks) / SUM(st.impressions)        ELSE NULL END AS ctr
+        CASE WHEN SUM(st.impressions) > 0    THEN SUM(st.clicks) / SUM(st.impressions)        ELSE NULL END AS ctr,
+        CASE WHEN SUM(st.clicks) > 0         THEN SUM(st.purchases_30_d) / SUM(st.clicks)     ELSE NULL END AS cvr
       FROM sp_search_term_report st
       WHERE st.client_id = ?
         AND st.date >= DATEADD(day, -?, CURRENT_DATE)
@@ -331,6 +362,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
     const mapped = rows.map(r => ({
       searchTerm:  r.SEARCH_TERM,
       keyword:     r.KEYWORD || null,
+      matchType:   r.MATCH_TYPE || null,
       spend:       Number(r.TOTAL_SPEND       || 0),
       sales:       Number(r.TOTAL_SALES       || 0),
       orders:      Number(r.TOTAL_ORDERS      || 0),
@@ -338,13 +370,199 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
       impressions: Number(r.TOTAL_IMPRESSIONS || 0),
       roas:        r.ROAS != null ? Number(r.ROAS) : null,
       acos:        r.ACOS != null ? Number(r.ACOS) : null,
-      ctr:         r.CTR  != null ? Number(r.CTR)  : null
+      ctr:         r.CTR  != null ? Number(r.CTR)  : null,
+      cvr:         r.CVR  != null ? Number(r.CVR)  : null
     }));
 
     const topByRoas    = [...mapped].filter(r => r.roas != null && r.spend > 10).sort((a, b) => b.roas - a.roas).slice(0, limit);
     const wastedSpend  = [...mapped].filter(r => r.spend > 10 && (r.orders === 0 || (r.acos != null && r.acos > 0.8))).sort((a, b) => b.spend - a.spend).slice(0, limit);
 
     res.json({ days, topByRoas, wastedSpend });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/keyword-targeting?days=30&limit=200&adType=SP|SB|SD
+ * Keyword-level performance from sp_targeting_keyword_report
+ */
+router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
+  try {
+    const days     = Number(req.query.days)  || 30;
+    const limit    = Number(req.query.limit) || 200;
+    const adType   = req.query.adType || null;
+    const clientId = req.session.clientId;
+
+    const adTypeFilter = adType ? `AND keyword_type = '${adType}'` : '';
+
+    const rows = await query(`
+      SELECT
+        keyword,
+        match_type,
+        MAX(campaign_name)                                                        AS campaign_name,
+        MAX(ad_group_name)                                                        AS ad_group_name,
+        MAX(ad_keyword_status)                                                    AS keyword_status,
+        MAX(keyword_bid)                                                          AS keyword_bid,
+        SUM(impressions)                                                          AS impressions,
+        SUM(clicks)                                                               AS clicks,
+        SUM(cost)                                                                 AS spend,
+        SUM(purchases_30_d)                                                       AS orders,
+        SUM(sales_30_d)                                                           AS sales,
+        SUM(units_sold_clicks_30_d)                                               AS units_sold,
+        CASE WHEN SUM(sales_30_d) > 0        THEN SUM(cost) / SUM(sales_30_d)          ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0              THEN SUM(sales_30_d) / SUM(cost)          ELSE NULL END AS roas,
+        CASE WHEN SUM(impressions) > 0       THEN SUM(clicks) / SUM(impressions)       ELSE NULL END AS ctr,
+        CASE WHEN SUM(clicks) > 0            THEN SUM(purchases_30_d) / SUM(clicks)    ELSE NULL END AS cvr,
+        CASE WHEN SUM(clicks) > 0            THEN SUM(cost) / SUM(clicks)              ELSE NULL END AS cpc
+      FROM sp_targeting_keyword_report
+      WHERE client_id = ?
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
+        AND keyword IS NOT NULL
+        ${adTypeFilter}
+      GROUP BY keyword, match_type
+      ORDER BY SUM(cost) DESC
+      LIMIT ?
+    `, [clientId, days, limit]);
+
+    res.json(rows.map(r => ({
+      keyword:       r.KEYWORD,
+      matchType:     r.MATCH_TYPE || null,
+      campaignName:  r.CAMPAIGN_NAME || null,
+      adGroupName:   r.AD_GROUP_NAME || null,
+      keywordStatus: r.KEYWORD_STATUS || null,
+      keywordBid:    r.KEYWORD_BID != null ? Number(r.KEYWORD_BID) : null,
+      impressions:   Number(r.IMPRESSIONS || 0),
+      clicks:        Number(r.CLICKS      || 0),
+      spend:         Number(r.SPEND       || 0),
+      orders:        Number(r.ORDERS      || 0),
+      sales:         Number(r.SALES       || 0),
+      unitsSold:     Number(r.UNITS_SOLD  || 0),
+      acos:          r.ACOS != null ? Number(r.ACOS) : null,
+      roas:          r.ROAS != null ? Number(r.ROAS) : null,
+      ctr:           r.CTR  != null ? Number(r.CTR)  : null,
+      cvr:           r.CVR  != null ? Number(r.CVR)  : null,
+      cpc:           r.CPC  != null ? Number(r.CPC)  : null
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/dsp-summary?days=30
+ * DSP-specific KPIs: DPVs, NTB, viewability, video completions
+ */
+router.get('/dsp-summary', requireAuth, async (req, res, next) => {
+  try {
+    const days     = Number(req.query.days) || 30;
+    const clientId = req.session.clientId;
+
+    const rows = await query(`
+      SELECT
+        SUM(impressions)                                                          AS total_impressions,
+        SUM(clicks)                                                               AS total_clicks,
+        SUM(total_cost)                                                           AS total_spend,
+        SUM(sales)                                                                AS total_sales,
+        SUM(purchases)                                                            AS total_purchases,
+        SUM(detail_page_views)                                                    AS total_dpv,
+        SUM(new_to_brand_purchases)                                               AS total_ntb_purchases,
+        SUM(new_to_brand_product_sales)                                           AS total_ntb_sales,
+        SUM(viewable_impressions)                                                 AS total_viewable_impressions,
+        SUM(add_to_cart)                                                          AS total_atc,
+        SUM(video_ad_complete)                                                    AS total_video_completions,
+        SUM(total_purchases)                                                      AS grand_total_purchases,
+        SUM(total_sales)                                                          AS grand_total_sales,
+        CASE WHEN SUM(total_cost) > 0         THEN SUM(sales) / SUM(total_cost)                ELSE NULL END AS roas,
+        CASE WHEN SUM(impressions) > 0        THEN SUM(clicks) / SUM(impressions)              ELSE NULL END AS ctr,
+        CASE WHEN SUM(impressions) > 0        THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate,
+        CASE WHEN SUM(video_ad_start) > 0     THEN SUM(video_ad_complete) / SUM(video_ad_start) ELSE NULL END AS vcr,
+        CASE WHEN SUM(total_cost) > 0         THEN SUM(detail_page_views) / SUM(total_cost)    ELSE NULL END AS dpvr
+      FROM dsp_campaign_report
+      WHERE client_id = ?
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
+    `, [clientId, days]);
+
+    const d = rows[0] || {};
+    res.json({
+      totalSpend:             Number(d.TOTAL_SPEND              || 0),
+      totalSales:             Number(d.TOTAL_SALES              || 0),
+      totalImpressions:       Number(d.TOTAL_IMPRESSIONS        || 0),
+      totalClicks:            Number(d.TOTAL_CLICKS             || 0),
+      totalPurchases:         Number(d.TOTAL_PURCHASES          || 0),
+      totalDpv:               Number(d.TOTAL_DPV                || 0),
+      totalNtbPurchases:      Number(d.TOTAL_NTB_PURCHASES      || 0),
+      totalNtbSales:          Number(d.TOTAL_NTB_SALES          || 0),
+      totalViewableImpr:      Number(d.TOTAL_VIEWABLE_IMPRESSIONS || 0),
+      totalAtc:               Number(d.TOTAL_ATC                || 0),
+      totalVideoCompletions:  Number(d.TOTAL_VIDEO_COMPLETIONS  || 0),
+      grandTotalPurchases:    Number(d.GRAND_TOTAL_PURCHASES     || 0),
+      grandTotalSales:        Number(d.GRAND_TOTAL_SALES         || 0),
+      roas:           d.ROAS            != null ? Number(d.ROAS)            : null,
+      ctr:            d.CTR             != null ? Number(d.CTR)             : null,
+      viewabilityRate: d.VIEWABILITY_RATE != null ? Number(d.VIEWABILITY_RATE) : null,
+      vcr:            d.VCR             != null ? Number(d.VCR)             : null,
+      dpvr:           d.DPVR            != null ? Number(d.DPVR)            : null
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/dsp-orders?days=30&limit=200
+ * DSP order/line-item campaign breakdown
+ */
+router.get('/dsp-orders', requireAuth, async (req, res, next) => {
+  try {
+    const days     = Number(req.query.days)  || 30;
+    const limit    = Number(req.query.limit) || 200;
+    const clientId = req.session.clientId;
+
+    const rows = await query(`
+      SELECT
+        order_id,
+        MAX(order_name)                                                           AS order_name,
+        MAX(order_budget)                                                         AS order_budget,
+        MAX(order_start_date)                                                     AS order_start_date,
+        MAX(order_end_date)                                                       AS order_end_date,
+        SUM(impressions)                                                          AS impressions,
+        SUM(clicks)                                                               AS clicks,
+        SUM(total_cost)                                                           AS spend,
+        SUM(sales)                                                                AS sales,
+        SUM(purchases)                                                            AS purchases,
+        SUM(detail_page_views)                                                    AS dpv,
+        SUM(new_to_brand_purchases)                                               AS ntb_purchases,
+        SUM(new_to_brand_product_sales)                                           AS ntb_sales,
+        SUM(viewable_impressions)                                                 AS viewable_impressions,
+        SUM(add_to_cart)                                                          AS atc,
+        SUM(video_ad_complete)                                                    AS video_completions,
+        CASE WHEN SUM(total_cost) > 0   THEN SUM(sales) / SUM(total_cost)          ELSE NULL END AS roas,
+        CASE WHEN SUM(impressions) > 0  THEN SUM(clicks) / SUM(impressions)        ELSE NULL END AS ctr,
+        CASE WHEN SUM(impressions) > 0  THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate
+      FROM dsp_campaign_report
+      WHERE client_id = ?
+        AND date >= DATEADD(day, -?, CURRENT_DATE)
+      GROUP BY order_id
+      ORDER BY SUM(total_cost) DESC
+      LIMIT ?
+    `, [clientId, days, limit]);
+
+    res.json(rows.map(r => ({
+      orderId:          r.ORDER_ID,
+      orderName:        r.ORDER_NAME       || r.ORDER_ID,
+      orderBudget:      r.ORDER_BUDGET     != null ? Number(r.ORDER_BUDGET) : null,
+      orderStart:       r.ORDER_START_DATE || null,
+      orderEnd:         r.ORDER_END_DATE   || null,
+      impressions:      Number(r.IMPRESSIONS        || 0),
+      clicks:           Number(r.CLICKS             || 0),
+      spend:            Number(r.SPEND              || 0),
+      sales:            Number(r.SALES              || 0),
+      purchases:        Number(r.PURCHASES          || 0),
+      dpv:              Number(r.DPV                || 0),
+      ntbPurchases:     Number(r.NTB_PURCHASES      || 0),
+      ntbSales:         Number(r.NTB_SALES          || 0),
+      viewableImpr:     Number(r.VIEWABLE_IMPRESSIONS || 0),
+      atc:              Number(r.ATC                || 0),
+      videoCompletions: Number(r.VIDEO_COMPLETIONS  || 0),
+      roas:             r.ROAS             != null ? Number(r.ROAS)             : null,
+      ctr:              r.CTR              != null ? Number(r.CTR)              : null,
+      viewabilityRate:  r.VIEWABILITY_RATE != null ? Number(r.VIEWABILITY_RATE) : null
+    })));
   } catch (err) { next(err); }
 });
 
