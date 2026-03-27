@@ -124,7 +124,7 @@ async function getValidToken(clientId, type) {
   if (!conn) throw Object.assign(new Error(`${type} not connected`), { status: 401 });
 
   const expiresAt = new Date(conn.expiresAt).getTime();
-  const shouldRefresh = expiresAt - Date.now() < 5 * 60 * 1000; // refresh if <5 min left
+  const shouldRefresh = expiresAt - Date.now() < 30 * 60 * 1000; // refresh if <30 min left
 
   if (shouldRefresh) {
     const refreshed = await refreshAccessToken({ refreshToken: conn.refreshToken, type });

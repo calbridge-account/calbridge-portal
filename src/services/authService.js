@@ -54,6 +54,9 @@ async function login({ email, password }) {
   if (!valid) throw new Error('INVALID_CREDENTIALS');
   if (row.STATUS === 'pending') throw new Error('PENDING_APPROVAL');
   if (row.STATUS === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
+  // Stamp last login time
+  await query('UPDATE clients SET last_login_at = CURRENT_TIMESTAMP WHERE client_id = ?', [row.CLIENT_ID])
+    .catch(err => console.warn('[Auth] last_login_at update failed:', err.message));
   // If this account is linked to a parent (e.g. a viewer/team member on a client account),
   // use the parent's client_id so all queries run against the correct data.
   const effectiveId = row.LINKED_CLIENT_ID || row.CLIENT_ID;

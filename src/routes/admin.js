@@ -119,18 +119,20 @@ router.post('/users/:adminId/change-password', requireAdmin, async (req, res, ne
 router.get('/clients', requireAdmin, async (req, res, next) => {
   try {
     const rows = await query(`
-      SELECT client_id, email, name, company_name, status, created_at, approved_at
+      SELECT client_id, email, name, company_name, status, created_at, approved_at, last_login_at, linked_client_id
       FROM clients
       ORDER BY created_at DESC
     `);
     res.json(rows.map(r => ({
-      id:          r.CLIENT_ID,
-      email:       r.EMAIL,
-      name:        r.NAME,
-      companyName: r.COMPANY_NAME,
-      status:      r.STATUS || 'active',
-      createdAt:   r.CREATED_AT,
-      approvedAt:  r.APPROVED_AT
+      id:            r.CLIENT_ID,
+      email:         r.EMAIL,
+      name:          r.NAME,
+      companyName:   r.COMPANY_NAME,
+      status:        r.STATUS || 'active',
+      createdAt:     r.CREATED_AT,
+      approvedAt:    r.APPROVED_AT,
+      lastLoginAt:   r.LAST_LOGIN_AT || null,
+      linkedClientId: r.LINKED_CLIENT_ID || null
     })));
   } catch (err) { next(err); }
 });
