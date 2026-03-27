@@ -46,7 +46,7 @@ async function sendApprovalEmail({ id, email, name }) {
 async function login({ email, password }) {
   email = email.toLowerCase().trim();
   const rows = await query(
-    `SELECT client_id, email, name, password_hash, status FROM clients WHERE email = ?`, [email]
+    `SELECT client_id, email, name, password_hash, status, linked_client_id FROM clients WHERE email = ?`, [email]
   );
   if (!rows.length) throw new Error('INVALID_CREDENTIALS');
   const row = rows[0];
@@ -54,7 +54,10 @@ async function login({ email, password }) {
   if (!valid) throw new Error('INVALID_CREDENTIALS');
   if (row.STATUS === 'pending') throw new Error('PENDING_APPROVAL');
   if (row.STATUS === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
-  return { id: row.CLIENT_ID, email: row.EMAIL, name: row.NAME, status: row.STATUS };
+  // If this account is linked to a parent (e.g. a viewer/team member on a client account),
+  // use the parent's client_id so all queries run against the correct data.
+  const effectiveId = row.LINKED_CLIENT_ID || row.CLIENT_ID;
+  return { id: effectiveId, email: row.EMAIL, name: row.NAME, status: row.STATUS };
 }
 
 async function getById(id) {
