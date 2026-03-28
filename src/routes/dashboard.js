@@ -876,6 +876,58 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /dashboard/ads-trend?days=30&startDate=...&endDate=...
+// Daily rollup of key advertising metrics for the metric trend picker.
+// Returns: date, spend, sales, orders, impressions, clicks, roas, acos, ctr, cpc
+// ---------------------------------------------------------------------------
+router.get('/ads-trend', requireAuth, async (req, res, next) => {
+  try {
+    const days      = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
+    const clientId  = req.session.clientId;
+
+    const rows = await query(`
+      SELECT
+        date                                                             AS day,
+        COALESCE(SUM(impressions), 0)                                   AS impressions,
+        COALESCE(SUM(clicks), 0)                                        AS clicks,
+        COALESCE(SUM(spend), 0)                                         AS spend,
+        COALESCE(SUM(sales), 0)                                         AS sales,
+        COALESCE(SUM(orders), 0)                                        AS orders,
+        CASE WHEN SUM(spend) > 0
+          THEN SUM(sales) / SUM(spend) ELSE NULL END                    AS roas,
+        CASE WHEN SUM(sales) > 0
+          THEN SUM(spend) / SUM(sales) ELSE NULL END                    AS acos,
+        CASE WHEN SUM(clicks) > 0
+          THEN CAST(SUM(clicks) AS FLOAT) / NULLIF(SUM(impressions),0)  ELSE NULL END AS ctr,
+        CASE WHEN SUM(clicks) > 0
+          THEN SUM(spend) / SUM(clicks)                                 ELSE NULL END AS cpc
+      FROM campaign_performance
+      WHERE client_id = ?
+        ${dateFilter('date', days, startDate, endDate)}
+      GROUP BY date
+      ORDER BY date ASC
+    `, [clientId]);
+
+    const daily = rows.map(r => ({
+      date:        (r.DAY?.value || r.DAY || '').toString().substring(0, 10),
+      impressions: Number(r.IMPRESSIONS || 0),
+      clicks:      Number(r.CLICKS      || 0),
+      spend:       Number(r.SPEND       || 0),
+      sales:       Number(r.SALES       || 0),
+      orders:      Number(r.ORDERS      || 0),
+      roas:        r.ROAS  != null ? Number(r.ROAS)  : null,
+      acos:        r.ACOS  != null ? Number(r.ACOS)  : null,
+      ctr:         r.CTR   != null ? Number(r.CTR)   : null,
+      cpc:         r.CPC   != null ? Number(r.CPC)   : null,
+    }));
+
+    res.json({ days, daily, available: daily.length > 0 });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
 // GET /dashboard/profitability-trend?days=90&limit=20
 // ASIN-level profitability trend — is each product getting more or less profitable?
 // Returns slope, direction, week-over-week change, and signal for each ASIN.

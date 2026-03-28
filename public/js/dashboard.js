@@ -1,7 +1,23 @@
 // Calbridge Dashboard — client-side JS
 
 const $ = id => document.getElementById(id);
-let cmTrendChart, revSpendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;
+let cmTrendChart, metricTrendChart, campaignChart, acosChart, salesTrendChart, channelSplitChart, forecastChart;
+
+// ---- Metric Trend Picker ----
+// Available metrics for the dual-select ad performance trend chart
+const METRIC_DEFS = [
+  { key: 'roas',        label: 'ROAS',        color: '#1a56db', format: v => v != null ? v.toFixed(2) + 'x'   : null, yLabel: 'ROAS' },
+  { key: 'acos',        label: 'ACOS',        color: '#e02424', format: v => v != null ? (v*100).toFixed(1)+'%' : null, yLabel: 'ACOS %', scale: v => v != null ? v * 100 : null },
+  { key: 'spend',       label: 'Ad Spend',    color: '#c05621', format: v => '$' + Number(v||0).toFixed(2), yLabel: '$ Spend' },
+  { key: 'sales',       label: 'Ad Sales',    color: '#1a56db', format: v => '$' + Number(v||0).toFixed(2), yLabel: '$ Sales' },
+  { key: 'orders',      label: 'Orders',      color: '#057a55', format: v => Number(v||0).toLocaleString(),  yLabel: 'Orders' },
+  { key: 'impressions', label: 'Impressions', color: '#6366f1', format: v => Number(v||0).toLocaleString(),  yLabel: 'Impressions' },
+  { key: 'clicks',      label: 'Clicks',      color: '#0694a2', format: v => Number(v||0).toLocaleString(),  yLabel: 'Clicks' },
+  { key: 'ctr',         label: 'CTR',         color: '#7c3aed', format: v => v != null ? (v*100).toFixed(2)+'%' : null, yLabel: 'CTR %', scale: v => v != null ? v * 100 : null },
+  { key: 'cpc',         label: 'CPC',         color: '#b45309', format: v => v != null ? '$' + v.toFixed(2) : null, yLabel: '$ CPC' },
+];
+let _adsTrendData = null;          // cached daily series
+let _selectedMetrics = ['roas', 'spend']; // default selection
 // Default to Month to Date — computed at page load
 const _mtdStart = new Date(); _mtdStart.setDate(1); _mtdStart.setHours(0,0,0,0);
 let currentDays  = Math.max(1, Math.ceil((new Date() - _mtdStart) / 86400000)) || 1;
@@ -91,6 +107,7 @@ function setupFilters() {
     currentStart = startDate || null;
     currentEnd   = endDate   || null;
     $('section-sub').textContent = label;
+    _adsTrendData = null; // force refetch on date change
     await loadAll();
   });
 
@@ -259,8 +276,8 @@ async function loadOverview() {
     // CM Trend chart (aggregate by ASIN across all performers)
     await loadCmTrend();
 
-    // Revenue vs Spend bar chart
-    renderRevSpend(topPerformers.slice(0, 6));
+    // Ad Performance metric trend chart (replaces static Revenue vs Spend bar)
+    await loadMetricTrend();
 
     // Top ASINs table
     renderTopAsins(topPerformers);
@@ -330,22 +347,123 @@ async function loadCmTrend() {
   } catch (err) { console.error('CM trend error:', err); }
 }
 
-function renderRevSpend(rows) {
-  const labels = rows.map(r => r.ASIN);
-  const rev    = rows.map(r => parseFloat(r.TOTAL_REVENUE  || 0));
-  const spend  = rows.map(r => parseFloat(r.TOTAL_AD_SPEND || 0));
+// ---- Metric Trend: fetch + picker + chart ----
+async function loadMetricTrend() {
+  try {
+    const res = await fetch(`/dashboard/ads-trend?${dateParams()}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    _adsTrendData = data.daily || [];
+    renderMetricPicker();
+    renderMetricTrendChart();
+  } catch (err) { console.error('Metric trend error:', err); }
+}
 
-  if (revSpendChart) revSpendChart.destroy();
-  revSpendChart = new Chart($('rev-spend-chart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Revenue',  data: rev,   backgroundColor: 'rgba(26,86,219,.7)' },
-        { label: 'Ad Spend', data: spend, backgroundColor: 'rgba(200,30,30,.7)' }
-      ]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => '$' + v } } } }
+function renderMetricPicker() {
+  const picker = $('metric-picker');
+  if (!picker) return;
+
+  picker.innerHTML = METRIC_DEFS.map(m => {
+    const active = _selectedMetrics.includes(m.key);
+    return `<button
+      class="metric-pill${active ? ' active' : ''}"
+      data-metric="${m.key}"
+      style="
+        padding:4px 10px;
+        border-radius:999px;
+        border:1.5px solid ${active ? m.color : 'var(--gray-200)'};
+        background:${active ? m.color + '18' : 'transparent'};
+        color:${active ? m.color : 'var(--gray-500)'};
+        font-size:12px;
+        font-weight:${active ? '600' : '400'};
+        cursor:pointer;
+        transition:all .15s;
+      "
+      onclick="toggleMetric('${m.key}')"
+    >${m.label}</button>`;
+  }).join('');
+}
+
+function toggleMetric(key) {
+  if (_selectedMetrics.includes(key)) {
+    // Deselect — but keep at least 1
+    if (_selectedMetrics.length > 1) {
+      _selectedMetrics = _selectedMetrics.filter(k => k !== key);
+    }
+  } else {
+    if (_selectedMetrics.length >= 2) {
+      // Drop the oldest selection (first in array), add new
+      _selectedMetrics = [_selectedMetrics[1], key];
+    } else {
+      _selectedMetrics = [..._selectedMetrics, key];
+    }
+  }
+  renderMetricPicker();
+  renderMetricTrendChart();
+}
+
+function renderMetricTrendChart() {
+  const canvas = $('metric-trend-chart');
+  if (!canvas || !_adsTrendData?.length) return;
+
+  const labels = _adsTrendData.map(d => d.date);
+  const COLORS = ['#1a56db', '#e02424', '#057a55', '#c05621', '#7c3aed', '#0694a2', '#6366f1'];
+  const colorPool = ['#1a56db', '#e02424'];
+
+  const datasets = _selectedMetrics.map((key, idx) => {
+    const def  = METRIC_DEFS.find(m => m.key === key);
+    const data = _adsTrendData.map(d => {
+      const raw = d[key];
+      return def.scale ? def.scale(raw) : (raw != null ? raw : null);
+    });
+    const color = def.color;
+    return {
+      label:           def.label,
+      data,
+      borderColor:     color,
+      backgroundColor: color + '14',
+      tension:         0.4,
+      fill:            idx === 0,
+      pointRadius:     _adsTrendData.length > 60 ? 0 : 2,
+      borderWidth:     2,
+      yAxisID:         _selectedMetrics.length > 1 ? (idx === 0 ? 'y' : 'y1') : 'y',
+    };
+  });
+
+  // Build scales — dual y-axes when 2 metrics selected
+  const scales = { x: { ticks: { maxTicksLimit: 8 } } };
+  if (_selectedMetrics.length === 2) {
+    const def0 = METRIC_DEFS.find(m => m.key === _selectedMetrics[0]);
+    const def1 = METRIC_DEFS.find(m => m.key === _selectedMetrics[1]);
+    scales.y  = { position: 'left',  title: { display: true, text: def0.yLabel, color: def0.color }, ticks: { color: def0.color } };
+    scales.y1 = { position: 'right', title: { display: true, text: def1.yLabel, color: def1.color }, ticks: { color: def1.color }, grid: { drawOnChartArea: false } };
+  } else {
+    const def = METRIC_DEFS.find(m => m.key === _selectedMetrics[0]);
+    scales.y  = { position: 'left', title: { display: false }, ticks: {} };
+  }
+
+  if (metricTrendChart) metricTrendChart.destroy();
+  metricTrendChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const key = _selectedMetrics[ctx.datasetIndex];
+              const def = METRIC_DEFS.find(m => m.key === key);
+              const raw = _adsTrendData[ctx.dataIndex]?.[key];
+              return ` ${def.label}: ${def.format(raw) ?? '—'}`;
+            }
+          }
+        }
+      },
+      scales,
+    }
   });
 }
 

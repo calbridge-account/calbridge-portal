@@ -129,9 +129,15 @@
           <h3>Contribution Margin Trend</h3>
           <canvas id="cm-trend-chart"></canvas>
         </div>
-        <div class="chart-card">
-          <h3>Revenue vs Ad Spend</h3>
-          <canvas id="rev-spend-chart"></canvas>
+        <div class="chart-card" id="metric-trend-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+            <h3 style="margin:0">Ad Performance Trend</h3>
+            <span style="font-size:11px;color:var(--gray-400)">Select up to 2 metrics</span>
+          </div>
+          <div id="metric-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+            <!-- Metric pills injected by JS -->
+          </div>
+          <canvas id="metric-trend-chart"></canvas>
         </div>
       </div>
 

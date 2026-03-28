@@ -118,6 +118,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 .chart-card.wide { grid-column: span 1; }
 .chart-card h3 { font-size: 14px; font-weight: 600; color: var(--gray-600); margin-bottom: 16px; }
 .chart-card canvas { max-height: 220px; min-height: 180px; width: 100% !important; }
+/* Metric trend picker pills */
+.metric-pill { transition: all .15s ease; }
+.metric-pill:hover { opacity: .85; transform: translateY(-1px); }
+.metric-pill.active { box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+#metric-trend-card canvas { max-height: 200px; min-height: 160px; }
 
 /* ---- TABLES ---- */
 .table-card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--gray-200); overflow: hidden; margin-bottom: 24px; }
