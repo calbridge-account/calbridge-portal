@@ -125,9 +125,10 @@ router.get('/clients', requireAdmin, async (req, res, next) => {
     `);
     res.json(rows.map(r => ({
       id:            r.CLIENT_ID,
+      clientId:      r.CLIENT_ID,          // used by spend adjustments dropdown
       email:         r.EMAIL,
       name:          r.NAME,
-      companyName:   r.COMPANY_NAME,
+      companyName:   r.COMPANY_NAME || r.NAME,  // fall back to name when company_name is null
       status:        r.STATUS || 'active',
       createdAt:     r.CREATED_AT,
       approvedAt:    r.APPROVED_AT,
