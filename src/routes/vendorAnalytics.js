@@ -619,53 +619,53 @@ router.get('/advertising', async (req, res, next) => {
       // ── SP weekly trend ──
       query(`
         SELECT
-          DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
+          date AS week_start,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(cost)           AS spend,
           SUM(sales_14d)     AS sales,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
-        GROUP BY DATE_TRUNC('week', date)
-        ORDER BY week_start ASC
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB weekly trend ──
       query(`
         SELECT
-          DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
+          date AS week_start,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
-        GROUP BY DATE_TRUNC('week', date)
-        ORDER BY week_start ASC
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD weekly trend ──
       query(`
         SELECT
-          DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
+          date AS week_start,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
-        GROUP BY DATE_TRUNC('week', date)
-        ORDER BY week_start ASC
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP weekly trend ──
       query(`
         SELECT
-          DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
+          date AS week_start,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(cost)           AS spend,
           SUM(sales_14d)          AS sales,
           SUM(impressions)          AS impressions,
@@ -673,8 +673,8 @@ router.get('/advertising', async (req, res, next) => {
           SUM(clicks)               AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
-        GROUP BY DATE_TRUNC('week', date)
-        ORDER BY week_start ASC
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SP top campaigns ──
