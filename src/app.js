@@ -29,7 +29,18 @@ const streamRoutes         = require('./routes/stream');
 const app = express();
 
 // Security & parsing
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      // Allow Vite-built module scripts served from same origin
+      'script-src':  ["'self'", "'unsafe-inline'"],  // unsafe-inline needed for Vite module preload
+      'script-src-attr': ["'none'"],
+      'connect-src': ["'self'"],
+      'img-src':     ["'self'", 'data:', 'blob:'],
+    },
+  },
+}));
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
