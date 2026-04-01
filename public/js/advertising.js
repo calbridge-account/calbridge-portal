@@ -126,6 +126,8 @@ function setupControls() {
       currentStart = from;
       currentEnd   = to;
       customRange?.classList.add('hidden');
+      // Update subtitle to show selected range
+      el('section-sub').textContent = `${from} → ${to}`;
       await loadAll();
     }
   });

@@ -3,16 +3,13 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
-const { responseCache } = require('../middleware/responseCache');
-
-// Cache all GET responses for 60 seconds.
-// With 2-3 simultaneous users on the same client account, this means only the
-// first request hits Snowflake — subsequent identical requests are served instantly.
-// Cache is keyed on (clientId + full URL), so different date ranges are cached separately.
-router.use((req, res, next) => {
-  if (req.method === 'GET') return responseCache(60_000)(req, res, next);
-  next();
-});
+// Cache helper: keyed on clientId + full request URL (includes all query params).
+// Each unique combination of date range, channel, and ad type gets its own cache entry,
+// so switching date ranges or channels always fetches fresh data from Snowflake.
+function reqCache(req, fetchFn) {
+  const ck = cacheKey(req.session.clientId, 'url', req.originalUrl);
+  return cachedQuery(ck, DEFAULT_TTL_MS, fetchFn);
+}
 
 /**
  * Build a Snowflake WHERE fragment that filters by channel.
@@ -126,7 +123,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const channel = req.query.channel;
     const adType  = req.query.adType;
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       WITH cp AS (
         SELECT
           date,
@@ -147,7 +144,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END         AS roas
       FROM cp
       ORDER BY date ASC
-    `, [req.session.clientId]);
+    `, [req.session.clientId]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -161,7 +158,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       WITH cp AS (
         SELECT
           ad_type,
@@ -181,7 +178,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
       FROM cp
       ORDER BY spend DESC
-    `, [req.session.clientId]);
+    `, [req.session.clientId]));
     res.json(rows.filter(r => Number(r.SPEND || 0) > 0));
   } catch (err) { next(err); }
 });
@@ -198,7 +195,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const limit   = Number(req.query.limit) || 200;
     const channel = req.query.channel;
     const adType  = req.query.adType;
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       WITH cp AS (
         SELECT
           campaign_id,
@@ -232,7 +229,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
       FROM cp
       ORDER BY spend DESC
       LIMIT ?
-    `, [req.session.clientId, limit]);
+    `, [req.session.clientId, limit]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -246,7 +243,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       WITH cp AS (
         SELECT
           ad_type,
@@ -267,7 +264,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
       FROM cp
       ORDER BY spend DESC
-    `, [req.session.clientId]);
+    `, [req.session.clientId]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -282,7 +279,7 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
-    const [roasRows, salesRow] = await Promise.all([
+    const [roasRows, salesRow] = await reqCache(req, () => Promise.all([
       query(`
         WITH cp AS (
           SELECT
@@ -311,7 +308,7 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
         FROM vendor_purchase_orders
         WHERE client_id = ? ${dateFilter("order_date", days, startDate, endDate)}
       `, [clientId])
-    ]);
+    ]));
 
     const totalRevenue = Number(salesRow[0]?.TOTAL_REVENUE || 0);
     const byType = roasRows.map(r => ({
@@ -347,9 +344,10 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
     const limit    = Number(req.query.limit) || 200;
     const clientId = req.session.clientId;
 
-    let rows = [];
+    let rows = await reqCache(req, async () => {
+    let r = [];
     try {
-      rows = await query(`
+      r = await query(`
         SELECT
           p.advertised_asin                                                       AS asin,
           pr.sku                                                                  AS model_number,
@@ -377,7 +375,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
       `, [clientId, limit]);
     } catch (e) {
       // Fallback: older table
-      rows = await query(`
+      r = await query(`
         SELECT
           COALESCE(ap.advertised_asin, 'UNATTRIBUTED')                           AS asin,
           MAX(p.sku)                                                              AS model_number,
@@ -401,6 +399,8 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         LIMIT ?
       `, [clientId, limit]);
     }
+    return r;
+    });
 
     const totalSpend = rows.reduce((s, r) => s + Number(r.SPEND || 0), 0);
     res.json({
@@ -436,7 +436,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
     const limit    = Number(req.query.limit) || 10;
     const clientId = req.session.clientId;
 
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       SELECT
         st.search_term                                                            AS search_term,
         st.keyword                                                                AS keyword,
@@ -455,7 +455,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
         ${dateFilter("st.date", days, startDate, endDate)}
         AND st.search_term IS NOT NULL
       GROUP BY st.search_term, st.keyword
-    `, [clientId]);
+    `, [clientId]));
 
     const mapped = rows.map(r => ({
       searchTerm:  r.SEARCH_TERM,
@@ -494,7 +494,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
 
     const adTypeFilter = adType ? `AND keyword_type = '${adType}'` : '';
 
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       SELECT
         keyword,
         match_type,
@@ -521,7 +521,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       GROUP BY keyword, match_type
       ORDER BY SUM(cost) DESC
       LIMIT ?
-    `, [clientId, limit]);
+    `, [clientId, limit]));
 
     res.json(rows.map(r => ({
       keyword:       r.KEYWORD,
@@ -556,7 +556,7 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       SELECT
         SUM(impressions)                                                          AS total_impressions,
         SUM(clicks)                                                               AS total_clicks,
@@ -579,7 +579,7 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
       FROM adjusted_dsp_campaign_report
       WHERE client_id = ?
         ${dateFilter("date", days, startDate, endDate)}
-    `, [clientId]);
+    `, [clientId]));
 
     const d = rows[0] || {};
     res.json({
@@ -617,7 +617,7 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
     const limit    = Number(req.query.limit) || 200;
     const clientId = req.session.clientId;
 
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       SELECT
         order_id,
         MAX(order_name)                                                           AS order_name,
@@ -644,7 +644,7 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
       GROUP BY order_id
       ORDER BY SUM(total_cost) DESC
       LIMIT ?
-    `, [clientId, limit]);
+    `, [clientId, limit]));
 
     res.json(rows.map(r => ({
       orderId:          r.ORDER_ID,
@@ -681,7 +681,7 @@ router.get('/keyword-type-breakdown', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId  = req.session.clientId;
 
-    const rows = await query(`
+    const rows = await reqCache(req, () => query(`
       SELECT
         COALESCE(match_type, 'AUTO')                                              AS match_type,
         SUM(cost)                                                                 AS spend,
@@ -696,7 +696,7 @@ router.get('/keyword-type-breakdown', requireAuth, async (req, res, next) => {
         ${dateFilter("date", days, startDate, endDate)}
       GROUP BY COALESCE(match_type, 'AUTO')
       ORDER BY SUM(cost) DESC
-    `, [clientId]);
+    `, [clientId]));
 
     // Normalize Amazon's internal match type names to the 4 display categories
     const normalizeMatchType = mt => {
