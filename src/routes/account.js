@@ -188,6 +188,34 @@ router.post('/team', requireAuth, async (req, res, next) => {
     await query(`UPDATE clients SET team_members = ? WHERE client_id = ?`,
       [JSON.stringify(members), req.session.clientId]);
 
+    // Send invitation email
+    try {
+      const { Resend } = require('resend');
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const baseUrl = process.env.BASE_URL || 'https://app.teamcalbridge.com';
+      // Get inviting client's company name
+      const clientRows = await query('SELECT company_name, name FROM clients WHERE client_id = ?', [req.session.clientId]);
+      const companyName = clientRows[0]?.COMPANY_NAME || clientRows[0]?.NAME || 'Calbridge';
+      await resend.emails.send({
+        from: `Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+        to: [newMember.email],
+        subject: `You've been invited to ${companyName} on Calbridge`,
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#fff;border-radius:8px">
+            <img src="${baseUrl}/images/calbridge-logo.png" alt="Calbridge" style="height:60px;margin-bottom:24px" />
+            <h2 style="color:#1e3a1a;margin:0 0 8px">You're invited to ${companyName}</h2>
+            <p style="color:#4b5563;margin:0 0 24px">Hi ${name}, you've been invited to access the Calbridge analytics portal for ${companyName} as a <strong>${role}</strong>.</p>
+            <a href="${baseUrl}/signup.html?email=${encodeURIComponent(newMember.email)}" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600">Accept Invitation</a>
+            <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">If you weren't expecting this invitation, you can safely ignore this email.</p>
+          </div>
+        `
+      });
+      console.log(`[Account] Invitation email sent to ${newMember.email}`);
+    } catch (emailErr) {
+      console.error('[Account] Failed to send invitation email:', emailErr.message);
+      // Non-fatal — member is still added
+    }
+
     res.status(201).json({ message: 'Team member invited', member: newMember });
   } catch (err) { next(err); }
 });
