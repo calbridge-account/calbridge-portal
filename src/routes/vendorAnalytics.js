@@ -114,8 +114,8 @@ router.get('/overview', async (req, res, next) => {
           SUM(ordered_revenue) AS ordered_revenue,
           SUM(ordered_units)   AS ordered_units
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
-        WHERE client_id = ? AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous week only (for WoW)
       query(`
@@ -130,8 +130,8 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT SUM(glance_views) AS glance_views
         FROM ${SCHEMA}.RETAIL_TRAFFIC
-        WHERE client_id = ? AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous glance views
       query(`
@@ -144,8 +144,8 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT AVG(net_pure_product_margin) AS net_ppm
         FROM ${SCHEMA}.RETAIL_NET_PPM
-        WHERE client_id = ? AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous net PPM
       query(`
@@ -158,8 +158,8 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT SUM(cost) AS total_ad_spend
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous period total ad spend (for WoW on proceeds_after_ads)
       query(`
@@ -177,10 +177,10 @@ router.get('/overview', async (req, res, next) => {
           SUM(ordered_revenue) AS ordered_revenue,
           SUM(shipped_units)   AS shipped_units
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
-        WHERE client_id = ? AND date >= ?
+        WHERE client_id = ? AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Top 10 ASINs by shipped revenue (last 4 weeks) + their ad spend
       query(`
@@ -415,8 +415,8 @@ router.get('/vendor', async (req, res, next) => {
           SUM(unhealthy_units)            AS total_unhealthy,
           SUM(unfilled_customer_ordered_units) AS total_oos
         FROM ${SCHEMA}.RETAIL_INVENTORY
-        WHERE client_id = ? AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Weekly sell-through rate trend
       query(`
@@ -427,10 +427,10 @@ router.get('/vendor', async (req, res, next) => {
           AVG(vendor_confirmation_rate)   AS conf_rate,
           AVG(receive_fill_rate)          AS fill_rate
         FROM ${SCHEMA}.RETAIL_INVENTORY
-        WHERE client_id = ? AND date >= ?
+        WHERE client_id = ? AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Weekly ordered vs shipped units
       query(`
@@ -440,10 +440,10 @@ router.get('/vendor', async (req, res, next) => {
           SUM(ordered_units)  AS ordered_units,
           SUM(shipped_units)  AS shipped_units
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
-        WHERE client_id = ? AND date >= ?
+        WHERE client_id = ? AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
     res.json({
@@ -503,15 +503,15 @@ router.get('/vendor/asins', async (req, res, next) => {
         WHERE i.client_id = ? AND i.date >= ?
         GROUP BY i.asin
         ORDER BY sellable_on_hand DESC NULLS LAST
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Per-ASIN shipped_cogs (AD_CAMPAIGN has no ASIN column, so ad spend is total-only)
       query(`
         SELECT asin, SUM(shipped_cogs) AS shipped_cogs
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
-        WHERE client_id = ? AND date >= ?
+        WHERE client_id = ? AND date BETWEEN ? AND ?
         GROUP BY asin
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
     // Note: total ad spend is available but not ASIN-level (AD_CAMPAIGN is campaign-level)
@@ -569,8 +569,8 @@ router.get('/advertising', async (req, res, next) => {
           SUM(clicks)          AS clicks,
           SUM(impressions)     AS impressions
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB aggregate ──
       query(`
@@ -583,8 +583,8 @@ router.get('/advertising', async (req, res, next) => {
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD aggregate ──
       query(`
@@ -597,8 +597,8 @@ router.get('/advertising', async (req, res, next) => {
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP aggregate ── (uses total_cost not cost)
       query(`
@@ -613,8 +613,8 @@ router.get('/advertising', async (req, res, next) => {
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'DSP' AND date >= ?
-      `, [CLIENT_ID, cutoff]),
+        WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SP weekly trend ──
       query(`
@@ -626,10 +626,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
         GROUP BY DATE_TRUNC('week', date)
         ORDER BY week_start ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB weekly trend ──
       query(`
@@ -641,10 +641,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
         GROUP BY DATE_TRUNC('week', date)
         ORDER BY week_start ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD weekly trend ──
       query(`
@@ -656,10 +656,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
         GROUP BY DATE_TRUNC('week', date)
         ORDER BY week_start ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP weekly trend ──
       query(`
@@ -672,10 +672,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(viewable_impressions) AS viewable_impressions,
           SUM(clicks)               AS clicks
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'DSP' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY DATE_TRUNC('week', date)
         ORDER BY week_start ASC
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SP top campaigns ──
       query(`
@@ -691,11 +691,11 @@ router.get('/advertising', async (req, res, next) => {
           CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
           CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB top campaigns ──
       query(`
@@ -713,11 +713,11 @@ router.get('/advertising', async (req, res, next) => {
           CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
           CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD top campaigns ──
       query(`
@@ -735,11 +735,11 @@ router.get('/advertising', async (req, res, next) => {
           CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
           CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP top orders ── (DSP groups by order/line, not campaign)
       query(`
@@ -758,11 +758,11 @@ router.get('/advertising', async (req, res, next) => {
           CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
           CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-        WHERE client_id = ? AND ad_product = 'DSP' AND date >= ?
+        WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
-      `, [CLIENT_ID, cutoff]),
+      `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
     // Helper to compute summary from agg row
