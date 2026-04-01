@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { path: '/account',     label: 'Account',            emoji: '⚙️',  minRole: 'viewer'  },
 ];
 
-function Sidebar({ collapsed, onToggle }) {
+function Sidebar({ collapsed, onToggle, hasRole = () => true }) {
   const location = useLocation();
 
   return (
@@ -117,7 +117,7 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen" style={{ background: '#f9fafb' }}>
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} hasRole={hasRole} />
       <main className={`transition-all duration-300 ${collapsed ? 'ml-16' : 'ml-60'}`}>
         <div className="max-w-screen-2xl mx-auto p-6">
           {children}
