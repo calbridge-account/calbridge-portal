@@ -732,6 +732,34 @@ function mapRow(apiRow, apiColumns) {
 async function writeSpCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  // Dual-write to unified RAW.AD_CAMPAIGN
+  const rawRows = rows.map(r => ({
+    client_id:      clientId,
+    campaign_id:    String(r.campaignId),
+    date:           getIsoDate(r),
+    ad_product:     'SPONSORED_PRODUCTS',
+    platform:       'amazon',
+    campaign_name:  r.campaignName || null,
+    status:         r.campaignStatus || null,
+    daily_budget:   r.campaignBudgetAmount || null,
+    impressions:    r.impressions || 0,
+    clicks:         r.clicks || 0,
+    cost:           r.cost || 0,
+    purchases_1d:   r.purchases1d || null,
+    purchases_7d:   r.purchases7d || null,
+    purchases_14d:  r.purchases14d || null,
+    purchases_30d:  r.purchases30d || null,
+    sales_1d:       r.sales1d || null,
+    sales_7d:       r.sales7d || null,
+    sales_14d:      r.sales14d || null,
+    sales_30d:      r.sales30d || null,
+    ntb_orders_14d: null,
+    ntb_sales_14d:  null,
+    viewable_impressions: null,
+    ingested_at:    new Date().toISOString(),
+    data_maturity:  'preliminary',
+  }));
+  await writeRawAdCampaign(rawRows).catch(e => console.warn('[adsIngestion] RAW.AD_CAMPAIGN SP write failed (non-fatal):', e.message));
   const mapped = rows.map(r => ({
     client_id: clientId,
     profile_id: profileId,
@@ -1025,6 +1053,34 @@ async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, r
 async function writeSbCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  // Dual-write to unified RAW.AD_CAMPAIGN
+  const rawRows = rows.map(r => ({
+    client_id:      clientId,
+    campaign_id:    String(r.campaignId || r.CAMPAIGN_ID || ''),
+    date:           getIsoDate(r),
+    ad_product:     'SPONSORED_BRANDS',
+    platform:       'amazon',
+    campaign_name:  r.campaignName || null,
+    status:         r.campaignStatus || null,
+    daily_budget:   r.campaignBudgetAmount || null,
+    impressions:    r.impressions || 0,
+    clicks:         r.clicks || 0,
+    cost:           r.cost || 0,
+    purchases_1d:   null,
+    purchases_7d:   null,
+    purchases_14d:  r.purchasesClicks || null,
+    purchases_30d:  r.purchases || null,
+    sales_1d:       null,
+    sales_7d:       null,
+    sales_14d:      r.salesClicks || null,
+    sales_30d:      r.sales || null,
+    ntb_orders_14d: r.newToBrandPurchasesClicks || null,
+    ntb_sales_14d:  r.newToBrandSalesClicks || null,
+    viewable_impressions: r.viewableImpressions || null,
+    ingested_at:    new Date().toISOString(),
+    data_maturity:  'preliminary',
+  }));
+  await writeRawAdCampaign(rawRows).catch(e => console.warn('[adsIngestion] RAW.AD_CAMPAIGN SB write failed (non-fatal):', e.message));
   const mapped = rows.map(r => ({
     client_id: clientId,
     profile_id: profileId,
@@ -1375,6 +1431,34 @@ async function writeSbPlacementReport(clientId, profileId, reportDate, rows) {
 async function writeSdCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
+  // Dual-write to unified RAW.AD_CAMPAIGN
+  const rawRows = rows.map(r => ({
+    client_id:      clientId,
+    campaign_id:    String(r.campaignId),
+    date:           getIsoDate(r),
+    ad_product:     'SPONSORED_DISPLAY',
+    platform:       'amazon',
+    campaign_name:  r.campaignName || null,
+    status:         null,
+    daily_budget:   null,
+    impressions:    r.impressions || 0,
+    clicks:         r.clicks || 0,
+    cost:           r.cost || 0,
+    purchases_1d:   null,
+    purchases_7d:   null,
+    purchases_14d:  r.purchasesClicks || null,
+    purchases_30d:  r.purchases || null,
+    sales_1d:       null,
+    sales_7d:       null,
+    sales_14d:      r.salesClicks || null,
+    sales_30d:      r.sales || null,
+    ntb_orders_14d: r.newToBrandPurchasesClicks || null,
+    ntb_sales_14d:  r.newToBrandSalesClicks || null,
+    viewable_impressions: r.viewableImpressions || null,
+    ingested_at:    new Date().toISOString(),
+    data_maturity:  'preliminary',
+  }));
+  await writeRawAdCampaign(rawRows).catch(e => console.warn('[adsIngestion] RAW.AD_CAMPAIGN SD write failed (non-fatal):', e.message));
   const mapped = rows.map(r => ({
     client_id: clientId,
     profile_id: profileId,
@@ -1611,6 +1695,34 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   const [advertiserId, realProfileId] = profileId.includes('|')
     ? profileId.split('|')
     : [profileId, profileId];
+  // Dual-write to unified RAW.AD_CAMPAIGN (DSP uses order_id as campaign_id)
+  const rawRows = rows.map(r => ({
+    client_id:      clientId,
+    campaign_id:    String(r.orderId || r.entityId || ''),
+    date:           String(r.date || r.DATE || '').substring(0, 10) || null,
+    ad_product:     'DSP',
+    platform:       'amazon',
+    campaign_name:  r.orderName || null,
+    status:         null,
+    daily_budget:   r.orderBudget || null,
+    impressions:    r.impressions || 0,
+    clicks:         r.clicks || 0,
+    cost:           r.totalCost || 0,
+    purchases_1d:   null,
+    purchases_7d:   null,
+    purchases_14d:  r.purchases || null,
+    purchases_30d:  r.totalPurchases || null,
+    sales_1d:       null,
+    sales_7d:       null,
+    sales_14d:      r.sales || null,
+    sales_30d:      r.totalSales || null,
+    ntb_orders_14d: r.newToBrandPurchases || null,
+    ntb_sales_14d:  r.newToBrandProductSales || null,
+    viewable_impressions: r.viewableImpressions || null,
+    ingested_at:    new Date().toISOString(),
+    data_maturity:  'preliminary',
+  }));
+  await writeRawAdCampaign(rawRows).catch(e => console.warn('[adsIngestion] RAW.AD_CAMPAIGN DSP write failed (non-fatal):', e.message));
   const mapped = rows.map(r => ({
     advertiser_id:                String(r.advertiserId || advertiserId),
     profile_id:                   realProfileId,
@@ -1696,6 +1808,33 @@ async function writeGrossAndInvalidReport(table, clientId, profileId, reportDate
     ],
     dateColumns: ['date'],
     rows: mapped,
+  });
+}
+
+// ============================================================
+// DUAL-WRITE: RAW.AD_CAMPAIGN (unified Project GO schema)
+// Called alongside each per-report-type write to keep the
+// /analytics dashboard current with live ingestion data.
+// ============================================================
+
+/**
+ * Upsert campaign-level rows into CALBRIDGE_PROD.RAW.AD_CAMPAIGN.
+ * This is the unified table the /analytics dashboard reads from.
+ */
+async function writeRawAdCampaign(rows) {
+  if (!rows.length) return 0;
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
+    keyColumns:  ['client_id', 'campaign_id', 'date', 'ad_product'],
+    dataColumns: [
+      'platform', 'campaign_name', 'status', 'daily_budget',
+      'impressions', 'clicks', 'cost',
+      'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'ntb_orders_14d', 'ntb_sales_14d',
+      'viewable_impressions', 'ingested_at', 'data_maturity',
+    ],
+    rows,
   });
 }
 
