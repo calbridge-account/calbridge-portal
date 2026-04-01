@@ -60,6 +60,17 @@ app.get('/analytics-auth', (req, res) => {
   res.json({ authenticated: true, clientId: req.session.clientId });
 });
 
+// Serve calbridge-v2 at /v2
+app.use('/v2', express.static(path.join(__dirname, '../calbridge-v2/dist')));
+app.get(/^\/v2(\/.*)?$/, (req, res, next) => {
+  if (!req.session || !req.session.clientId) {
+    return res.redirect('/?redirect=/v2/');
+  }
+  res.sendFile('index.html', {
+    root: path.join(__dirname, '../calbridge-v2/dist')
+  }, (err) => { if (err) next(err); });
+});
+
 // Serve Calbridge analytics dashboard at /analytics — redirect to login if not authenticated
 app.get('/analytics', (req, res, next) => {
   if (!req.session || !req.session.clientId) {
