@@ -45,7 +45,7 @@ router.post('/login', async (req, res, next) => {
         );
         const members = parentRows[0]?.TEAM_MEMBERS
           ? (typeof parentRows[0].TEAM_MEMBERS === 'string'
-              ? JSON.parse(parentRows[0].TEAM_MEMBERS)
+              ? (typeof parentRows[0].TEAM_MEMBERS === "string" ? JSON.parse(parentRows[0].TEAM_MEMBERS) : parentRows[0].TEAM_MEMBERS)
               : parentRows[0].TEAM_MEMBERS)
           : [];
         const member = members.find(m => m.email === email.toLowerCase().trim());

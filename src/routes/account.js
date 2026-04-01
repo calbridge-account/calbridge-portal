@@ -46,7 +46,7 @@ router.get('/profile', requireAuth, async (req, res, next) => {
       name:                r.NAME,
       companyName:         r.COMPANY_NAME || r.NAME,
       logoUrl:             r.LOGO_URL || null,
-      teamMembers:         r.TEAM_MEMBERS ? JSON.parse(r.TEAM_MEMBERS) : [],
+      teamMembers:         r.TEAM_MEMBERS ? (typeof r.TEAM_MEMBERS === "string" ? JSON.parse(r.TEAM_MEMBERS) : r.TEAM_MEMBERS) : [],
       createdAt:           r.CREATED_AT,
       weeklyReportEnabled: r.WEEKLY_REPORT_ENABLED !== false  // default true
     });
@@ -155,7 +155,7 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
 router.get('/team', requireAuth, async (req, res, next) => {
   try {
     const rows = await query(`SELECT team_members FROM clients WHERE client_id = ?`, [req.session.clientId]);
-    const members = rows[0]?.TEAM_MEMBERS ? JSON.parse(rows[0].TEAM_MEMBERS) : [];
+    const members = rows[0]?.TEAM_MEMBERS ? (typeof rows[0].TEAM_MEMBERS === "string" ? JSON.parse(rows[0].TEAM_MEMBERS) : rows[0].TEAM_MEMBERS) : [];
     res.json(members);
   } catch (err) { next(err); }
 });
@@ -170,7 +170,7 @@ router.post('/team', requireAuth, requireRole('manager'), async (req, res, next)
     if (!email || !name) return res.status(400).json({ error: 'email and name required' });
 
     const rows = await query(`SELECT team_members FROM clients WHERE client_id = ?`, [req.session.clientId]);
-    const members = rows[0]?.TEAM_MEMBERS ? JSON.parse(rows[0].TEAM_MEMBERS) : [];
+    const members = rows[0]?.TEAM_MEMBERS ? (typeof rows[0].TEAM_MEMBERS === "string" ? JSON.parse(rows[0].TEAM_MEMBERS) : rows[0].TEAM_MEMBERS) : [];
 
     if (members.find(m => m.email === email.toLowerCase())) {
       return res.status(409).json({ error: 'Team member already exists' });
@@ -228,7 +228,7 @@ router.post('/team', requireAuth, requireRole('manager'), async (req, res, next)
 router.delete('/team/:memberId', requireAuth, requireRole('manager'), async (req, res, next) => {
   try {
     const rows = await query(`SELECT team_members FROM clients WHERE client_id = ?`, [req.session.clientId]);
-    const members = (rows[0]?.TEAM_MEMBERS ? JSON.parse(rows[0].TEAM_MEMBERS) : [])
+    const members = (rows[0]?.TEAM_MEMBERS ? (typeof rows[0].TEAM_MEMBERS === "string" ? JSON.parse(rows[0].TEAM_MEMBERS) : rows[0].TEAM_MEMBERS) : [])
       .filter(m => m.id !== req.params.memberId);
 
     await query(`UPDATE clients SET team_members = ? WHERE client_id = ?`,
