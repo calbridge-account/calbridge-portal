@@ -156,15 +156,15 @@ router.get('/overview', async (req, res, next) => {
 
       // Current period total ad spend (all ad types)
       query(`
-        SELECT SUM(cost) AS total_ad_spend
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        SELECT SUM(adjusted_cost) AS total_ad_spend
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous period total ad spend (for WoW on proceeds_after_ads)
       query(`
-        SELECT SUM(cost) AS total_ad_spend
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        SELECT SUM(adjusted_cost) AS total_ad_spend
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND date >= ? AND date < ?
       `, [CLIENT_ID, prevCutoff, cutoff]),
 
@@ -276,9 +276,9 @@ router.get('/overview', async (req, res, next) => {
       // Ad efficiency: current period ACoS (SP only, last 7 days)
       query(`
         SELECT
-          SUM(cost) AS spend,
+          SUM(adjusted_cost) AS spend,
           SUM(sales_14d) AS sales
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS'
           AND date >= DATEADD('day', -7, CURRENT_DATE)
       `, [CLIENT_ID]),
@@ -286,9 +286,9 @@ router.get('/overview', async (req, res, next) => {
       // Ad efficiency: prior period ACoS (SP only, 7-14 days ago)
       query(`
         SELECT
-          SUM(cost) AS spend,
+          SUM(adjusted_cost) AS spend,
           SUM(sales_14d) AS sales
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS'
           AND date >= DATEADD('day', -14, CURRENT_DATE) AND date < DATEADD('day', -7, CURRENT_DATE)
       `, [CLIENT_ID]),
@@ -563,47 +563,47 @@ router.get('/advertising', async (req, res, next) => {
       // ── SP aggregate ──
       query(`
         SELECT
-          SUM(cost)            AS spend,
+          SUM(adjusted_cost)            AS spend,
           SUM(sales_14d)      AS sales,
           SUM(purchases_14d)  AS purchases,
           SUM(clicks)          AS clicks,
           SUM(impressions)     AS impressions
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB aggregate ──
       query(`
         SELECT
-          SUM(cost)          AS spend,
+          SUM(adjusted_cost)          AS spend,
           SUM(sales_14d)         AS sales,
           SUM(purchases_14d)     AS purchases,
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD aggregate ──
       query(`
         SELECT
-          SUM(cost)          AS spend,
+          SUM(adjusted_cost)          AS spend,
           SUM(sales_14d)         AS sales,
           SUM(purchases_14d)     AS purchases,
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP aggregate ── (uses total_cost not cost)
       query(`
         SELECT
-          SUM(cost)            AS spend,
+          SUM(adjusted_cost)            AS spend,
           SUM(sales_14d)           AS sales,
           SUM(purchases_14d)       AS purchases,
           SUM(clicks)                AS clicks,
@@ -612,7 +612,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(0)     AS detail_page_views,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
@@ -621,11 +621,11 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           date AS week_start,
           TO_VARCHAR(date, 'Mon DD') AS week,
-          SUM(cost)           AS spend,
+          SUM(adjusted_cost)           AS spend,
           SUM(sales_14d)     AS sales,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
@@ -636,11 +636,11 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           date AS week_start,
           TO_VARCHAR(date, 'Mon DD') AS week,
-          SUM(cost)       AS spend,
+          SUM(adjusted_cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
@@ -651,11 +651,11 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           date AS week_start,
           TO_VARCHAR(date, 'Mon DD') AS week,
-          SUM(cost)       AS spend,
+          SUM(adjusted_cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
@@ -666,12 +666,12 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           date AS week_start,
           TO_VARCHAR(date, 'Mon DD') AS week,
-          SUM(cost)           AS spend,
+          SUM(adjusted_cost)           AS spend,
           SUM(sales_14d)          AS sales,
           SUM(impressions)          AS impressions,
           SUM(viewable_impressions) AS viewable_impressions,
           SUM(clicks)               AS clicks
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date ASC
@@ -683,14 +683,14 @@ router.get('/advertising', async (req, res, next) => {
           campaign_id,
           campaign_name,
           status,
-          SUM(cost)           AS spend,
+          SUM(adjusted_cost)           AS spend,
           SUM(sales_14d)     AS sales,
           SUM(purchases_14d) AS purchases,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_cost)/SUM(sales_14d) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_14d)/SUM(adjusted_cost) ELSE NULL END AS roas
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
@@ -703,16 +703,16 @@ router.get('/advertising', async (req, res, next) => {
           campaign_id,
           campaign_name,
           status,
-          SUM(cost)       AS spend,
+          SUM(adjusted_cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(purchases_14d)  AS purchases,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_cost)/SUM(sales_14d) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_14d)/SUM(adjusted_cost) ELSE NULL END AS roas
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
@@ -725,16 +725,16 @@ router.get('/advertising', async (req, res, next) => {
           campaign_id,
           campaign_name,
           status,
-          SUM(cost)       AS spend,
+          SUM(adjusted_cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(purchases_14d)  AS purchases,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_cost)/SUM(sales_14d) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_14d)/SUM(adjusted_cost) ELSE NULL END AS roas
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name, status
         ORDER BY spend DESC NULLS LAST
@@ -746,7 +746,7 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           campaign_id,
           campaign_name,
-          SUM(cost)            AS spend,
+          SUM(adjusted_cost)            AS spend,
           SUM(sales_14d)           AS sales,
           SUM(purchases_14d)       AS purchases,
           SUM(impressions)           AS impressions,
@@ -755,9 +755,9 @@ router.get('/advertising', async (req, res, next) => {
           SUM(0)     AS detail_page_views,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(cost)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(cost) > 0 THEN SUM(sales_14d)/SUM(cost) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_cost)/SUM(sales_14d) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_14d)/SUM(adjusted_cost) ELSE NULL END AS roas
+        FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name
         ORDER BY spend DESC NULLS LAST
