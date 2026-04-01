@@ -137,11 +137,11 @@ async function upsertConnectorHealth(clientId, connectionType, accountId, status
          AND t.account_id = s.account_id
       WHEN MATCHED THEN UPDATE SET
         status           = ?,
-        last_checked_at  = CURRENT_TIMESTAMP(),
-        last_error       = ?,
+        last_probe_at    = CURRENT_TIMESTAMP(),
+        error_message    = ?,
         token_expires_at = ?
       WHEN NOT MATCHED THEN INSERT
-        (client_id, connection_type, account_id, status, last_checked_at, last_error, token_expires_at)
+        (client_id, connection_type, account_id, status, last_probe_at, error_message, token_expires_at)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP(), ?, ?)
     `, [
       clientId, connectionType, accountId,
@@ -247,7 +247,7 @@ async function retryTransientFailures({ triggeredBy = 'cron' } = {}) {
         error_message,
         retry_count,
         triggered_by
-      FROM CALBRIDGE.PIPELINE.JOB_RUNS
+      FROM CALBRIDGE_PROD.PIPELINE.JOB_RUNS
       WHERE status = 'failed'
         AND retry_count < ?
         AND completed_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
@@ -272,7 +272,7 @@ async function retryTransientFailures({ triggeredBy = 'cron' } = {}) {
 
       try {
         await query(`
-          UPDATE CALBRIDGE.PIPELINE.JOB_RUNS
+          UPDATE CALBRIDGE_PROD.PIPELINE.JOB_RUNS
           SET status       = 'pending',
               retry_count  = ?,
               triggered_by = 'retry',
