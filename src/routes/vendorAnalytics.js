@@ -600,12 +600,12 @@ router.get('/advertising', async (req, res, next) => {
         WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
-      // ── DSP aggregate ── (uses total_cost not cost)
+      // ── DSP aggregate ── DSP uses total (view-attributed) sales = sales_30d
       query(`
         SELECT
           SUM(adjusted_cost)            AS spend,
-          SUM(sales_14d)           AS sales,
-          SUM(purchases_14d)       AS purchases,
+          SUM(sales_30d)           AS sales,
+          SUM(purchases_30d)       AS purchases,
           SUM(clicks)                AS clicks,
           SUM(impressions)           AS impressions,
           SUM(viewable_impressions)  AS viewable_impressions,
@@ -667,7 +667,7 @@ router.get('/advertising', async (req, res, next) => {
           date AS week_start,
           TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(adjusted_cost)           AS spend,
-          SUM(sales_14d)          AS sales,
+          SUM(sales_30d)          AS sales,
           SUM(impressions)          AS impressions,
           SUM(viewable_impressions) AS viewable_impressions,
           SUM(clicks)               AS clicks
@@ -741,22 +741,22 @@ router.get('/advertising', async (req, res, next) => {
         LIMIT 20
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
-      // ── DSP top orders ── (DSP groups by order/line, not campaign)
+      // ── DSP top orders ── (DSP uses total/view-attributed sales = sales_30d)
       query(`
         SELECT
           campaign_id,
           campaign_name,
           SUM(adjusted_cost)            AS spend,
-          SUM(sales_14d)           AS sales,
-          SUM(purchases_14d)       AS purchases,
+          SUM(sales_30d)           AS sales,
+          SUM(purchases_30d)       AS purchases,
           SUM(impressions)           AS impressions,
           SUM(viewable_impressions)  AS viewable_impressions,
           SUM(clicks)                AS clicks,
           SUM(0)     AS detail_page_views,
           SUM(ntb_orders_14d) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_cost)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_14d)/SUM(adjusted_cost) ELSE NULL END AS roas
+          CASE WHEN SUM(sales_30d) > 0 THEN SUM(adjusted_cost)/SUM(sales_30d) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_cost) > 0 THEN SUM(sales_30d)/SUM(adjusted_cost) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.RAW.ADJUSTED_AD_CAMPAIGN
         WHERE client_id = ? AND ad_product = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name
