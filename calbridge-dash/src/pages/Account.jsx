@@ -106,7 +106,7 @@ export default function Account() {
     Promise.all([
       fetch('/account/profile',  { credentials: 'include' }).then(r => r.ok ? r.json() : null),
       fetch('/amazon/status',    { credentials: 'include' }).then(r => r.ok ? r.json() : null),
-      fetch('/account/team',     { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+      fetch('/account/team',     { credentials: 'include' }).then(r => r.ok ? r.json() : []),
     ]).then(([prof, conn, teamData]) => {
       if (prof) {
         setProfile(prof);
@@ -116,7 +116,8 @@ export default function Account() {
         setLogoUrl(prof.logoUrl || null);
       }
       if (conn) setConnStatus(conn);
-      if (teamData) setTeam(teamData.members || []);
+      // API returns array directly
+      if (Array.isArray(teamData)) setTeam(teamData);
       setLoading(false);
     });
   }, []);
@@ -213,8 +214,9 @@ export default function Account() {
         body: JSON.stringify({ email: newEmail, name: newName, role: newRole }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to add member');
-      const data = await res.json();
-      setTeam(data.members || []);
+      // API returns { message, member } — refetch full list
+      const list = await fetch('/account/team', { credentials: 'include' }).then(r => r.json()).catch(() => []);
+      setTeam(Array.isArray(list) ? list : []);
       setNewEmail(''); setNewMemberName(''); setNewRole('viewer');
       showToast('Team member added');
     } catch (err) {
@@ -229,8 +231,9 @@ export default function Account() {
     try {
       const res = await fetch(`/account/team/${memberId}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error('Remove failed');
-      const data = await res.json();
-      setTeam(data.members || []);
+      // Refetch updated list
+      const list = await fetch('/account/team', { credentials: 'include' }).then(r => r.json()).catch(() => []);
+      setTeam(Array.isArray(list) ? list : []);
       showToast('Team member removed');
     } catch (err) {
       showToast(err.message, 'error');
