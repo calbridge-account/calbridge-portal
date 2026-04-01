@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import PageHeader from '../components/PageHeader';
+import { useUser } from '../context/UserContext';
 
 // ─── Reusable section card ────────────────────────────────────────────────────
 function Section({ title, children }) {
@@ -73,6 +74,8 @@ export default function Account() {
   const [connStatus, setConnStatus] = useState(null);
   const [loading, setLoading]     = useState(true);
   const [toast, setToast]         = useState(null);
+  const { hasRole } = useUser() || { hasRole: () => true };
+  const canManage = hasRole('manager');
 
   // Profile form state
   const [companyName, setCompanyName] = useState('');
@@ -248,7 +251,7 @@ export default function Account() {
       <PageHeader title="Account" subtitle="Manage your profile, connections, and team" />
 
       {/* ── Branding ─────────────────────────────────────────────────────────── */}
-      <Section title="🖼️ Branding">
+      {canManage && <Section title="🖼️ Branding">
         <div className="flex items-center gap-4">
           <div className="w-20 h-20 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
             {logoUrl
@@ -273,7 +276,7 @@ export default function Account() {
             <p className="text-xs text-gray-400">PNG, JPG or SVG. Appears in the sidebar and reports.</p>
           </div>
         </div>
-      </Section>
+      </Section>}
 
       {/* ── Profile ──────────────────────────────────────────────────────────── */}
       <Section title="👤 Profile">
@@ -289,11 +292,11 @@ export default function Account() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Contact Name</label>
-              <input value={contactName} onChange={e => setContactName(e.target.value)} className={inputClass} placeholder="Jane Smith" />
+              <input value={contactName} onChange={e => canManage && setContactName(e.target.value)} readOnly={!canManage} className={`${inputClass} ${!canManage ? 'bg-gray-50 text-gray-500' : ''}`} placeholder="Jane Smith" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Company Name</label>
-              <input value={companyName} onChange={e => setCompanyName(e.target.value)} className={inputClass} placeholder="Acme Brands LLC" />
+              <input value={companyName} onChange={e => canManage && setCompanyName(e.target.value)} readOnly={!canManage} className={`${inputClass} ${!canManage ? 'bg-gray-50 text-gray-500' : ''}`} placeholder="Acme Brands LLC" />
             </div>
             <div className="flex items-center gap-2 pt-1">
               <input
@@ -305,9 +308,11 @@ export default function Account() {
               />
               <label htmlFor="weekly-report" className="text-sm text-gray-600">Receive weekly performance email</label>
             </div>
-            <button type="submit" disabled={savingProfile} className={btnPrimary}>
-              {savingProfile ? 'Saving…' : 'Save Profile'}
-            </button>
+            {canManage && (
+              <button type="submit" disabled={savingProfile} className={btnPrimary}>
+                {savingProfile ? 'Saving…' : 'Save Profile'}
+              </button>
+            )}
           </form>
         )}
       </Section>
@@ -365,14 +370,16 @@ export default function Account() {
                   <p className="text-sm font-medium text-gray-800">{m.name || m.email}</p>
                   <p className="text-xs text-gray-400">{m.email} · <span className="capitalize">{m.role}</span></p>
                 </div>
-                <button onClick={() => removeTeamMember(m.id)} className="text-xs text-red-500 hover:text-red-700">
-                  Remove
-                </button>
+                {canManage && (
+                  <button onClick={() => removeTeamMember(m.id)} className="text-xs text-red-500 hover:text-red-700">
+                    Remove
+                  </button>
+                )}
               </div>
             ))}
           </div>
         )}
-        <form onSubmit={addTeamMember} className="space-y-2 pt-2 border-t border-gray-100">
+        {canManage && <form onSubmit={addTeamMember} className="space-y-2 pt-2 border-t border-gray-100">
           <p className="text-xs font-medium text-gray-500 mb-2">Add team member</p>
           <div className="flex gap-2">
             <input value={newName}  onChange={e => setNewMemberName(e.target.value)} className={`${inputClass} flex-1`} placeholder="Name" />
@@ -388,7 +395,7 @@ export default function Account() {
               {addingMember ? 'Adding…' : 'Add'}
             </button>
           </div>
-        </form>
+        </form>}
       </Section>
 
       {/* ── Sign Out ─────────────────────────────────────────────────────────── */}

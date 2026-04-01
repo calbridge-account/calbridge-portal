@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useUser } from '../context/UserContext';
 
 const NAV_ITEMS = [
-  { path: '/',            label: 'Overview',           emoji: '📊' },
-  { path: '/vendor',      label: 'Vendor Performance', emoji: '📦' },
-  { path: '/advertising', label: 'Advertising',        emoji: '📢' },
-  { path: '/forecasting', label: 'Forecasting',        emoji: '📈' },
-  { path: '/cogs',        label: 'COGS & Margins',     emoji: '💰' },
-  { path: '/account',     label: 'Account',            emoji: '⚙️'  },
+  { path: '/',            label: 'Overview',           emoji: '📊', minRole: 'viewer'  },
+  { path: '/vendor',      label: 'Vendor Performance', emoji: '📦', minRole: 'viewer'  },
+  { path: '/advertising', label: 'Advertising',        emoji: '📢', minRole: 'viewer'  },
+  { path: '/forecasting', label: 'Forecasting',        emoji: '📈', minRole: 'analyst' },
+  { path: '/cogs',        label: 'COGS & Margins',     emoji: '💰', minRole: 'analyst' },
+  { path: '/account',     label: 'Account',            emoji: '⚙️',  minRole: 'viewer'  },
 ];
 
 function Sidebar({ collapsed, onToggle }) {
@@ -65,7 +66,7 @@ function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-4 space-y-0.5">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(item => hasRole(item.minRole)).map((item) => {
           const isActive = item.path === '/'
             ? location.pathname === '/'
             : location.pathname.startsWith(item.path);
@@ -112,6 +113,7 @@ function Sidebar({ collapsed, onToggle }) {
 
 export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { hasRole } = useUser() || { hasRole: () => true };
 
   return (
     <div className="min-h-screen" style={{ background: '#f9fafb' }}>

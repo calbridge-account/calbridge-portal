@@ -29,6 +29,33 @@ router.post('/login', async (req, res, next) => {
     const client = await authService.login({ email, password });
     req.session.clientId = client.id;
 
+    // Determine role: check if this user is a team member on a parent account
+    // authService.login returns effectiveId (parent's clientId for linked accounts)
+    // We need to check the original user record for linked_client_id + find their role
+    let userRole = 'owner';
+    try {
+      const userRows = await query(
+        `SELECT client_id, linked_client_id FROM clients WHERE email = ?`, [email.toLowerCase().trim()]
+      );
+      const userRecord = userRows[0];
+      if (userRecord?.LINKED_CLIENT_ID) {
+        // This is a team member — look up their role from the parent's team_members
+        const parentRows = await query(
+          `SELECT team_members FROM clients WHERE client_id = ?`, [userRecord.LINKED_CLIENT_ID]
+        );
+        const members = parentRows[0]?.TEAM_MEMBERS
+          ? (typeof parentRows[0].TEAM_MEMBERS === 'string'
+              ? JSON.parse(parentRows[0].TEAM_MEMBERS)
+              : parentRows[0].TEAM_MEMBERS)
+          : [];
+        const member = members.find(m => m.email === email.toLowerCase().trim());
+        userRole = member?.role || 'viewer';
+      }
+    } catch (roleErr) {
+      console.warn('[Auth] Role lookup failed, defaulting to owner:', roleErr.message);
+    }
+    req.session.userRole = userRole;
+
     // Fetch onboarding status for redirect logic on the client side
     const rows = await query(
       `SELECT onboarding_completed FROM clients WHERE client_id = ?`, [client.id]
@@ -41,6 +68,7 @@ router.post('/login', async (req, res, next) => {
         id:                  client.id,
         email:               client.email,
         name:                client.name,
+        role:                userRole,
         onboardingCompleted: !!onboardingCompleted
       }
     });
@@ -72,7 +100,14 @@ router.get('/logout', (req, res) => {
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const client = await authService.getById(req.session.clientId);
-    res.json({ client: { id: client.id, email: client.email, name: client.name } });
+    res.json({
+      client: {
+        id:    client.id,
+        email: client.email,
+        name:  client.name,
+        role:  req.session.userRole || 'owner',
+      }
+    });
   } catch (err) {
     next(err);
   }

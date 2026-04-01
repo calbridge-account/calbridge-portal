@@ -6,6 +6,7 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/requireAuth');
+const { requireRole } = require('../middleware/requireRole');
 const { query } = require('../services/snowflakeService');
 const { removeBackground } = require('../services/removeBackground');
 
@@ -56,7 +57,7 @@ router.get('/profile', requireAuth, async (req, res, next) => {
  * PATCH /account/profile
  * Update name, company name, and email preferences
  */
-router.patch('/profile', requireAuth, async (req, res, next) => {
+router.patch('/profile', requireAuth, requireRole('manager'), async (req, res, next) => {
   try {
     const { name, companyName, weeklyReportEnabled } = req.body;
 
@@ -83,7 +84,7 @@ router.patch('/profile', requireAuth, async (req, res, next) => {
  * POST /account/logo
  * Upload client logo
  */
-router.post('/logo', requireAuth, upload.single('logo'), async (req, res, next) => {
+router.post('/logo', requireAuth, requireRole('manager'), upload.single('logo'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded or invalid type (PNG, JPG, SVG, WebP allowed)' });
 
@@ -163,7 +164,7 @@ router.get('/team', requireAuth, async (req, res, next) => {
  * POST /account/team
  * Invite a team member
  */
-router.post('/team', requireAuth, async (req, res, next) => {
+router.post('/team', requireAuth, requireRole('manager'), async (req, res, next) => {
   try {
     const { email, name, role = 'viewer' } = req.body;
     if (!email || !name) return res.status(400).json({ error: 'email and name required' });
@@ -224,7 +225,7 @@ router.post('/team', requireAuth, async (req, res, next) => {
  * DELETE /account/team/:memberId
  * Remove a team member
  */
-router.delete('/team/:memberId', requireAuth, async (req, res, next) => {
+router.delete('/team/:memberId', requireAuth, requireRole('manager'), async (req, res, next) => {
   try {
     const rows = await query(`SELECT team_members FROM clients WHERE client_id = ?`, [req.session.clientId]);
     const members = (rows[0]?.TEAM_MEMBERS ? JSON.parse(rows[0].TEAM_MEMBERS) : [])
