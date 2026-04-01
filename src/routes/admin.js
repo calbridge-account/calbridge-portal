@@ -343,8 +343,8 @@ router.post('/spend-adjustments', requireAdmin, async (req, res, next) => {
     if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
       return res.status(400).json({ error: 'yearMonth must be YYYY-MM format' });
     }
-    if (!['SP', 'SB', 'SD', 'DSP', 'ALL'].includes(adType)) {
-      return res.status(400).json({ error: 'adType must be SP, SB, SD, DSP, or ALL' });
+    if (!['SP', 'SB', 'SD', 'DSP', 'SA', 'ALL'].includes(adType)) {
+      return res.status(400).json({ error: 'adType must be SP, SB, SD, DSP, SA, or ALL' });
     }
     const mult = Number(multiplier);
     if (isNaN(mult) || mult <= 0 || mult > 10) {

@@ -198,7 +198,7 @@ async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) 
         COALESCE(r.units_ordered, 0)      AS units_ordered,
         r.total_order_items,
         r.units_refunded,
-        r.units_shipped,
+        r.units_received,
         r.sessions,
         r.page_views,
         r.buy_box_percentage,
@@ -233,7 +233,7 @@ async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) 
       units_ordered       = src.units_ordered,
       total_order_items   = src.total_order_items,
       units_refunded      = src.units_refunded,
-      units_shipped       = src.units_shipped,
+      units_received       = src.units_received,
       sessions            = src.sessions,
       page_views          = src.page_views,
       buy_box_percentage  = src.buy_box_percentage,
@@ -245,14 +245,14 @@ async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) 
     WHEN NOT MATCHED THEN INSERT (
       source_report_id, transform_version, updated_at,
       client_id, account_id, asin, date, marketplace_id,
-      ordered_revenue, units_ordered, total_order_items, units_refunded, units_shipped,
+      ordered_revenue, units_ordered, total_order_items, units_refunded, units_received,
       sessions, page_views, buy_box_percentage, unit_session_percentage,
       ordered_revenue_b2b, units_ordered_b2b, sessions_b2b,
       pipeline_run_id
     ) VALUES (
       src.source_report_id, src.transform_version, CURRENT_TIMESTAMP(),
       src.client_id, src.account_id, src.asin, src.date, src.marketplace_id,
-      src.ordered_revenue, src.units_ordered, src.total_order_items, src.units_refunded, src.units_shipped,
+      src.ordered_revenue, src.units_ordered, src.total_order_items, src.units_refunded, src.units_received,
       src.sessions, src.page_views, src.buy_box_percentage, src.unit_session_percentage,
       src.ordered_revenue_b2b, src.units_ordered_b2b, src.sessions_b2b,
       src.pipeline_run_id

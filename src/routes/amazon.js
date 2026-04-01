@@ -34,7 +34,9 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid callback type' });
     }
 
-    const { code, state, selling_partner_id } = req.query;
+    // SP-API consent page returns `spapi_oauth_code`; LWA returns `code`
+    const code = req.query.spapi_oauth_code || req.query.code;
+    const { state, selling_partner_id } = req.query;
     if (!code) return res.status(400).json({ error: 'Missing authorization code' });
 
     const extra = {};

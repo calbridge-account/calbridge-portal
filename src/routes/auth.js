@@ -63,6 +63,11 @@ router.post('/logout', requireAuth, (req, res) => {
   req.session.destroy(() => res.json({ message: 'Logged out' }));
 });
 
+// GET /auth/logout — for sidebar link / direct navigation
+router.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/'));
+});
+
 // GET /auth/me
 router.get('/me', requireAuth, async (req, res, next) => {
   try {

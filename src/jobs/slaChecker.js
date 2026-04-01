@@ -224,7 +224,9 @@ async function runSlaCheck() {
   let alertSent = false;
 
   if (allBreaches.length > 0 || stuckJobs.length > 0) {
-    if (!process.env.RESEND_API_KEY) {
+    if (process.env.SLA_ALERTS_PAUSED === 'true') {
+      console.log('[SlaChecker] Alerts paused (SLA_ALERTS_PAUSED=true) — skipping email');
+    } else if (!process.env.RESEND_API_KEY) {
       console.warn('[SlaChecker] RESEND_API_KEY not set — skipping email alert');
     } else {
       try {

@@ -235,7 +235,7 @@ async function seed() {
 
   if (hasShippedCogs) {
     for (let i = 0; i < salesRows.length; i += CHUNK) {
-      await query(`INSERT INTO sales (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,units_shipped,shipped_revenue,shipped_cogs,synced_at) VALUES ${salesRows.slice(i,i+CHUNK).join(',')}`);
+      await query(`INSERT INTO vendor_purchase_orders (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,units_received,shipped_revenue,shipped_cogs,synced_at) VALUES ${salesRows.slice(i,i+CHUNK).join(',')}`);
     }
   } else {
     // shipped_cogs column not yet added — strip it from the values
@@ -243,7 +243,7 @@ async function seed() {
     //                                                                ^^ strip this 0
     const fallbackRows = salesRows.map(r => r.replace(/,0,CURRENT_TIMESTAMP\)$/, ',CURRENT_TIMESTAMP)'));
     for (let i = 0; i < fallbackRows.length; i += CHUNK) {
-      await query(`INSERT INTO sales (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,units_shipped,shipped_revenue,synced_at) VALUES ${fallbackRows.slice(i,i+CHUNK).join(',')}`);
+      await query(`INSERT INTO vendor_purchase_orders (client_id,connection_type,asin,order_date,units_ordered,ordered_revenue,units_received,shipped_revenue,synced_at) VALUES ${fallbackRows.slice(i,i+CHUNK).join(',')}`);
     }
   }
   console.log(`   ✅ ${salesRows.length} sales rows (shipped_cogs: ${hasShippedCogs ? 'yes' : 'no — column not yet added'})`);

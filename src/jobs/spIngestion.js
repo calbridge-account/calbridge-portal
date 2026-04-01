@@ -135,17 +135,17 @@ async function writeSales(clientId, connectionType, salesData) {
     const date = row.date || new Date().toISOString().split('T')[0];
 
     await query(`
-      MERGE INTO sales t
+      MERGE INTO vendor_purchase_orders t
       USING (SELECT ? AS client_id, ? AS connection_type, ? AS asin, ? AS order_date) s
       ON t.client_id = s.client_id AND t.connection_type = s.connection_type
         AND t.asin = s.asin AND t.order_date = s.order_date
       WHEN MATCHED THEN UPDATE SET
         units_ordered = ?, ordered_revenue = ?,
-        units_shipped = ?, shipped_revenue = ?,
+        units_received = ?, shipped_revenue = ?,
         synced_at = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT
         (client_id, connection_type, asin, order_date,
-         units_ordered, ordered_revenue, units_shipped, shipped_revenue, synced_at)
+         units_ordered, ordered_revenue, units_received, shipped_revenue, synced_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
       clientId, connectionType, asin, date,

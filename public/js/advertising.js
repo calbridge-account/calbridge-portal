@@ -230,7 +230,7 @@ function setupControls() {
 function updateSubtitle() {
   const labels = {
     all:  'Amazon Ads + DSP — unified view',
-    ads:  'Sponsored Products · Sponsored Brands · Sponsored Display',
+    ads:  'Sponsored Ads (SP · SB · SD)',
     dsp:  'Amazon DSP — programmatic display'
   };
   el('channel-subtitle').textContent = labels[activeChannel] || activeChannel;
@@ -452,6 +452,16 @@ async function loadChannelBreakdown() {
     let visible = rows;
     if (activeChannel === 'dsp')  visible = rows.filter(r => r.AD_TYPE === 'DSP');
     else if (activeChannel === 'ads') visible = rows.filter(r => r.AD_TYPE !== 'DSP');
+
+    // Update section heading to reflect active channel
+    const breakdownHeading = el('channel-breakdown-heading');
+    if (breakdownHeading) {
+      if (activeChannel === 'ads') {
+        breakdownHeading.textContent = 'Sponsored Ads Breakdown';
+      } else {
+        breakdownHeading.textContent = 'Channel Breakdown';
+      }
+    }
 
     // Break-even ROAS threshold — simplistic default (1.0x = "covering spend")
     const BREAKEVEN_ROAS = 2.0;

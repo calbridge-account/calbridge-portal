@@ -72,7 +72,7 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
             s.order_date             AS calc_date,
             SUM(s.ordered_revenue)   AS revenue,
             SUM(s.units_ordered)     AS units
-          FROM sales s
+          FROM vendor_purchase_orders s
           WHERE s.client_id = ?
             AND s.connection_type = 'seller'
             AND s.order_date >= DATEADD(day, -?, CURRENT_DATE)
@@ -142,8 +142,8 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
             s.order_date             AS calc_date,
             SUM(s.shipped_revenue)   AS revenue,       -- gross reference value
             SUM(s.shipped_cogs)      AS shipped_cogs,  -- what Amazon actually paid
-            SUM(s.units_shipped)     AS units
-          FROM sales s
+            SUM(s.units_received)     AS units
+          FROM vendor_purchase_orders s
           WHERE s.client_id = ?
             AND s.connection_type = 'vendor'
             AND s.order_date >= DATEADD(day, -?, CURRENT_DATE)

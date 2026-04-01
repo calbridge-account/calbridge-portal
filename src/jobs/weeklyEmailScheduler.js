@@ -22,7 +22,7 @@ async function clientHasRecentData(clientId) {
 
   const [salesRows, adRows] = await Promise.all([
     query(`
-      SELECT COUNT(*) AS cnt FROM sales
+      SELECT COUNT(*) AS cnt FROM vendor_purchase_orders
       WHERE client_id = ? AND order_date >= ?
     `, [clientId, cutoffStr]),
     query(`

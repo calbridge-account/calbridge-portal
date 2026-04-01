@@ -22,6 +22,8 @@ const campaignsRoutes = require('./routes/campaigns');
 const { ensureCampaignActionsTable } = require('./routes/campaigns');
 const brandsRoutes = require('./routes/brands');
 const recommendationsRoutes = require('./routes/recommendations');
+const vendorAnalyticsRoutes = require('./routes/vendorAnalytics');
+const cogsAnalyticsRoutes  = require('./routes/cogsAnalytics');
 
 const app = express();
 
@@ -48,6 +50,29 @@ app.use(session({
 
 // Serve static frontend
 app.use(express.static(path.join(__dirname, '../public')));
+
+// Auth check endpoint for the React dashboard
+app.get('/analytics-auth', (req, res) => {
+  if (!req.session || !req.session.clientId) {
+    return res.status(401).json({ authenticated: false });
+  }
+  res.json({ authenticated: true, clientId: req.session.clientId });
+});
+
+// Serve Calbridge analytics dashboard at /analytics — redirect to login if not authenticated
+app.get('/analytics', (req, res, next) => {
+  if (!req.session || !req.session.clientId) {
+    return res.redirect('/?redirect=/analytics/');
+  }
+  next();
+});
+app.use('/analytics', express.static(path.join(__dirname, '../calbridge-dash/dist')));
+app.get('/analytics/*path', (req, res, next) => {
+  if (!req.session || !req.session.clientId) {
+    return res.redirect('/?redirect=/analytics/');
+  }
+  res.sendFile(path.join(__dirname, '../calbridge-dash/dist/index.html'));
+});
 
 // Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
 const apiLimiter = rateLimit({
@@ -86,6 +111,8 @@ app.use('/chat', chatRoutes);
 app.use('/campaigns', campaignsRoutes);
 app.use('/brands', brandsRoutes);
 app.use('/recommendations', recommendationsRoutes);
+app.use('/vendor-analytics', vendorAnalyticsRoutes);
+app.use('/cogs-analytics', cogsAnalyticsRoutes);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>

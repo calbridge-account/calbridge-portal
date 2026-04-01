@@ -56,7 +56,8 @@ form.addEventListener('submit', async (e) => {
           // If connection check fails, fall through to dashboard
         }
       }
-      window.location.href = '/dashboard.html';
+      const params = new URLSearchParams(window.location.search);
+      window.location.href = params.get('redirect') || '/analytics/';
     }
   } catch (err) {
     errorEl.textContent = err.message;

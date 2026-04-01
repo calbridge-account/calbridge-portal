@@ -2,14 +2,21 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const authService = require('./authService');
 
-const LWA_AUTH_URL = 'https://www.amazon.com/ap/oa';
-const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
+const LWA_AUTH_URL    = 'https://www.amazon.com/ap/oa';
+const LWA_TOKEN_URL   = 'https://api.amazon.com/auth/o2/token';
+
+// SP-API uses the Seller/Vendor Central consent page, not the generic LWA URL
+const SELLER_CONSENT_URL = 'https://sellercentral.amazon.com/apps/authorize/consent';
+const VENDOR_CONSENT_URL = 'https://vendorcentral.amazon.com/apps/authorize/consent';
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 const LWA_CLIENT_ID     = process.env.LWA_CLIENT_ID;
 const LWA_CLIENT_SECRET = process.env.LWA_CLIENT_SECRET;
 const BASE_URL          = process.env.BASE_URL || 'http://localhost:3000';
+
+// SP-API application ID (amzn1.sp.solution.xxx) — used for the consent page URL
+const SPAPI_APP_ID = process.env.SPAPI_APP_ID;
 
 // Use production SP-API credentials when in production, sandbox otherwise
 const SPAPI_CLIENT_ID     = IS_PROD
@@ -23,8 +30,8 @@ const SPAPI_CLIENT_SECRET = IS_PROD
 const CONNECTIONS = {
   ads:    { label: 'Amazon Ads',            scope: 'advertising::campaign_management', api: 'advertising' },
   dsp:    { label: 'Amazon DSP',            scope: 'advertising::campaign_management', api: 'advertising' },
-  seller: { label: 'Amazon Seller Central', scope: 'sellingpartnerapi::migration',     api: 'spapi' },
-  vendor: { label: 'Amazon Vendor Central', scope: 'sellingpartnerapi::migration',     api: 'spapi' }
+  seller: { label: 'Amazon Seller Central', scope: 'sellingpartnerapi::migration',     api: 'spapi', consentUrl: SELLER_CONSENT_URL },
+  vendor: { label: 'Amazon Vendor Central', scope: 'sellingpartnerapi::migration',     api: 'spapi', consentUrl: VENDOR_CONSENT_URL }
 };
 
 // State store — single-use, short-lived (in-memory for dev; move to Redis in prod)
@@ -39,7 +46,13 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * Build the LWA authorization URL for any of the 4 connection types
+ * Build the authorization URL for any of the 4 connection types.
+ *
+ * - Advertising (ads/dsp): LWA generic OAuth flow (amazon.com/ap/oa)
+ * - SP-API (seller/vendor): Seller/Vendor Central consent page flow
+ *   Per Amazon docs, SP-API authorization uses:
+ *   https://sellercentral.amazon.com/apps/authorize/consent?application_id=...
+ *   https://vendorcentral.amazon.com/apps/authorize/consent?application_id=...
  */
 function getAuthUrl(type, clientId) {
   const conn = CONNECTIONS[type];
@@ -48,21 +61,29 @@ function getAuthUrl(type, clientId) {
   const state = uuidv4();
   stateStore.set(state, { clientId, type, createdAt: Date.now() });
 
-  // SP-API uses the SP-API client ID; Advertising uses LWA client ID
-  const clientIdToUse = conn.api === 'spapi' ? SPAPI_CLIENT_ID : LWA_CLIENT_ID;
+  if (conn.api === 'spapi') {
+    // SP-API: redirect to Seller/Vendor Central consent page
+    if (!SPAPI_APP_ID) throw new Error('SPAPI_APP_ID is not configured');
+    const params = new URLSearchParams({
+      application_id: SPAPI_APP_ID,
+      state,
+      redirect_uri:   `${BASE_URL}/amazon/callback/${type}`,
+      version:        'beta', // omit in production after app is live in Appstore
+    });
+    return `${conn.consentUrl}?${params.toString()}`;
+  }
 
-  // Mark all scopes as essential — if user denies, connection fails cleanly
-  // rather than silently succeeding with no permissions
+  // Advertising API: standard LWA OAuth flow
   const scopeData = JSON.stringify({
     [conn.scope]: { essential: true }
   });
 
   const params = new URLSearchParams({
-    client_id:    clientIdToUse,
-    scope:        conn.scope,
-    scope_data:   scopeData,
+    client_id:     LWA_CLIENT_ID,
+    scope:         conn.scope,
+    scope_data:    scopeData,
     response_type: 'code',
-    redirect_uri: `${BASE_URL}/amazon/callback/${type}`,
+    redirect_uri:  `${BASE_URL}/amazon/callback/${type}`,
     state
   });
 

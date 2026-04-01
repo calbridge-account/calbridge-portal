@@ -119,7 +119,7 @@
 
       <!-- Channel breakdown cards -->
       <div style="margin-bottom:24px">
-        <h3 style="font-size:14px;font-weight:600;color:var(--gray-600);margin-bottom:12px">Channel Breakdown</h3>
+        <h3 id="channel-breakdown-heading" style="font-size:14px;font-weight:600;color:var(--gray-600);margin-bottom:12px">Channel Breakdown</h3>
         <div id="channel-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
           <div style="color:var(--gray-400);font-size:13px;padding:8px">Loading…</div>
         </div>
@@ -128,8 +128,8 @@
       <!-- Ad type composition chart (shown when All or Sponsored Ads is selected) -->
       <div id="ad-type-composition-card" class="table-card" style="padding:20px;margin-bottom:24px;display:none">
         <div class="table-header-row" style="padding:0 0 16px;border-bottom:none">
-          <h3>Spend by Ad Type</h3>
-          <span style="font-size:12px;color:var(--gray-400)">SP · SB · SD · DSP composition</span>
+          <h3>Sponsored Ads Composition</h3>
+          <span style="font-size:12px;color:var(--gray-400)">SP · SB · SD spend breakdown</span>
         </div>
         <canvas id="ad-type-chart" style="max-height:220px;min-height:160px;width:100%"></canvas>
       </div>

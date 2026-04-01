@@ -64,7 +64,7 @@ async function fetchSalesMetrics(clientId, startDate, endDate) {
   const rows = await query(`
     SELECT
       COALESCE(SUM(ordered_revenue), 0) + COALESCE(SUM(shipped_revenue), 0) AS total_retail_sales
-    FROM sales
+    FROM vendor_purchase_orders
     WHERE client_id = ?
       AND order_date >= ?
       AND order_date <= ?

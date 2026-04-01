@@ -198,7 +198,7 @@ const SP_API_SALES_TRAFFIC_MAP = {
   totalOrderItems:                     'total_order_items',
   unitsOrdered:                        'units_ordered',
   unitsRefunded:                       'units_refunded',
-  unitsShipped:                        'units_shipped',
+  unitsShipped:                        'units_received',
   sessions:                            'sessions',
   pageViews:                           'page_views',
   buyBoxPercentage:                    'buy_box_percentage',
