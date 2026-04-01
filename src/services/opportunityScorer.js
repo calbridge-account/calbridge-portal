@@ -6,7 +6,7 @@
  *
  * Reads performance and inventory data from canonical Snowflake tables,
  * applies scoring logic v1, applies account-level human overrides, and
- * writes scored opportunities to CALBRIDGE.METRICS.OPPORTUNITY_SCORES.
+ * writes scored opportunities to CALBRIDGE_PROD.METRICS.OPPORTUNITY_SCORES.
  *
  * ─── Scoring Formula v1.3.0 — confirmed by Abe 2026-03-26 ───────────────────
  *
@@ -36,8 +36,8 @@
  *
  * ─── Output ──────────────────────────────────────────────────────────────────
  *
- *   Rows written to CALBRIDGE.METRICS.OPPORTUNITY_SCORES.
- *   Also writes to CALBRIDGE.CANONICAL.OPPORTUNITY_SCORES for cross-agent access.
+ *   Rows written to CALBRIDGE_PROD.METRICS.OPPORTUNITY_SCORES.
+ *   Also writes to CALBRIDGE_PROD.CANONICAL.OPPORTUNITY_SCORES for cross-agent access.
  *   Every row carries metric_version from metrics.js for explainability.
  *
  * ─── Migration dependency ────────────────────────────────────────────────────
@@ -59,10 +59,10 @@ const { METRIC_REGISTRY_VERSION, compute } = require('../config/metrics');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const METRICS_SCORES_TABLE    = 'CALBRIDGE.METRICS.OPPORTUNITY_SCORES';
-const CANONICAL_SCORES_TABLE  = 'CALBRIDGE.CANONICAL.OPPORTUNITY_SCORES';
-const OVERRIDES_TABLE         = 'CALBRIDGE.CANONICAL.ACCOUNT_OVERRIDES';
-const ACCOUNTS_TABLE          = 'CALBRIDGE.CANONICAL.ACCOUNTS';
+const METRICS_SCORES_TABLE    = 'CALBRIDGE_PROD.METRICS.OPPORTUNITY_SCORES';
+const CANONICAL_SCORES_TABLE  = 'CALBRIDGE_PROD.CANONICAL.OPPORTUNITY_SCORES';
+const OVERRIDES_TABLE         = 'CALBRIDGE_PROD.CANONICAL.ACCOUNT_OVERRIDES';
+const ACCOUNTS_TABLE          = 'CALBRIDGE_PROD.CANONICAL.ACCOUNTS';
 
 const INVENTORY_CONSTRAINED_DAYS = 14;
 const LAUNCH_WINDOW_DAYS         = 60;
@@ -79,12 +79,12 @@ const CONFIDENCE = {
 
 async function ensureOutputTables() {
   // METRICS schema
-  await query(`CREATE SCHEMA IF NOT EXISTS CALBRIDGE.METRICS
+  await query(`CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.METRICS
     COMMENT = 'Economist-computed metrics: opportunity scores, CM summaries, capital allocation signals.'`);
 
   // METRICS.OPPORTUNITY_SCORES — the output of this scorer
   await query(`
-    CREATE TABLE IF NOT EXISTS CALBRIDGE.METRICS.OPPORTUNITY_SCORES (
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.METRICS.OPPORTUNITY_SCORES (
       score_id                VARCHAR          DEFAULT UUID_STRING(),
       account_id              VARCHAR          NOT NULL,
       asin                    VARCHAR,
@@ -107,7 +107,7 @@ async function ensureOutputTables() {
   // CANONICAL.ACCOUNT_OVERRIDES — human override rules (also created in migration 002,
   // but we create idempotently here so scoreAccount works even if migration hasn't run)
   await query(`
-    CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.ACCOUNT_OVERRIDES (
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.ACCOUNT_OVERRIDES (
       id                  VARCHAR          DEFAULT UUID_STRING(),
       account_id          VARCHAR          NOT NULL,
       client_id           VARCHAR,
@@ -433,9 +433,9 @@ function applyOverrides(overrides, { campaignId, asin, opportunityType }) {
  * Returns array of tuples with computed metrics ready for scoring.
  *
  * Reads from:
- *   CALBRIDGE.ANALYTICS.ADS_PERFORMANCE   (or METRICS.ADS_PERFORMANCE if present)
- *   CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT
- *   CALBRIDGE.CANONICAL.CONTRIBUTION_MARGINS
+ *   CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE   (or METRICS.ADS_PERFORMANCE if present)
+ *   CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT
+ *   CALBRIDGE_PROD.CANONICAL.CONTRIBUTION_MARGINS
  */
 async function fetchPerformanceTuples(accountId) {
   const sql = `
@@ -473,8 +473,8 @@ async function fetchPerformanceTuples(accountId) {
            AND ap.spend / ap.sales_14d > cm.break_even_acos
           THEN 1 ELSE 0
         END)                                            AS overspent_period_count
-      FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE ap
-      LEFT JOIN CALBRIDGE.CANONICAL.CONTRIBUTION_MARGINS cm
+      FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE ap
+      LEFT JOIN CALBRIDGE_PROD.CANONICAL.CONTRIBUTION_MARGINS cm
              ON cm.account_id = ap.account_id
             AND cm.asin = ap.asin
             AND cm.period_end >= DATEADD('day', -30, CURRENT_DATE)
@@ -490,7 +490,7 @@ async function fetchPerformanceTuples(accountId) {
         inv.asin,
         inv.days_of_supply_30d AS days_of_supply,
         inv.is_inventory_constrained
-      FROM CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT inv
+      FROM CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT inv
       WHERE inv.account_id = ?
       QUALIFY ROW_NUMBER() OVER (PARTITION BY inv.asin ORDER BY inv.snapshot_date DESC) = 1
     ),
@@ -513,7 +513,7 @@ async function fetchPerformanceTuples(accountId) {
           ELSE NULL
         END                         AS break_even_roas,
         cm.contribution_margin_2    AS cm_headroom  -- raw CM2 as headroom proxy
-      FROM CALBRIDGE.CANONICAL.CONTRIBUTION_MARGINS cm
+      FROM CALBRIDGE_PROD.CANONICAL.CONTRIBUTION_MARGINS cm
       WHERE cm.account_id = ?
       QUALIFY ROW_NUMBER() OVER (PARTITION BY cm.asin ORDER BY cm.period_end DESC) = 1
     )

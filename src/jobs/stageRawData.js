@@ -48,7 +48,7 @@ async function getActiveAccounts() {
   try {
     const rows = await query(`
       SELECT DISTINCT account_id, client_id
-      FROM CALBRIDGE.PIPELINE.JOB_RUNS
+      FROM CALBRIDGE_PROD.PIPELINE.JOB_RUNS
       WHERE started_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
         AND account_id != 'unknown'
         AND account_id != 'system'
@@ -77,7 +77,7 @@ async function getActiveAccounts() {
  */
 async function stageSpCampaignsToAnalytics(clientId, accountId, pipelineRunId) {
   const result = await query(`
-    MERGE INTO CALBRIDGE.ANALYTICS.ADS_PERFORMANCE tgt
+    MERGE INTO CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE tgt
     USING (
       SELECT
         r.report_id                                         AS source_report_id,
@@ -110,12 +110,12 @@ async function stageSpCampaignsToAnalytics(clientId, accountId, pipelineRunId) {
         CASE WHEN r.clicks > 0      THEN r.cost / r.clicks END           AS cpc,
         CASE WHEN r.clicks > 0      THEN r.purchases_30_d::FLOAT / r.clicks END AS cvr,
         ?                                                   AS pipeline_run_id
-      FROM CALBRIDGE.RAW_AMAZON_ADS.SP_CAMPAIGNS r
+      FROM CALBRIDGE_PROD.RAW.SP_CAMPAIGNS r
       WHERE r.client_id  = ?
         AND r.account_id = ?
         -- Only unprocessed rows (not yet in analytics or superseded by newer report)
         AND NOT EXISTS (
-          SELECT 1 FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE a
+          SELECT 1 FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE a
           WHERE a.client_id   = r.client_id
             AND a.account_id  = r.account_id
             AND a.ad_type     = 'SP'
@@ -184,7 +184,7 @@ async function stageSpCampaignsToAnalytics(clientId, accountId, pipelineRunId) {
  */
 async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) {
   const result = await query(`
-    MERGE INTO CALBRIDGE.ANALYTICS.RETAIL_PERFORMANCE tgt
+    MERGE INTO CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE tgt
     USING (
       SELECT
         r.report_id                       AS source_report_id,
@@ -207,11 +207,11 @@ async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) 
         COALESCE(r.units_ordered_b2b, 0)  AS units_ordered_b2b,
         r.sessions_b2b,
         ?                                 AS pipeline_run_id
-      FROM CALBRIDGE.RAW_SP_API.SALES_TRAFFIC r
+      FROM CALBRIDGE_PROD.RAW.SALES_TRAFFIC r
       WHERE r.client_id  = ?
         AND r.account_id = ?
         AND NOT EXISTS (
-          SELECT 1 FROM CALBRIDGE.ANALYTICS.RETAIL_PERFORMANCE a
+          SELECT 1 FROM CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE a
           WHERE a.client_id     = r.client_id
             AND a.account_id    = r.account_id
             AND a.asin          = r.asin
@@ -267,7 +267,7 @@ async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) 
  */
 async function stageFbaInventoryToAnalytics(clientId, accountId, pipelineRunId) {
   const result = await query(`
-    MERGE INTO CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT tgt
+    MERGE INTO CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT tgt
     USING (
       SELECT
         r.report_id                   AS source_report_id,
@@ -291,11 +291,11 @@ async function stageFbaInventoryToAnalytics(clientId, accountId, pipelineRunId) 
              THEN TRUE ELSE FALSE END                                   AS restock_alert,
         r.your_price,
         ?                             AS pipeline_run_id
-      FROM CALBRIDGE.RAW_SP_API.FBA_INVENTORY r
+      FROM CALBRIDGE_PROD.RAW.FBA_INVENTORY r
       WHERE r.client_id  = ?
         AND r.account_id = ?
         AND NOT EXISTS (
-          SELECT 1 FROM CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT a
+          SELECT 1 FROM CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT a
           WHERE a.client_id      = r.client_id
             AND a.account_id     = r.account_id
             AND a.asin           = r.asin
@@ -420,12 +420,12 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
   const checks = [
     // Check 1: ADS_PERFORMANCE has no null campaign_ids for recent data
     {
-      table:     'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
       assertion: 'no_null_campaign_id',
       checkType: 'null_check',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
         WHERE client_id = ? AND account_id = ?
           AND campaign_id IS NULL
           AND date >= DATEADD('day', -7, CURRENT_DATE())
@@ -434,12 +434,12 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
     },
     // Check 2: No negative spend in recent ads data
     {
-      table:     'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
       assertion: 'spend_not_negative',
       checkType: 'range_check',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
         WHERE client_id = ? AND account_id = ?
           AND cost < 0
           AND date >= DATEADD('day', -7, CURRENT_DATE())
@@ -448,12 +448,12 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
     },
     // Check 3: ADS_PERFORMANCE has at least one row in the last 3 days
     {
-      table:     'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
       assertion: 'row_count_gt_0_3d',
       checkType: 'row_count',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
         WHERE client_id = ? AND account_id = ?
           AND date >= DATEADD('day', -3, CURRENT_DATE())
       `, [clientId, accountId]],
@@ -462,12 +462,12 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
     },
     // Check 4: No rows with zero impressions AND zero clicks AND non-zero spend
     {
-      table:     'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
       assertion: 'no_ghost_spend',
       checkType: 'anomaly',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
         WHERE client_id = ? AND account_id = ?
           AND impressions = 0 AND clicks = 0 AND cost > 0
           AND date >= DATEADD('day', -7, CURRENT_DATE())
@@ -488,7 +488,7 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
         if (!pass) failures++;
 
         await query(`
-          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
@@ -535,9 +535,9 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
   const runId = await startJob('compute_freshness', 'system', triggeredBy);
 
   const tables = [
-    { table: 'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',    tsColumn: 'updated_at' },
-    { table: 'CALBRIDGE.ANALYTICS.RETAIL_PERFORMANCE', tsColumn: 'updated_at' },
-    { table: 'CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT', tsColumn: 'updated_at' },
+    { table: 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',    tsColumn: 'updated_at' },
+    { table: 'CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE', tsColumn: 'updated_at' },
+    { table: 'CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT', tsColumn: 'updated_at' },
   ];
 
   let updated = 0;
@@ -562,7 +562,7 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
         const lastLoadAt = rows[0]?.LAST_LOAD_AT || rows[0]?.last_load_at;
 
         await query(`
-          MERGE INTO CALBRIDGE.PIPELINE.FRESHNESS tgt
+          MERGE INTO CALBRIDGE_PROD.PIPELINE.FRESHNESS tgt
           USING (SELECT ? AS table_name, ? AS account_id, ? AS client_id) src
           ON tgt.table_name = src.table_name AND tgt.account_id = src.account_id AND tgt.client_id = src.client_id
           WHEN MATCHED THEN UPDATE SET
@@ -633,7 +633,7 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
         FROM date_spine d
         LEFT JOIN (
           SELECT DISTINCT date
-          FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+          FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
           WHERE client_id = ? AND account_id = ?
         ) a ON a.date = d.d
         WHERE a.date IS NULL
@@ -647,11 +647,11 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
 
         // Log as a quality issue so it's visible
         await query(`
-          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
-            (UUID_STRING(), ?, CURRENT_TIMESTAMP(), 'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE',
+            (UUID_STRING(), ?, CURRENT_TIMESTAMP(), 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
              ?, ?, 'no_missing_partitions', 'row_count', 'WARN', 30, ?, ?)
         `, [
           uuidv4(),

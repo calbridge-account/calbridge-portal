@@ -21,7 +21,7 @@ const { v4: uuidv4 } = require('uuid');
 const { query } = require('./snowflakeService');
 
 // Fully-qualified table name
-const JOB_RUNS = 'CALBRIDGE.PIPELINE.JOB_RUNS';
+const JOB_RUNS = 'CALBRIDGE_PROD.PIPELINE.JOB_RUNS';
 
 // ─── Status constants ────────────────────────────────────────────────────────
 const STATUS = {
