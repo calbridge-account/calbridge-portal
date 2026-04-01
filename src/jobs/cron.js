@@ -143,7 +143,7 @@ async function syncJobMetadata() {
   try {
     const rows = await query(`
       SELECT job_type, status, COUNT(*) AS cnt
-      FROM CALBRIDGE.PIPELINE.JOB_RUNS
+      FROM CALBRIDGE_PROD.PIPELINE.JOB_RUNS
       WHERE started_at >= DATEADD('hour', -1, CURRENT_TIMESTAMP())
       GROUP BY job_type, status
       ORDER BY cnt DESC
@@ -239,12 +239,12 @@ const CRON_SCHEDULE = [
   // },
 
   // ── SLA checker ────────────────────────────────────────────────────────────
-  // Run every 30 min — checks all jobs against their SLA windows
-  {
-    jobId: '_sla_checker',
-    expr:  '*/30 * * * *',
-    handler: () => slaChecker().runSlaCheck(),
-  },
+  // Disabled — not providing value currently
+  // {
+  //   jobId: '_sla_checker',
+  //   expr:  '*/30 * * * *',
+  //   handler: () => slaChecker().runSlaCheck(),
+  // },
 ];
 
 // ─── Public API ───────────────────────────────────────────────────────────────
