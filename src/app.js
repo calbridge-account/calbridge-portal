@@ -74,8 +74,9 @@ app.get(/^\/analytics(\/.*)?$/, (req, res, next) => {
   if (!req.session || !req.session.clientId) {
     return res.redirect('/?redirect=/analytics/');
   }
-  const indexPath = path.join(__dirname, '../calbridge-dash/dist/index.html');
-  res.sendFile(indexPath, (err) => { if (err) next(err); });
+  res.sendFile('index.html', {
+    root: path.join(__dirname, '../calbridge-dash/dist')
+  }, (err) => { if (err) next(err); });
 });
 
 // Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
