@@ -171,7 +171,7 @@ router.get('/overview', async (req, res, next) => {
       // Weekly trend: shipped + ordered revenue by week
       query(`
         SELECT
-          TO_VARCHAR(date, 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           date,
           SUM(shipped_revenue) AS shipped_revenue,
           SUM(ordered_revenue) AS ordered_revenue,
@@ -421,7 +421,7 @@ router.get('/vendor', async (req, res, next) => {
       // Weekly sell-through rate trend
       query(`
         SELECT
-          TO_VARCHAR(date, 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           date,
           AVG(sell_through_rate)          AS sell_through_rate,
           AVG(vendor_confirmation_rate)   AS conf_rate,
@@ -435,7 +435,7 @@ router.get('/vendor', async (req, res, next) => {
       // Weekly ordered vs shipped units
       query(`
         SELECT
-          TO_VARCHAR(date, 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           date,
           SUM(ordered_units)  AS ordered_units,
           SUM(shipped_units)  AS shipped_units
@@ -620,7 +620,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
           SUM(cost)           AS spend,
           SUM(sales_14d)     AS sales,
           SUM(impressions)    AS impressions,
@@ -635,7 +635,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
           SUM(cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
@@ -650,7 +650,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
           SUM(cost)       AS spend,
           SUM(sales_14d)      AS sales,
           SUM(impressions) AS impressions,
@@ -665,7 +665,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           DATE_TRUNC('week', date) AS week_start,
-          TO_VARCHAR(DATE_TRUNC('week', date), 'YYYY-MM-DD') AS week,
+          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week,
           SUM(cost)           AS spend,
           SUM(sales_14d)          AS sales,
           SUM(impressions)          AS impressions,
