@@ -108,7 +108,9 @@ async function adminFetch(path, options = {}) {
 
 // ── Load all ─────────────────────────────────────────────────────────────────
 async function loadAll() {
-  await Promise.all([loadClients(), loadAdjustments()]);
+  // Clients must load first — adjustments dropdown depends on allClients being populated
+  await loadClients();
+  await loadAdjustments();
 }
 
 // ── Clients ───────────────────────────────────────────────────────────────────
@@ -298,15 +300,19 @@ async function loadAdjustments() {
     if (!res.ok) throw new Error();
     allAdjustments = await res.json();
 
-    // Populate client dropdowns if not already done
-    const saClient    = document.getElementById('sa-client');
-    const filterSel   = document.getElementById('sa-filter-client');
-    if (saClient && saClient.options.length <= 1) {
+    // Populate client dropdowns — rebuild each time to stay in sync with allClients
+    const saClient  = document.getElementById('sa-client');
+    const filterSel = document.getElementById('sa-filter-client');
+    if (saClient) {
+      const prevVal = saClient.value;
+      saClient.innerHTML = '<option value="">Select client&hellip;</option>';
+      filterSel.innerHTML = '<option value="">All clients</option>';
       allClients.forEach(c => {
         const label = c.companyName || c.name || c.email;
         saClient.insertAdjacentHTML('beforeend',  `<option value="${c.clientId}">${label}</option>`);
-        filterSel?.insertAdjacentHTML('beforeend', `<option value="${c.clientId}">${label}</option>`);
+        filterSel.insertAdjacentHTML('beforeend', `<option value="${c.clientId}">${label}</option>`);
       });
+      if (prevVal) saClient.value = prevVal;
     }
 
     renderAdjTable(document.getElementById('sa-filter-client')?.value || '');
