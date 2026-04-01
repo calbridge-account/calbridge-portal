@@ -121,15 +121,20 @@ function setupControls() {
   applyBtn?.addEventListener('click', async () => {
     const from = el('date-from')?.value;
     const to   = el('date-to')?.value;
+    console.log('[Apply] clicked — from:', from, 'to:', to);
     if (from && to) {
       currentDays  = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
       currentStart = from;
       currentEnd   = to;
+      console.log('[Apply] state set — currentStart:', currentStart, 'currentEnd:', currentEnd, 'days:', currentDays);
+      console.log('[Apply] dateParams():', dateParams());
       customRange?.classList.add('hidden');
-      // Update subtitle to show selected range (element may not exist on all pages)
       const subEl = el('section-sub');
       if (subEl) subEl.textContent = `${from} → ${to}`;
       await loadAll();
+      console.log('[Apply] loadAll() complete');
+    } else {
+      console.warn('[Apply] missing from or to — from:', from, 'to:', to);
     }
   });
 
@@ -259,6 +264,7 @@ function channelParam() {
 
 /* ─── Load everything ────────────────────────────────────────────────── */
 async function loadAll() {
+  console.log('[loadAll] called — dateParams:', dateParams(), 'channel:', activeChannel);
   applyChannelVisibility();
 
   // Dim KPIs while loading
