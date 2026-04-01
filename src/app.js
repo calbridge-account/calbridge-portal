@@ -68,11 +68,14 @@ app.get('/analytics', (req, res, next) => {
   next();
 });
 app.use('/analytics', express.static(path.join(__dirname, '../calbridge-dash/dist')));
-app.get('/analytics/*path', (req, res, next) => {
+// Catch-all for React Router deep links (e.g. /analytics/advertising, /analytics/vendor)
+// Regex instead of /*path wildcard to avoid Express 5 NotFoundError on sendFile
+app.get(/^\/analytics(\/.*)?$/, (req, res, next) => {
   if (!req.session || !req.session.clientId) {
     return res.redirect('/?redirect=/analytics/');
   }
-  res.sendFile(path.join(__dirname, '../calbridge-dash/dist/index.html'));
+  const indexPath = path.join(__dirname, '../calbridge-dash/dist/index.html');
+  res.sendFile(indexPath, (err) => { if (err) next(err); });
 });
 
 // Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
