@@ -145,20 +145,20 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           COALESCE(SUM(shipped_revenue), 0)  AS vendor_revenue,
           COALESCE(SUM(ordered_revenue + shipped_revenue), 0) AS total_retail_sales,
           COALESCE(SUM(units_ordered), 0)    AS total_units
-        FROM sales
+        FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
       `, [clientId]),
 
       // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
       query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
         SELECT
-          COALESCE(SUM(spend), 0)   AS total_ad_spend,
+          COALESCE(SUM(adjusted_spend), 0)   AS total_ad_spend,
           COALESCE(SUM(sales), 0)   AS total_ad_sales,
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
-          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
-          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
+          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS ad_roas,
+          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos
         FROM cp
       `, [clientId])
     ]);
@@ -387,7 +387,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
           SUM(s.units_ordered)  AS units,
           SUM(s.ordered_revenue + COALESCE(s.shipped_revenue, 0)) AS revenue,
           COUNT(DISTINCT s.order_date) AS active_days
-        FROM sales s
+        FROM vendor_purchase_orders s
         LEFT JOIN products p ON s.client_id = p.client_id AND s.asin = p.asin
         WHERE s.client_id = ?
           ${dateFilter("s.order_date", days, startDate, endDate)}
@@ -402,7 +402,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
           order_date,
           SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS daily_revenue,
           SUM(units_ordered) AS daily_units
-        FROM sales
+        FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
         GROUP BY order_date
@@ -415,7 +415,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
           connection_type,
           SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS channel_revenue,
           SUM(units_ordered) AS channel_units
-        FROM sales
+        FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
         GROUP BY connection_type
@@ -481,14 +481,14 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     const [salesRow, adsRow] = await Promise.all([
       query(`
         SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue
-        FROM sales
+        FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
       `, [clientId]),
 
       query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
-        SELECT COALESCE(SUM(spend), 0) AS total_spend FROM cp
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
+        SELECT COALESCE(SUM(adjusted_spend), 0) AS total_spend FROM cp
       `, [clientId])
     ]);
 
@@ -500,11 +500,11 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     let byType = [];
     try {
       const typeRows = await query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
         SELECT
           ad_type AS campaign_type,
           ad_type AS connection_type,
-          SUM(spend) AS spend
+          SUM(adjusted_spend) AS spend
         FROM cp
         GROUP BY ad_type
         ORDER BY spend DESC
@@ -549,7 +549,7 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
       SELECT
         order_date,
         SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS daily_revenue
-      FROM sales
+      FROM vendor_purchase_orders
       WHERE client_id = ?
         ${dateFilter("order_date", days, startDate, endDate)}
       GROUP BY order_date
@@ -737,11 +737,11 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
     const clientId = req.session.clientId;
 
     const rows = await query(`
-      WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases IS NOT NULL)
+      WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases IS NOT NULL)
       SELECT
         COALESCE(SUM(orders), 0)               AS total_orders,
         COALESCE(SUM(sales), 0)                AS total_sales,
-        COALESCE(SUM(spend), 0)                AS total_spend,
+        COALESCE(SUM(adjusted_spend), 0)                AS total_spend,
         COALESCE(SUM(new_to_brand_purchases), 0) AS ntb_orders,
         COALESCE(SUM(new_to_brand_sales), 0)   AS ntb_sales,
         COALESCE(SUM(new_to_brand_units_sold),0) AS ntb_units,
@@ -750,9 +750,9 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(sales) > 0
           THEN SUM(new_to_brand_sales) / SUM(sales) ELSE NULL END AS ntb_revenue_rate,
         CASE WHEN SUM(new_to_brand_sales) > 0
-          THEN SUM(spend) / SUM(new_to_brand_sales) ELSE NULL END AS ntb_acos,
-        CASE WHEN SUM(spend) > 0
-          THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
+          THEN SUM(adjusted_spend) / SUM(new_to_brand_sales) ELSE NULL END AS ntb_acos,
+        CASE WHEN SUM(adjusted_spend) > 0
+          THEN SUM(new_to_brand_sales) / SUM(adjusted_spend) ELSE NULL END AS ntb_roas
       FROM cp
     `, [clientId]);
 
@@ -762,20 +762,20 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
     let byCampaign = [];
     try {
       const campRows = await query(`
-        WITH cp AS (SELECT * FROM campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases > 0)
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases > 0)
         SELECT
           campaign_id,
           campaign_name,
           ad_type AS campaign_type,
           SUM(orders)        AS total_orders,
           SUM(sales)                 AS total_sales,
-          SUM(spend)                 AS total_spend,
+          SUM(adjusted_spend)                 AS total_spend,
           SUM(new_to_brand_purchases) AS ntb_orders,
           SUM(new_to_brand_sales)    AS ntb_sales,
           CASE WHEN SUM(orders) > 0
             THEN SUM(new_to_brand_purchases) / SUM(orders) ELSE NULL END AS ntb_order_rate,
-          CASE WHEN SUM(spend) > 0
-            THEN SUM(new_to_brand_sales) / SUM(spend) ELSE NULL END AS ntb_roas
+          CASE WHEN SUM(adjusted_spend) > 0
+            THEN SUM(new_to_brand_sales) / SUM(adjusted_spend) ELSE NULL END AS ntb_roas
         FROM cp
         GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
@@ -892,18 +892,18 @@ router.get('/ads-trend', requireAuth, async (req, res, next) => {
         date                                                             AS day,
         COALESCE(SUM(impressions), 0)                                   AS impressions,
         COALESCE(SUM(clicks), 0)                                        AS clicks,
-        COALESCE(SUM(spend), 0)                                         AS spend,
+        COALESCE(SUM(adjusted_spend), 0)                                         AS spend,
         COALESCE(SUM(sales), 0)                                         AS sales,
         COALESCE(SUM(orders), 0)                                        AS orders,
-        CASE WHEN SUM(spend) > 0
-          THEN SUM(sales) / SUM(spend) ELSE NULL END                    AS roas,
+        CASE WHEN SUM(adjusted_spend) > 0
+          THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END                    AS roas,
         CASE WHEN SUM(sales) > 0
-          THEN SUM(spend) / SUM(sales) ELSE NULL END                    AS acos,
+          THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END                    AS acos,
         CASE WHEN SUM(clicks) > 0
           THEN CAST(SUM(clicks) AS FLOAT) / NULLIF(SUM(impressions),0)  ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0
-          THEN SUM(spend) / SUM(clicks)                                 ELSE NULL END AS cpc
-      FROM campaign_performance
+          THEN SUM(adjusted_spend) / SUM(clicks)                                 ELSE NULL END AS cpc
+      FROM adjusted_campaign_performance
       WHERE client_id = ?
         ${dateFilter('date', days, startDate, endDate)}
       GROUP BY date

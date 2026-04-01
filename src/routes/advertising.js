@@ -95,11 +95,11 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         SELECT
           COALESCE(SUM(impressions), 0)  AS total_impressions,
           COALESCE(SUM(clicks), 0)       AS total_clicks,
-          COALESCE(SUM(spend), 0)        AS total_spend,
+          COALESCE(SUM(adjusted_spend), 0)        AS total_spend,
           COALESCE(SUM(sales), 0)        AS total_sales,
           COALESCE(SUM(orders), 0)       AS total_orders,
           COALESCE(SUM(units_sold), 0)   AS total_units
-        FROM campaign_performance
+        FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
         ${channelFilter(channel, adType)}
       )
@@ -132,10 +132,10 @@ router.get('/trend', requireAuth, async (req, res, next) => {
           date,
           SUM(impressions) AS impressions,
           SUM(clicks)      AS clicks,
-          SUM(spend)       AS spend,
+          SUM(adjusted_spend)  AS spend,
           SUM(sales)       AS sales,
           SUM(orders)      AS orders
-        FROM campaign_performance
+        FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         GROUP BY date
@@ -167,10 +167,10 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
           ad_type,
           SUM(impressions) AS impressions,
           SUM(clicks)      AS clicks,
-          SUM(spend)       AS spend,
+          SUM(adjusted_spend)  AS spend,
           SUM(sales)       AS sales,
           SUM(orders)      AS orders
-        FROM campaign_performance
+        FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         GROUP BY ad_type
       )
@@ -208,11 +208,11 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
           campaign_budget_amount,
           SUM(impressions) AS impressions,
           SUM(clicks)      AS clicks,
-          SUM(spend)       AS spend,
+          SUM(adjusted_spend)  AS spend,
           SUM(sales)       AS sales,
           SUM(orders)      AS orders,
           SUM(units_sold)  AS units_sold
-        FROM campaign_performance
+        FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         GROUP BY campaign_id, campaign_name, ad_type, campaign_status, campaign_budget_amount
@@ -252,10 +252,10 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
           ad_type,
           SUM(impressions) AS impressions,
           SUM(clicks)      AS clicks,
-          SUM(spend)       AS spend,
+          SUM(adjusted_spend)  AS spend,
           SUM(sales)       AS sales,
           SUM(orders)      AS orders
-        FROM campaign_performance
+        FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         GROUP BY ad_type
       )
@@ -289,10 +289,10 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
             ad_type,
             SUM(impressions) AS impressions,
             SUM(clicks)      AS clicks,
-            SUM(spend)       AS spend,
+            SUM(adjusted_spend)  AS spend,
             SUM(sales)       AS sales,
             SUM(orders)      AS orders
-          FROM campaign_performance
+          FROM adjusted_campaign_performance
           WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
           GROUP BY ad_type
         )
@@ -308,7 +308,7 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
       `, [clientId]),
       query(`
         SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue
-        FROM sales
+        FROM vendor_purchase_orders
         WHERE client_id = ? ${dateFilter("order_date", days, startDate, endDate)}
       `, [clientId])
     ]);
@@ -560,7 +560,7 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
       SELECT
         SUM(impressions)                                                          AS total_impressions,
         SUM(clicks)                                                               AS total_clicks,
-        SUM(total_cost)                                                           AS total_spend,
+        SUM(adjusted_cost)                                                        AS total_spend,
         SUM(sales)                                                                AS total_sales,
         SUM(purchases)                                                            AS total_purchases,
         SUM(detail_page_views)                                                    AS total_dpv,
@@ -571,12 +571,12 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
         SUM(video_ad_complete)                                                    AS total_video_completions,
         SUM(total_purchases)                                                      AS grand_total_purchases,
         SUM(total_sales)                                                          AS grand_total_sales,
-        CASE WHEN SUM(total_cost) > 0         THEN SUM(sales) / SUM(total_cost)                ELSE NULL END AS roas,
+        CASE WHEN SUM(adjusted_cost) > 0         THEN SUM(sales) / SUM(adjusted_cost)                ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0        THEN SUM(clicks) / SUM(impressions)              ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0        THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate,
         CASE WHEN SUM(video_ad_start) > 0     THEN SUM(video_ad_complete) / SUM(video_ad_start) ELSE NULL END AS vcr,
-        CASE WHEN SUM(total_cost) > 0         THEN SUM(detail_page_views) / SUM(total_cost)    ELSE NULL END AS dpvr
-      FROM dsp_campaign_report
+        CASE WHEN SUM(adjusted_cost) > 0         THEN SUM(detail_page_views) / SUM(adjusted_cost)    ELSE NULL END AS dpvr
+      FROM adjusted_dsp_campaign_report
       WHERE client_id = ?
         ${dateFilter("date", days, startDate, endDate)}
     `, [clientId]);
@@ -626,7 +626,7 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
         MAX(order_end_date)                                                       AS order_end_date,
         SUM(impressions)                                                          AS impressions,
         SUM(clicks)                                                               AS clicks,
-        SUM(total_cost)                                                           AS spend,
+        SUM(adjusted_cost)                                                        AS spend,
         SUM(sales)                                                                AS sales,
         SUM(purchases)                                                            AS purchases,
         SUM(detail_page_views)                                                    AS dpv,
@@ -635,10 +635,10 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
         SUM(viewable_impressions)                                                 AS viewable_impressions,
         SUM(add_to_cart)                                                          AS atc,
         SUM(video_ad_complete)                                                    AS video_completions,
-        CASE WHEN SUM(total_cost) > 0   THEN SUM(sales) / SUM(total_cost)          ELSE NULL END AS roas,
+        CASE WHEN SUM(adjusted_cost) > 0   THEN SUM(sales) / SUM(adjusted_cost)          ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0  THEN SUM(clicks) / SUM(impressions)        ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0  THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate
-      FROM dsp_campaign_report
+      FROM adjusted_dsp_campaign_report
       WHERE client_id = ?
         ${dateFilter("date", days, startDate, endDate)}
       GROUP BY order_id

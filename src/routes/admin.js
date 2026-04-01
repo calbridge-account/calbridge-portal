@@ -284,4 +284,106 @@ router.get('/logs', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ============================================================
+// SPEND ADJUSTMENTS (admin-only, UI layer multipliers)
+// ============================================================
+
+/**
+ * GET /admin/spend-adjustments
+ * List all spend adjustments, optionally filtered by client_id
+ */
+router.get('/spend-adjustments', requireAdmin, async (req, res, next) => {
+  try {
+    const clientFilter = req.query.clientId ? `WHERE sa.client_id = '${req.query.clientId}'` : '';
+    const rows = await query(`
+      SELECT
+        sa.id,
+        sa.client_id,
+        c.company_name,
+        c.name AS client_name,
+        sa.year_month,
+        sa.ad_type,
+        sa.multiplier,
+        sa.note,
+        sa.created_by,
+        sa.created_at,
+        sa.updated_at
+      FROM spend_adjustments sa
+      LEFT JOIN clients c ON sa.client_id = c.client_id
+      ${clientFilter}
+      ORDER BY sa.year_month DESC, c.company_name ASC, sa.ad_type ASC
+    `);
+    res.json(rows.map(r => ({
+      id:          Number(r.ID),
+      clientId:    r.CLIENT_ID,
+      companyName: r.COMPANY_NAME || r.CLIENT_NAME || r.CLIENT_ID,
+      yearMonth:   r.YEAR_MONTH,
+      adType:      r.AD_TYPE,
+      multiplier:  Number(r.MULTIPLIER),
+      note:        r.NOTE || null,
+      createdBy:   r.CREATED_BY || null,
+      createdAt:   r.CREATED_AT,
+      updatedAt:   r.UPDATED_AT
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/spend-adjustments
+ * Create or update a spend adjustment (upsert by client_id + year_month + ad_type)
+ */
+router.post('/spend-adjustments', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId, yearMonth, adType, multiplier, note } = req.body;
+
+    // Validation
+    if (!clientId || !yearMonth || !adType || multiplier == null) {
+      return res.status(400).json({ error: 'clientId, yearMonth, adType, and multiplier are required' });
+    }
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      return res.status(400).json({ error: 'yearMonth must be YYYY-MM format' });
+    }
+    if (!['SP', 'SB', 'SD', 'DSP', 'ALL'].includes(adType)) {
+      return res.status(400).json({ error: 'adType must be SP, SB, SD, DSP, or ALL' });
+    }
+    const mult = Number(multiplier);
+    if (isNaN(mult) || mult <= 0 || mult > 10) {
+      return res.status(400).json({ error: 'multiplier must be a positive number (0–10)' });
+    }
+
+    const adminEmail = req.session?.adminEmail || 'admin';
+
+    await query(`
+      MERGE INTO spend_adjustments AS target
+      USING (SELECT ? AS client_id, ? AS year_month, ? AS ad_type) AS source
+        ON target.client_id = source.client_id
+       AND target.year_month = source.year_month
+       AND target.ad_type    = source.ad_type
+      WHEN MATCHED THEN UPDATE SET
+        multiplier = ?,
+        note       = ?,
+        created_by = ?,
+        updated_at = CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT (client_id, year_month, ad_type, multiplier, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `, [clientId, yearMonth, adType, mult, note || null, adminEmail,
+        clientId, yearMonth, adType, mult, note || null, adminEmail]);
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/**
+ * DELETE /admin/spend-adjustments/:id
+ * Remove a spend adjustment by id
+ */
+router.delete('/spend-adjustments/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid id' });
+    await query(`DELETE FROM spend_adjustments WHERE id = ?`, [id]);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
