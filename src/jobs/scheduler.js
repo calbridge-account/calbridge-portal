@@ -14,6 +14,7 @@ const { Resend } = require('resend');
 const { ingestCampaigns, ingestPerformance, ingestDsp, processReportQueue } = require('./adsIngestion');
 const { ingestProducts, ingestSales } = require('./spIngestion');
 const { calculateContributionMargin } = require('./contributionMargin');
+const { pollAllQueues } = require('../services/marketingStreamService');
 const authService = require('../services/authService');
 
 // In-memory client registry for dev (replace with DB query in prod)
@@ -110,13 +111,20 @@ function startScheduler() {
   const SIX_HOURS   = 6 * 60 * 60 * 1000;
   const FIVE_MINUTES = 5 * 60 * 1000;
 
-  console.log('[Scheduler] Started — full sync every 6h, queue poll every 5min');
+  console.log('[Scheduler] Started — full sync every 6h, queue poll every 5min, stream poll every 5min');
 
   // Run full sync immediately on startup
   runFullSync();
 
   // Full sync every 6 hours
   setInterval(runFullSync, SIX_HOURS);
+
+  // Marketing Stream SQS poller — every 5 minutes
+  // No-ops automatically until AWS credentials + subscriptions are configured
+  setInterval(async () => {
+    try { await pollAllQueues(); }
+    catch (err) { console.error('[Stream] Poller error:', err.message); }
+  }, FIVE_MINUTES);
 
   // Poll report queue — starts 2.5 minutes after startup, then every 5 minutes
   // Offset from the full sync to avoid Snowflake pool contention

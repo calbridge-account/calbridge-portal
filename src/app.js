@@ -24,6 +24,7 @@ const brandsRoutes = require('./routes/brands');
 const recommendationsRoutes = require('./routes/recommendations');
 const vendorAnalyticsRoutes = require('./routes/vendorAnalytics');
 const cogsAnalyticsRoutes  = require('./routes/cogsAnalytics');
+const streamRoutes         = require('./routes/stream');
 
 const app = express();
 
@@ -113,6 +114,7 @@ app.use('/brands', brandsRoutes);
 app.use('/recommendations', recommendationsRoutes);
 app.use('/vendor-analytics', vendorAnalyticsRoutes);
 app.use('/cogs-analytics', cogsAnalyticsRoutes);
+app.use('/admin', streamRoutes);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>
