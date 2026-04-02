@@ -21,6 +21,13 @@ app.listen(PORT, () => {
   }, 2000);
 
   if (process.env.ENABLE_SCHEDULER !== 'false') {
+    // Clear any zombie 'running'/'pending' JOB_RUNS left by a previous crash/restart
+    // Must run before startCron so the in-DB lock state is clean before new runs begin
+    const { clearStaleRunningJobs } = require('./services/jobRunner');
+    clearStaleRunningJobs(30).catch(err =>
+      console.warn('[server] clearStaleRunningJobs failed (non-fatal):', err.message)
+    );
+
     // New cron runner — handles all jobs including report polling
     startCron({ runImmediately: true });
 

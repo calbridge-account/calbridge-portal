@@ -342,7 +342,6 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
       SELECT report_id, client_id, profile_id, report_type, report_date, download_url
       FROM ads_report_queue
       WHERE status = 'ready'
-        AND requested_at >= DATEADD('hour', -6, CURRENT_TIMESTAMP())
       ORDER BY requested_at ASC
       LIMIT 30
     `);
@@ -369,13 +368,13 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
       const profileId = rawProfile?.includes('|') ? rawProfile.split('|')[1] : rawProfile;
 
       try {
-        // If we have a cached URL, use it — otherwise re-fetch from Amazon
-        let url = downloadUrl;
-        if (!url) {
-          // URL wasn't stored — re-poll to get it
+        // Resolve the download URL. Pre-signed S3 URLs expire after ~1 hour,
+        // so always re-poll Amazon for a fresh URL rather than relying on the stored one.
+        let url = null;
+        {
           const { getValidToken } = require('../services/amazonAuthService');
           const token = await getValidToken(clientId, 'ads');
-          const res = await axios.get(
+          const pollRes = await axios.get(
             `https://advertising-api.amazon.com/reporting/reports/${reportId}`,
             {
               headers: {
@@ -386,11 +385,25 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
               timeout: 10000,
             }
           );
-          if (res.data.status !== 'COMPLETED') {
-            console.warn(`[downloadReports] ${reportId} not COMPLETED (${res.data.status}) — skipping`);
+          const { status: reportStatus, failureReason } = pollRes.data;
+          if (reportStatus === 'COMPLETED') {
+            url = pollRes.data.url;
+          } else if (reportStatus === 'FAILURE') {
+            // Amazon says it failed — mark as failed permanently
+            await query(`
+              UPDATE ads_report_queue
+              SET status='failed', error_message=?, completed_at=CURRENT_TIMESTAMP()
+              WHERE report_id=?
+            `, [failureReason || 'FAILURE from Amazon', reportId]);
+            console.warn(`[downloadReports] ${reportId} (${reportType}): Amazon FAILURE — ${failureReason}`);
+            continue;
+          } else {
+            // Still PENDING/PROCESSING — reset to pending so poll_report_status picks it up
+            await query(`
+              UPDATE ads_report_queue SET status='pending', download_url=NULL WHERE report_id=?
+            `, [reportId]);
             continue;
           }
-          url = res.data.url;
         }
 
         // Download and decompress
@@ -415,19 +428,30 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
 
         await query(`
           UPDATE ads_report_queue
-          SET status='completed', records_written=?, completed_at=CURRENT_TIMESTAMP()
+          SET status='completed', records_written=?, completed_at=CURRENT_TIMESTAMP(), download_url=NULL
           WHERE report_id=?
         `, [written, reportId]);
 
         console.log(`[downloadReports] ✅ ${reportId} (${reportType} ${reportDate}): ${written} rows`);
-        await sleep(100);
+        await sleep(200);
       } catch (err) {
+        const httpStatus = err.response?.status;
         const msg = err.message?.substring(0, 500) || 'unknown';
         console.error(`[downloadReports] ❌ ${reportId} (${reportType}): ${msg}`);
-        await query(`
-          UPDATE ads_report_queue
-          SET error_message=? WHERE report_id=?
-        `, [msg, reportId]).catch(() => {});
+
+        if (httpStatus === 403 || httpStatus === 410) {
+          // Pre-signed URL expired or gone — reset to pending so it gets re-polled
+          await query(`
+            UPDATE ads_report_queue
+            SET status='pending', download_url=NULL, error_message=?
+            WHERE report_id=?
+          `, [`URL expired (${httpStatus}) — reset for re-poll`, reportId]).catch(() => {});
+        } else {
+          // Other error — leave error_message but don't change status
+          await query(`
+            UPDATE ads_report_queue SET error_message=? WHERE report_id=?
+          `, [msg, reportId]).catch(() => {});
+        }
       }
     }
 

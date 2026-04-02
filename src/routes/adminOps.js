@@ -544,4 +544,71 @@ router.get('/git-status', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ─────────────────────────────
+// POST /admin/trigger-sync
+// Manually kick off the full ingestion pipeline for all active clients.
+// Calls submit_amazon_reports → poll_report_status → download_completed_reports in sequence.
+// Designed to be called from an external scheduler (e.g. OpenClaw cron) as a safety net
+// so the pipeline runs even if the in-process node-cron timer drifts or the server restarts.
+// Returns immediately after submitting; processing continues in the background.
+// Auth: requireAdmin (session cookie) OR internal token (INTERNAL_SYNC_TOKEN in .env)
+// ─────────────────────────────
+router.post('/trigger-sync', async (req, res, next) => {
+  // Allow admin session OR static internal token (for cron/automation)
+  const internalToken = process.env.INTERNAL_SYNC_TOKEN;
+  const providedToken = req.headers['x-internal-token'] || req.body?.token;
+  const isAdmin       = !!req.session?.adminId;
+  const isTokenValid  = internalToken && providedToken === internalToken;
+
+  if (!isAdmin && !isTokenValid) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Respond immediately so the caller doesn't time out waiting for the full pipeline
+  res.json({ ok: true, message: 'Sync triggered', triggeredAt: new Date().toISOString() });
+
+  // Run the full ingestion pipeline in the background (non-blocking)
+  setImmediate(async () => {
+    const start = Date.now();
+    try {
+      const { submitAmazonReports, pollReportStatus, downloadCompletedReports } = require('../jobs/reportOrchestrator');
+      const { clearStaleRunningJobs } = require('../services/jobRunner');
+
+      console.log('[trigger-sync] Starting manual sync pipeline...');
+
+      // Clear any zombie locks before running
+      await clearStaleRunningJobs(5);
+
+      // Phase 1: submit new report requests to Amazon (last 3 days)
+      const submitted = await submitAmazonReports({ triggeredBy: 'manual', daysBack: 3 }).catch(e => {
+        console.error('[trigger-sync] submitAmazonReports failed:', e.message);
+        return null;
+      });
+
+      // Phase 2: poll status of all pending reports
+      const polled = await pollReportStatus({ triggeredBy: 'manual' }).catch(e => {
+        console.error('[trigger-sync] pollReportStatus failed:', e.message);
+        return null;
+      });
+
+      // Phase 3: download any reports that are ready
+      const downloaded = await downloadCompletedReports({ triggeredBy: 'manual' }).catch(e => {
+        console.error('[trigger-sync] downloadCompletedReports failed:', e.message);
+        return null;
+      });
+
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      console.log(
+        `[trigger-sync] \u2705 Done in ${elapsed}s \u2014` +
+        ` submitted=${submitted?.totalQueued ?? '?'}` +
+        ` polled=${polled?.polled ?? '?'}` +
+        ` downloaded=${downloaded?.downloaded ?? '?'}` +
+        ` rows=${downloaded?.rowsWritten ?? '?'}`
+      );
+    } catch (err) {
+      console.error('[trigger-sync] Pipeline error:', err.message);
+    }
+  });
+});
+
 module.exports = router;

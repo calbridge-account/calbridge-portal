@@ -264,6 +264,37 @@ async function getActiveAccounts(withinDays = 7) {
   }
 }
 
+// ─── clearStaleRunningJobs ────────────────────────────────────────────────────
+/**
+ * Mark zombie 'running' and 'pending' JOB_RUNS as failed.
+ * Called once on process startup to clear locks left by a previous crash/restart.
+ * Any job stuck in 'running' for more than olderThanMinutes is assumed crashed.
+ *
+ * @param {number} [olderThanMinutes=30]
+ * @returns {Promise<number>}  Number of rows cleared
+ */
+async function clearStaleRunningJobs(olderThanMinutes = 30) {
+  try {
+    const result = await query(
+      `UPDATE ${JOB_RUNS}
+       SET status        = 'failed',
+           completed_at  = CURRENT_TIMESTAMP(),
+           error_message = 'Process restarted — run did not complete (stale lock cleared on startup)'
+       WHERE status IN ('running', 'pending')
+         AND started_at <= DATEADD('minute', ?, CURRENT_TIMESTAMP())`,
+      [-olderThanMinutes]
+    );
+    const cleared = result?.[0]?.['number of rows updated'] ?? result?.[0]?.number_of_rows_updated ?? 0;
+    if (cleared > 0) {
+      console.log(`[jobRunner] Cleared ${cleared} stale running/pending job(s) from previous process`);
+    }
+    return cleared;
+  } catch (err) {
+    console.error('[jobRunner] clearStaleRunningJobs failed (non-fatal):', err.message);
+    return 0;
+  }
+}
+
 module.exports = {
   STATUS,
   startJob,
@@ -274,4 +305,5 @@ module.exports = {
   getLastSuccessfulAt,
   getRunningJobs,
   getActiveAccounts,
+  clearStaleRunningJobs,
 };
