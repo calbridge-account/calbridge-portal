@@ -114,16 +114,16 @@ export default function VendorPerformance() {
           title="Vendor Confirmation Rate"
           value={m.avgConfRate}
           format="percent"
-          note="PO confirmation rate"
-          definition="The number of units you confirmed to ship divided by the number of units Amazon requested in purchase orders. A rate below 100% means you confirmed fewer units than Amazon ordered — this can lead to lost sales, penalties, and reduced future PO frequency."
+          note="Weeks with active POs only"
+          definition="Units you confirmed to ship ÷ units Amazon requested in POs. Averaged only over weeks with active POs (excludes zero-PO weeks to avoid artificially low averages). Target: >95%."
           loading={isLoading}
         />
         <MetricCard
           title="Receive Fill Rate"
           value={m.avgFillRate}
           format="percent"
-          note="Units received vs confirmed"
-          definition="Units actually received by Amazon's fulfillment centers divided by the units you confirmed on purchase orders. A rate below 100% means Amazon received fewer units than you promised to ship — shortfalls can result in chargebacks and affect your vendor scorecard."
+          note="Received vs confirmed units"
+          definition="Units actually received at Amazon FCs ÷ units confirmed on POs. Can be 0 for recent POs not yet received — this is normal and does not indicate a problem. Distinct from Confirmation Rate."
           loading={isLoading}
         />
         <MetricCard
@@ -230,13 +230,14 @@ export default function VendorPerformance() {
                 <tr className="border-b border-gray-200">
                   {[
                     { h: 'ASIN', def: null },
-                    { h: 'Model #', def: null },
+                    { h: 'Model / Product', def: null },
                     { h: 'Sellable On Hand', def: 'Units in Amazon FCs in sellable condition at end of period. Includes backorders as negative.' },
                     { h: 'Aged 90+', def: 'Sellable units that have been in Amazon\'s fulfillment centers for 90+ days. At risk of long-term storage fees.' },
                     { h: 'Unhealthy', def: 'Excess inventory units beyond what Amazon\'s demand forecast suggests is needed. Amazon flags these as overstocked.' },
                     { h: 'OOS Units', def: 'Customer orders that could not be fulfilled due to out-of-stock inventory (unfilled customer ordered units).' },
                     { h: 'Sell-Through', def: 'Units shipped ÷ (opening inventory + received). Higher = inventory moving faster.' },
-                    { h: 'Fill Rate', def: 'Units received by Amazon ÷ units you confirmed on POs. Measures shipping reliability.' },
+                    { h: 'Conf Rate', def: 'Vendor Confirmation Rate: units you confirmed to ship ÷ units Amazon ordered in POs. Only averaged over weeks with active POs. Target >95%.' },
+                    { h: 'Fill Rate', def: 'Units received by Amazon ÷ units you confirmed on POs. Measures shipping reliability. May be low for recent POs not yet received — that is normal.' },
                     { h: 'Lead Time', def: 'Avg days from PO submission to receipt at Amazon FC.' },
                     { h: 'Proceeds after Ads', def: 'Shipped COGS minus total ad spend for this ASIN in the selected period. Red = ad spend exceeds COGS (negative margin signal).' },
                   ].map(({ h, def }) => (
@@ -250,7 +251,12 @@ export default function VendorPerformance() {
                 {asins.map((row, i) => (
                   <tr key={row.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
                     <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{row.asin}</td>
-                    <td className="py-2.5 px-3 text-gray-700 max-w-xs truncate" title={row.model || row.title}>{row.model || row.title || '—'}</td>
+                    <td className="py-2.5 px-3 text-gray-700 max-w-sm" title={[row.model, row.title].filter(Boolean).join(' — ')}>
+                      {row.model && <span className="font-medium text-gray-900">{row.model}</span>}
+                      {row.model && row.title && <span className="text-gray-400 mx-1">—</span>}
+                      {row.title && <span className="text-gray-500 text-xs truncate block max-w-xs">{row.title}</span>}
+                      {!row.model && !row.title && '—'}
+                    </td>
                     <td className="py-2.5 px-3 text-right font-medium">{fmt(row.sellableOnHand)}</td>
                     <td className="py-2.5 px-3 text-right">
                       <span className={row.aged90Plus > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>{fmt(row.aged90Plus)}</span>
@@ -262,6 +268,7 @@ export default function VendorPerformance() {
                       <span className={row.oosUnits > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>{fmt(row.oosUnits)}</span>
                     </td>
                     <td className="py-2.5 px-3">{healthBadge(row.sellThrough)}</td>
+                    <td className="py-2.5 px-3">{healthBadge(row.confRate)}</td>
                     <td className="py-2.5 px-3">{healthBadge(row.fillRate)}</td>
                     <td className="py-2.5 px-3 text-gray-600">{row.leadTime != null ? `${Number(row.leadTime).toFixed(1)}d` : '—'}</td>
                     <td className="py-2.5 px-3 text-right">

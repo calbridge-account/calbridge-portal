@@ -33,11 +33,13 @@ function rangeParams(range) {
   return `?range=${range.type || '12w'}`;
 }
 
-export const getOverview      = (range) => fetchJSON(`/overview${rangeParams(range)}`);
-export const getVendorMetrics = (range) => fetchJSON(`/vendor${rangeParams(range)}`);
-export const getVendorAsins   = (range) => fetchJSON(`/vendor/asins${rangeParams(range)}`);
-export const getAdvertising   = (range) => fetchJSON(`/advertising${rangeParams(range)}`);
-export const getForecasting   = (range) => fetchJSON(`/forecasting${rangeParams(range)}`);
+export const getOverview          = (range) => fetchJSON(`/overview${rangeParams(range)}`);
+export const getVendorMetrics     = (range) => fetchJSON(`/vendor${rangeParams(range)}`);
+export const getVendorAsins       = (range) => fetchJSON(`/vendor/asins${rangeParams(range)}`);
+export const getAdvertising       = (range) => fetchJSON(`/advertising${rangeParams(range)}`);
+export const getForecasting       = (range) => fetchJSON(`/forecasting${rangeParams(range)}`);
+export const getForecastShift     = (asin)  => fetchJSON(`/forecast-shift${asin ? `?asin=${asin}` : ''}`);
+export const getAnnualProjection  = ()      => fetchJSON('/annual-projection');
 
 // COGS Analytics — uses /cogs-analytics base (proxied separately)
 const COGS_BASE = '/cogs-analytics';

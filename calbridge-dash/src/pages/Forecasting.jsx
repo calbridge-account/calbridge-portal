@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, Cell,
+  Legend, ResponsiveContainer, Cell, LineChart, Line,
 } from 'recharts';
-import { useForecasting } from '../hooks/useAnalytics';
+import { useForecasting, useForecastShift } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -202,7 +202,12 @@ export default function Forecasting() {
                 {filtered.map((row, i) => (
                   <tr key={row.asin} className={`border-b border-gray-50 hover:bg-blue-50/30 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                     <td className="py-2.5 px-3 font-mono text-xs text-blue-700 whitespace-nowrap">{row.asin}</td>
-                    <td className="py-2.5 px-3 text-gray-700 max-w-xs truncate" title={row.model || row.title}>{row.model || row.title || '—'}</td>
+                    <td className="py-2.5 px-3 text-gray-700 max-w-sm" title={[row.model, row.title].filter(Boolean).join(' — ')}>
+                      {row.model && <span className="font-medium text-gray-900 whitespace-nowrap">{row.model}</span>}
+                      {row.model && row.title && <span className="text-gray-400 mx-1">—</span>}
+                      {row.title && <span className="text-gray-500 text-xs truncate block max-w-xs">{row.title}</span>}
+                      {!row.model && !row.title && '—'}
+                    </td>
                     <td className="py-2.5 px-3 text-right font-semibold text-gray-900">{fmt(row.meanForecast)}</td>
                     <td className="py-2.5 px-3 text-right text-gray-600">{fmt(row.p70)}</td>
                     <td className="py-2.5 px-3 text-right text-gray-600">{fmt(row.p80)}</td>
@@ -233,6 +238,117 @@ export default function Forecasting() {
           </div>
         )}
       </div>
+      {/* Forecast Shift / Revision History */}
+      <ForecastShiftSection />
+    </div>
+  );
+}
+
+// Line colors for the top ASINs in the forecast shift chart
+const SHIFT_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#64748b'];
+
+function ForecastShiftSection() {
+  const { data, isLoading, isError } = useForecastShift();
+  const [selectedAsin, setSelectedAsin] = useState(null);
+
+  const asins = data?.asins || [];
+
+  // Pick which ASINs to show in the chart (single selected, or top 5 if none selected)
+  const displayAsins = selectedAsin
+    ? asins.filter(a => a.asin === selectedAsin)
+    : asins.slice(0, 5);
+
+  // Build chart data: x = generationDate, y = totalForecastNext4Weeks per ASIN
+  // Collect all unique generation dates
+  const allDates = [...new Set(
+    asins.flatMap(a => a.generationDates.map(g => g.date))
+  )].sort();
+
+  const chartData = allDates.map(date => {
+    const point = { date };
+    for (const asin of displayAsins) {
+      const found = asin.generationDates.find(g => g.date === date);
+      point[asin.asin] = found ? found.totalForecastNext4Weeks : null;
+    }
+    return point;
+  });
+
+  function shortLabel(asin, modelNumber) {
+    return modelNumber || asin;
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 mt-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">
+            📈 Forecast Revision History
+          </h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            How Amazon’s demand forecast for the next 4 weeks has shifted over time, by forecast generation date.
+          </p>
+        </div>
+        <select
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={selectedAsin || ''}
+          onChange={e => setSelectedAsin(e.target.value || null)}
+        >
+          <option value="">Top 5 ASINs</option>
+          {asins.map(a => (
+            <option key={a.asin} value={a.asin}>
+              {a.modelNumber || a.asin}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div className="h-64 bg-gray-100 rounded animate-pulse" />
+      ) : isError ? (
+        <div className="text-red-400 text-sm py-4">Failed to load forecast history</div>
+      ) : chartData.length === 0 ? (
+        <div className="h-40 flex items-center justify-center text-gray-400 text-sm">No forecast history available</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 20, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10 }}
+                angle={-35}
+                textAnchor="end"
+                interval={Math.max(0, Math.floor(allDates.length / 8) - 1)}
+              />
+              <YAxis
+                tickFormatter={(v) => new Intl.NumberFormat('en-US', { notation: 'compact' }).format(v)}
+                tick={{ fontSize: 10 }}
+              />
+              <Tooltip
+                formatter={(v, name) => [v != null ? new Intl.NumberFormat('en-US').format(Math.round(v)) : '—', name]}
+                labelStyle={{ fontWeight: 600 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {displayAsins.map((asin, i) => (
+                <Line
+                  key={asin.asin}
+                  type="monotone"
+                  dataKey={asin.asin}
+                  name={shortLabel(asin.asin, asin.modelNumber)}
+                  stroke={SHIFT_COLORS[i % SHIFT_COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-400 mt-2">
+            Each point = Amazon’s forecast for the next 4 weeks, as generated on that date.
+            A rising line means Amazon is increasing its demand expectation.
+          </p>
+        </>
+      )}
     </div>
   );
 }

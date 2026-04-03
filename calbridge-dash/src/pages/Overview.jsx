@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, Legend, ResponsiveContainer, ComposedChart, Area, ReferenceLine,
 } from 'recharts';
-import { useOverview } from '../hooks/useAnalytics';
+import { useOverview, useAnnualProjection } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import {
@@ -302,7 +302,7 @@ export default function Overview() {
       </div>
 
       {/* Demand Forecast Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">
           Demand Forecast — Top 20 ASINs (next 4 weeks)
         </h3>
@@ -316,7 +316,7 @@ export default function Overview() {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">ASIN</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Product</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Model / Product</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Mean Forecast</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">P70</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">P80</th>
@@ -327,7 +327,12 @@ export default function Overview() {
                 {forecastTable.slice(0, 20).map((row, i) => (
                   <tr key={row.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                     <td className="py-2.5 px-3 font-mono text-xs text-gray-700">{row.asin}</td>
-                    <td className="py-2.5 px-3 text-gray-700 max-w-xs truncate">{row.model || row.title || '—'}</td>
+                    <td className="py-2.5 px-3 text-gray-700 max-w-sm" title={[row.model, row.title].filter(Boolean).join(' — ')}>
+                      {row.model && <span className="font-medium text-gray-900">{row.model}</span>}
+                      {row.model && row.title && <span className="text-gray-400 mx-1">—</span>}
+                      {row.title && <span className="text-gray-500 text-xs">{row.title}</span>}
+                      {!row.model && !row.title && '—'}
+                    </td>
                     <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmt(row.meanForecast, 'number')}</td>
                     <td className="py-2.5 px-3 text-right text-gray-600">{fmt(row.p70, 'number')}</td>
                     <td className="py-2.5 px-3 text-right text-gray-600">{fmt(row.p80, 'number')}</td>
@@ -339,6 +344,141 @@ export default function Overview() {
           </div>
         )}
       </div>
+
+      {/* Annual Revenue Projection */}
+      <AnnualProjectionSection />
+    </div>
+  );
+}
+
+function AnnualProjectionSection() {
+  const { data, isLoading, isError } = useAnnualProjection();
+  const s = data?.summary || {};
+  const weekly = data?.weeklyData || [];
+
+  function fmtCur(v) {
+    if (v == null || isNaN(v)) return '—';
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
+  }
+
+  // Find where actuals end and projections start for reference line
+  const splitIdx = weekly.findIndex(w => w.type === 'projected');
+  const splitLabel = splitIdx >= 0 ? weekly[splitIdx]?.week : null;
+
+  // Build chart data with a combined value field
+  const chartData = weekly.map(w => ({
+    week: w.week,
+    startDate: w.startDate,
+    type: w.type,
+    revenue: w.type === 'actual' ? w.shippedRevenue : w.projectedRevenue,
+    cogs:    w.type === 'actual' ? w.shippedCogs    : w.projectedCogs,
+  }));
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">
+            📅 {s.year || new Date().getFullYear()} Annual Revenue Projection
+          </h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            YTD actuals through {s.lastActualDate || '…'} + forecast-based projection for remaining weeks
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="h-64 bg-gray-100 rounded animate-pulse" />
+      ) : isError ? (
+        <div className="text-red-400 text-sm py-4">Failed to load annual projection</div>
+      ) : (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="bg-blue-50 rounded-lg p-3">
+              <div className="text-xs text-blue-600 font-medium mb-1">Full-Year Revenue</div>
+              <div className="text-xl font-bold text-blue-900">{fmtCur(s.fullYearRevenue)}</div>
+              <div className="text-xs text-blue-400 mt-0.5">projected</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-600 font-medium mb-1">YTD Actual Revenue</div>
+              <div className="text-xl font-bold text-gray-900">{fmtCur(s.ytdRevenue)}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{s.ytdUnits != null ? new Intl.NumberFormat('en-US').format(Math.round(s.ytdUnits)) + ' units' : ''}</div>
+            </div>
+            <div className="bg-green-50 rounded-lg p-3">
+              <div className="text-xs text-green-600 font-medium mb-1">Remaining Projected</div>
+              <div className="text-xl font-bold text-green-900">{fmtCur(s.projectedRevenue)}</div>
+              <div className="text-xs text-green-400 mt-0.5">based on forecast</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-600 font-medium mb-1">Full-Year COGS</div>
+              <div className="text-xl font-bold text-gray-900">{fmtCur(s.fullYearCogs)}</div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                avg {s.avgSellingPrice != null ? fmtCur(s.avgSellingPrice) : '—'}/unit
+              </div>
+            </div>
+          </div>
+
+          {/* Weekly chart */}
+          {chartData.length > 0 && (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis
+                  dataKey="week"
+                  tick={{ fontSize: 9 }}
+                  interval={Math.floor(chartData.length / 10)}
+                />
+                <YAxis
+                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  tick={{ fontSize: 10 }}
+                />
+                <Tooltip
+                  formatter={(v, name) => [fmtCur(v), name]}
+                  labelFormatter={(label, payload) => {
+                    const item = payload?.[0]?.payload;
+                    return `${label}${item?.type === 'projected' ? ' (projected)' : ' (actual)'}`;
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {splitLabel && (
+                  <ReferenceLine
+                    x={splitLabel}
+                    stroke="#94a3b8"
+                    strokeDasharray="4 2"
+                    label={{ value: 'Forecast →', position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }}
+                  />
+                )}
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Revenue"
+                  stroke="#2563eb"
+                  fill="#eff6ff"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cogs"
+                  name="COGS"
+                  stroke="#6b7280"
+                  fill="#f9fafb"
+                  strokeWidth={1.5}
+                  dot={false}
+                  strokeDasharray="4 2"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+          <p className="text-xs text-gray-400 mt-2">
+            Dashed vertical line marks transition from actuals to forecast-based projection. 
+            COGS projected using avg COGS/unit from YTD actuals.
+          </p>
+        </>
+      )}
     </div>
   );
 }

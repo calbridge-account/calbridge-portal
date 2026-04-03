@@ -70,6 +70,373 @@ async function getActiveAccounts() {
 
 // ─── Job 1: stage_raw_data ────────────────────────────────────────────────────
 
+// ─── Job 0: stage_ad_campaign_raw ────────────────────────────────────────────
+// Merge SP / SB / SD / DSP campaign-level rows from CALBRIDGE_PROD.APP report
+// tables into CALBRIDGE_PROD.RAW.AD_CAMPAIGN (canonical campaign-day table).
+// This is what ADJUSTED_AD_CAMPAIGN view reads — must be current for the
+// vendor analytics advertising tab to show data.
+
+async function stageAdCampaignRaw(clientId, pipelineRunId) {
+  let totalRows = 0;
+
+  // ── SP ──
+  try {
+    const r = await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
+      USING (
+        SELECT
+          client_id,
+          'amazon'                            AS platform,
+          'ATVPDKIKX0DER'                     AS marketplace,
+          CURRENT_TIMESTAMP()                 AS ingested_at,
+          profile_id || '_' || campaign_id || '_SP_' || TO_VARCHAR(date,'YYYYMMDD') AS report_id,
+          ?                                   AS pipeline_run_id,
+          'preliminary'                       AS data_maturity,
+          CURRENT_TIMESTAMP()                 AS last_refreshed_at,
+          campaign_id,
+          date,
+          campaign_name,
+          'SP'                                AS campaign_type,
+          'SPONSORED_PRODUCTS'                AS ad_product,
+          campaign_status                     AS status,
+          campaign_budget_amount              AS daily_budget,
+          COALESCE(impressions, 0)            AS impressions,
+          COALESCE(clicks, 0)                 AS clicks,
+          COALESCE(cost, 0)                   AS cost,
+          purchases_1_d                       AS purchases_1d,
+          purchases_7_d                       AS purchases_7d,
+          purchases_14_d                      AS purchases_14d,
+          purchases_30_d                      AS purchases_30d,
+          sales_1_d                           AS sales_1d,
+          sales_7_d                           AS sales_7d,
+          sales_14_d                          AS sales_14d,
+          sales_30_d                          AS sales_30d,
+          NULL::FLOAT                         AS ntb_orders_14d,
+          NULL::FLOAT                         AS ntb_sales_14d,
+          NULL::FLOAT                         AS ntb_units_14d,
+          top_of_search_impression_share      AS impression_share,
+          NULL::FLOAT                         AS impression_share_lost_budget,
+          NULL::FLOAT                         AS impression_share_lost_rank,
+          NULL::FLOAT                         AS video_views_25pct,
+          NULL::FLOAT                         AS video_views_50pct,
+          NULL::FLOAT                         AS video_views_75pct,
+          NULL::FLOAT                         AS video_views_100pct,
+          NULL::FLOAT                         AS viewable_impressions
+        FROM CALBRIDGE_PROD.APP.SP_CAMPAIGN_REPORT
+        WHERE client_id = ?
+      ) src
+      ON  tgt.client_id   = src.client_id
+      AND tgt.campaign_id = src.campaign_id
+      AND tgt.ad_product  = src.ad_product
+      AND tgt.date        = src.date
+      WHEN MATCHED AND tgt.ingested_at < src.ingested_at THEN UPDATE SET
+        ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
+        data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
+        campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,
+        impressions = src.impressions, clicks = src.clicks, cost = src.cost,
+        purchases_1d = src.purchases_1d, purchases_7d = src.purchases_7d,
+        purchases_14d = src.purchases_14d, purchases_30d = src.purchases_30d,
+        sales_1d = src.sales_1d, sales_7d = src.sales_7d,
+        sales_14d = src.sales_14d, sales_30d = src.sales_30d,
+        impression_share = src.impression_share
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+        data_maturity, last_refreshed_at, campaign_id, date, campaign_name, campaign_type,
+        ad_product, status, daily_budget, impressions, clicks, cost,
+        purchases_1d, purchases_7d, purchases_14d, purchases_30d,
+        sales_1d, sales_7d, sales_14d, sales_30d,
+        ntb_orders_14d, ntb_sales_14d, ntb_units_14d,
+        impression_share, impression_share_lost_budget, impression_share_lost_rank,
+        video_views_25pct, video_views_50pct, video_views_75pct, video_views_100pct,
+        viewable_impressions
+      ) VALUES (
+        src.client_id, src.platform, src.marketplace, src.ingested_at, src.report_id, src.pipeline_run_id,
+        src.data_maturity, src.last_refreshed_at, src.campaign_id, src.date, src.campaign_name, src.campaign_type,
+        src.ad_product, src.status, src.daily_budget, src.impressions, src.clicks, src.cost,
+        src.purchases_1d, src.purchases_7d, src.purchases_14d, src.purchases_30d,
+        src.sales_1d, src.sales_7d, src.sales_14d, src.sales_30d,
+        src.ntb_orders_14d, src.ntb_sales_14d, src.ntb_units_14d,
+        src.impression_share, src.impression_share_lost_budget, src.impression_share_lost_rank,
+        src.video_views_25pct, src.video_views_50pct, src.video_views_75pct, src.video_views_100pct,
+        src.viewable_impressions
+      )
+    `, [pipelineRunId, clientId]);
+    const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
+    totalRows += rows;
+    if (rows > 0) console.log('[stageAdCampaignRaw] SP:', rows, 'rows for', clientId);
+  } catch (err) {
+    console.warn('[stageAdCampaignRaw] SP failed:', err.message);
+  }
+
+  // ── SB ──
+  try {
+    const r = await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
+      USING (
+        SELECT
+          client_id,
+          'amazon'                            AS platform,
+          'ATVPDKIKX0DER'                     AS marketplace,
+          CURRENT_TIMESTAMP()                 AS ingested_at,
+          profile_id || '_' || campaign_id || '_SB_' || TO_VARCHAR(report_date,'YYYYMMDD') AS report_id,
+          ?                                   AS pipeline_run_id,
+          'preliminary'                       AS data_maturity,
+          CURRENT_TIMESTAMP()                 AS last_refreshed_at,
+          campaign_id,
+          report_date                         AS date,
+          campaign_name,
+          'SB'                                AS campaign_type,
+          'SPONSORED_BRANDS'                  AS ad_product,
+          campaign_status                     AS status,
+          campaign_budget_amount              AS daily_budget,
+          COALESCE(impressions, 0)            AS impressions,
+          COALESCE(clicks, 0)                 AS clicks,
+          COALESCE(cost, 0)                   AS cost,
+          NULL::FLOAT                         AS purchases_1d,
+          NULL::FLOAT                         AS purchases_7d,
+          purchases_clicks::FLOAT             AS purchases_14d,
+          purchases::FLOAT                    AS purchases_30d,
+          NULL::FLOAT                         AS sales_1d,
+          NULL::FLOAT                         AS sales_7d,
+          sales_clicks::FLOAT                 AS sales_14d,
+          sales::FLOAT                        AS sales_30d,
+          new_to_brand_purchases_clicks::FLOAT  AS ntb_orders_14d,
+          new_to_brand_sales_clicks::FLOAT      AS ntb_sales_14d,
+          new_to_brand_units_sold_clicks::FLOAT AS ntb_units_14d,
+          top_of_search_impression_share      AS impression_share,
+          NULL::FLOAT                         AS impression_share_lost_budget,
+          NULL::FLOAT                         AS impression_share_lost_rank,
+          NULL::FLOAT                         AS video_views_25pct,
+          NULL::FLOAT                         AS video_views_50pct,
+          NULL::FLOAT                         AS video_views_75pct,
+          video_complete_views::FLOAT         AS video_views_100pct,
+          viewable_impressions::FLOAT         AS viewable_impressions
+        FROM CALBRIDGE_PROD.APP.SB_CAMPAIGN_REPORT
+        WHERE client_id = ?
+      ) src
+      ON  tgt.client_id   = src.client_id
+      AND tgt.campaign_id = src.campaign_id
+      AND tgt.ad_product  = src.ad_product
+      AND tgt.date        = src.date
+      WHEN MATCHED AND tgt.ingested_at < src.ingested_at THEN UPDATE SET
+        ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
+        data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
+        campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,
+        impressions = src.impressions, clicks = src.clicks, cost = src.cost,
+        purchases_14d = src.purchases_14d, purchases_30d = src.purchases_30d,
+        sales_14d = src.sales_14d, sales_30d = src.sales_30d,
+        ntb_orders_14d = src.ntb_orders_14d, ntb_sales_14d = src.ntb_sales_14d,
+        ntb_units_14d = src.ntb_units_14d,
+        impression_share = src.impression_share, viewable_impressions = src.viewable_impressions
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+        data_maturity, last_refreshed_at, campaign_id, date, campaign_name, campaign_type,
+        ad_product, status, daily_budget, impressions, clicks, cost,
+        purchases_1d, purchases_7d, purchases_14d, purchases_30d,
+        sales_1d, sales_7d, sales_14d, sales_30d,
+        ntb_orders_14d, ntb_sales_14d, ntb_units_14d,
+        impression_share, impression_share_lost_budget, impression_share_lost_rank,
+        video_views_25pct, video_views_50pct, video_views_75pct, video_views_100pct,
+        viewable_impressions
+      ) VALUES (
+        src.client_id, src.platform, src.marketplace, src.ingested_at, src.report_id, src.pipeline_run_id,
+        src.data_maturity, src.last_refreshed_at, src.campaign_id, src.date, src.campaign_name, src.campaign_type,
+        src.ad_product, src.status, src.daily_budget, src.impressions, src.clicks, src.cost,
+        src.purchases_1d, src.purchases_7d, src.purchases_14d, src.purchases_30d,
+        src.sales_1d, src.sales_7d, src.sales_14d, src.sales_30d,
+        src.ntb_orders_14d, src.ntb_sales_14d, src.ntb_units_14d,
+        src.impression_share, src.impression_share_lost_budget, src.impression_share_lost_rank,
+        src.video_views_25pct, src.video_views_50pct, src.video_views_75pct, src.video_views_100pct,
+        src.viewable_impressions
+      )
+    `, [pipelineRunId, clientId]);
+    const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
+    totalRows += rows;
+    if (rows > 0) console.log('[stageAdCampaignRaw] SB:', rows, 'rows for', clientId);
+  } catch (err) {
+    console.warn('[stageAdCampaignRaw] SB failed:', err.message);
+  }
+
+  // ── SD ──
+  try {
+    const r = await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
+      USING (
+        SELECT
+          client_id,
+          'amazon'                            AS platform,
+          'ATVPDKIKX0DER'                     AS marketplace,
+          CURRENT_TIMESTAMP()                 AS ingested_at,
+          profile_id || '_' || campaign_id || '_SD_' || TO_VARCHAR(date,'YYYYMMDD') AS report_id,
+          ?                                   AS pipeline_run_id,
+          'preliminary'                       AS data_maturity,
+          CURRENT_TIMESTAMP()                 AS last_refreshed_at,
+          campaign_id,
+          date,
+          campaign_name,
+          'SD'                                AS campaign_type,
+          'SPONSORED_DISPLAY'                 AS ad_product,
+          campaign_status                     AS status,
+          campaign_budget_amount              AS daily_budget,
+          COALESCE(impressions, 0)            AS impressions,
+          COALESCE(clicks, 0)                 AS clicks,
+          COALESCE(cost, 0)                   AS cost,
+          NULL::FLOAT                         AS purchases_1d,
+          NULL::FLOAT                         AS purchases_7d,
+          purchases_clicks::FLOAT             AS purchases_14d,
+          purchases::FLOAT                    AS purchases_30d,
+          NULL::FLOAT                         AS sales_1d,
+          NULL::FLOAT                         AS sales_7d,
+          sales_clicks::FLOAT                 AS sales_14d,
+          sales::FLOAT                        AS sales_30d,
+          new_to_brand_purchases_clicks::FLOAT  AS ntb_orders_14d,
+          new_to_brand_sales_clicks::FLOAT      AS ntb_sales_14d,
+          new_to_brand_units_sold_clicks::FLOAT AS ntb_units_14d,
+          NULL::FLOAT                         AS impression_share,
+          NULL::FLOAT                         AS impression_share_lost_budget,
+          NULL::FLOAT                         AS impression_share_lost_rank,
+          NULL::FLOAT                         AS video_views_25pct,
+          NULL::FLOAT                         AS video_views_50pct,
+          NULL::FLOAT                         AS video_views_75pct,
+          video_complete_views::FLOAT         AS video_views_100pct,
+          impressions_views::FLOAT            AS viewable_impressions
+        FROM CALBRIDGE_PROD.APP.SD_CAMPAIGN_REPORT
+        WHERE client_id = ?
+      ) src
+      ON  tgt.client_id   = src.client_id
+      AND tgt.campaign_id = src.campaign_id
+      AND tgt.ad_product  = src.ad_product
+      AND tgt.date        = src.date
+      WHEN MATCHED AND tgt.ingested_at < src.ingested_at THEN UPDATE SET
+        ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
+        data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
+        campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,
+        impressions = src.impressions, clicks = src.clicks, cost = src.cost,
+        purchases_14d = src.purchases_14d, purchases_30d = src.purchases_30d,
+        sales_14d = src.sales_14d, sales_30d = src.sales_30d,
+        ntb_orders_14d = src.ntb_orders_14d, ntb_sales_14d = src.ntb_sales_14d,
+        ntb_units_14d = src.ntb_units_14d,
+        viewable_impressions = src.viewable_impressions
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+        data_maturity, last_refreshed_at, campaign_id, date, campaign_name, campaign_type,
+        ad_product, status, daily_budget, impressions, clicks, cost,
+        purchases_1d, purchases_7d, purchases_14d, purchases_30d,
+        sales_1d, sales_7d, sales_14d, sales_30d,
+        ntb_orders_14d, ntb_sales_14d, ntb_units_14d,
+        impression_share, impression_share_lost_budget, impression_share_lost_rank,
+        video_views_25pct, video_views_50pct, video_views_75pct, video_views_100pct,
+        viewable_impressions
+      ) VALUES (
+        src.client_id, src.platform, src.marketplace, src.ingested_at, src.report_id, src.pipeline_run_id,
+        src.data_maturity, src.last_refreshed_at, src.campaign_id, src.date, src.campaign_name, src.campaign_type,
+        src.ad_product, src.status, src.daily_budget, src.impressions, src.clicks, src.cost,
+        src.purchases_1d, src.purchases_7d, src.purchases_14d, src.purchases_30d,
+        src.sales_1d, src.sales_7d, src.sales_14d, src.sales_30d,
+        src.ntb_orders_14d, src.ntb_sales_14d, src.ntb_units_14d,
+        src.impression_share, src.impression_share_lost_budget, src.impression_share_lost_rank,
+        src.video_views_25pct, src.video_views_50pct, src.video_views_75pct, src.video_views_100pct,
+        src.viewable_impressions
+      )
+    `, [pipelineRunId, clientId]);
+    const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
+    totalRows += rows;
+    if (rows > 0) console.log('[stageAdCampaignRaw] SD:', rows, 'rows for', clientId);
+  } catch (err) {
+    console.warn('[stageAdCampaignRaw] SD failed:', err.message);
+  }
+
+  // ── DSP ──
+  try {
+    const r = await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
+      USING (
+        SELECT
+          client_id,
+          'amazon'                            AS platform,
+          'ATVPDKIKX0DER'                     AS marketplace,
+          CURRENT_TIMESTAMP()                 AS ingested_at,
+          profile_id || '_' || order_id || '_DSP_' || TO_VARCHAR(date,'YYYYMMDD') AS report_id,
+          ?                                   AS pipeline_run_id,
+          'preliminary'                       AS data_maturity,
+          CURRENT_TIMESTAMP()                 AS last_refreshed_at,
+          order_id                            AS campaign_id,
+          date,
+          order_name                          AS campaign_name,
+          'DSP'                               AS campaign_type,
+          'DSP'                               AS ad_product,
+          'ACTIVE'                            AS status,
+          order_budget                        AS daily_budget,
+          COALESCE(impressions, 0)            AS impressions,
+          COALESCE(clicks, 0)                 AS clicks,
+          COALESCE(total_cost, 0)             AS cost,
+          NULL::FLOAT                         AS purchases_1d,
+          NULL::FLOAT                         AS purchases_7d,
+          purchases_clicks::FLOAT             AS purchases_14d,
+          total_purchases::FLOAT              AS purchases_30d,
+          NULL::FLOAT                         AS sales_1d,
+          NULL::FLOAT                         AS sales_7d,
+          NULL::FLOAT                         AS sales_14d,
+          total_sales::FLOAT                  AS sales_30d,
+          new_to_brand_purchases_clicks::FLOAT  AS ntb_orders_14d,
+          new_to_brand_product_sales::FLOAT     AS ntb_sales_14d,
+          NULL::FLOAT                           AS ntb_units_14d,
+          NULL::FLOAT                         AS impression_share,
+          NULL::FLOAT                         AS impression_share_lost_budget,
+          NULL::FLOAT                         AS impression_share_lost_rank,
+          NULL::FLOAT                         AS video_views_25pct,
+          NULL::FLOAT                         AS video_views_50pct,
+          NULL::FLOAT                         AS video_views_75pct,
+          video_ad_complete::FLOAT            AS video_views_100pct,
+          viewable_impressions::FLOAT         AS viewable_impressions
+        FROM CALBRIDGE_PROD.APP.DSP_CAMPAIGN_REPORT
+        WHERE client_id = ?
+      ) src
+      ON  tgt.client_id   = src.client_id
+      AND tgt.campaign_id = src.campaign_id
+      AND tgt.ad_product  = src.ad_product
+      AND tgt.date        = src.date
+      WHEN MATCHED AND tgt.ingested_at < src.ingested_at THEN UPDATE SET
+        ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
+        data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
+        campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,
+        impressions = src.impressions, clicks = src.clicks, cost = src.cost,
+        purchases_14d = src.purchases_14d, purchases_30d = src.purchases_30d,
+        sales_30d = src.sales_30d,
+        ntb_orders_14d = src.ntb_orders_14d, ntb_sales_14d = src.ntb_sales_14d,
+        viewable_impressions = src.viewable_impressions
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+        data_maturity, last_refreshed_at, campaign_id, date, campaign_name, campaign_type,
+        ad_product, status, daily_budget, impressions, clicks, cost,
+        purchases_1d, purchases_7d, purchases_14d, purchases_30d,
+        sales_1d, sales_7d, sales_14d, sales_30d,
+        ntb_orders_14d, ntb_sales_14d, ntb_units_14d,
+        impression_share, impression_share_lost_budget, impression_share_lost_rank,
+        video_views_25pct, video_views_50pct, video_views_75pct, video_views_100pct,
+        viewable_impressions
+      ) VALUES (
+        src.client_id, src.platform, src.marketplace, src.ingested_at, src.report_id, src.pipeline_run_id,
+        src.data_maturity, src.last_refreshed_at, src.campaign_id, src.date, src.campaign_name, src.campaign_type,
+        src.ad_product, src.status, src.daily_budget, src.impressions, src.clicks, src.cost,
+        src.purchases_1d, src.purchases_7d, src.purchases_14d, src.purchases_30d,
+        src.sales_1d, src.sales_7d, src.sales_14d, src.sales_30d,
+        src.ntb_orders_14d, src.ntb_sales_14d, src.ntb_units_14d,
+        src.impression_share, src.impression_share_lost_budget, src.impression_share_lost_rank,
+        src.video_views_25pct, src.video_views_50pct, src.video_views_75pct, src.video_views_100pct,
+        src.viewable_impressions
+      )
+    `, [pipelineRunId, clientId]);
+    const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
+    totalRows += rows;
+    if (rows > 0) console.log('[stageAdCampaignRaw] DSP:', rows, 'rows for', clientId);
+  } catch (err) {
+    console.warn('[stageAdCampaignRaw] DSP failed (non-fatal):', err.message);
+  }
+
+  return totalRows;
+}
+
 /**
  * Transform RAW_AMAZON_ADS.SP_CAMPAIGNS → ANALYTICS.ADS_PERFORMANCE (SP rows).
  * Uses MERGE on (client_id, account_id, ad_type, campaign_id, date).
@@ -358,6 +725,22 @@ async function stageRawData({ triggeredBy = 'cron' } = {}) {
 
   let totalRows = 0;
 
+  // ── Stage SP/SB/SD/DSP → RAW.AD_CAMPAIGN (per client, not per account) ──
+  // This is the primary feed for ADJUSTED_AD_CAMPAIGN view used by vendor analytics.
+  // Deduplicate clientIds since multiple accounts may share same client.
+  const seenClients = new Set();
+  for (const { clientId } of accounts) {
+    if (seenClients.has(clientId)) continue;
+    seenClients.add(clientId);
+    const pipelineRunIdAds = uuidv4();
+    try {
+      const adRows = await stageAdCampaignRaw(clientId, pipelineRunIdAds);
+      if (adRows > 0) console.log(`[stageRawData] ✅ AD_CAMPAIGN: ${adRows} rows staged for ${clientId}`);
+    } catch (err) {
+      console.warn(`[stageRawData] stageAdCampaignRaw failed for ${clientId}:`, err.message);
+    }
+  }
+
   for (const { accountId, clientId } of accounts) {
     const runId = await startJob('stage_raw_data', accountId, triggeredBy, { clientId });
     const pipelineRunId = uuidv4();
@@ -365,7 +748,7 @@ async function stageRawData({ triggeredBy = 'cron' } = {}) {
     try {
       let rowsWritten = 0;
 
-      // SP Campaigns → ADS_PERFORMANCE
+      // SP Campaigns → ADS_PERFORMANCE (legacy ANALYTICS table — kept for backwards compat)
       try {
         rowsWritten += await stageSpCampaignsToAnalytics(clientId, accountId, pipelineRunId);
       } catch (err) {

@@ -5,6 +5,8 @@ import {
   getVendorAsins,
   getAdvertising,
   getForecasting,
+  getForecastShift,
+  getAnnualProjection,
   getCogsEntries,
   getCogsMargins,
   upsertCogsEntry,
@@ -77,6 +79,24 @@ export function useCogsMargins() {
   return useQuery({
     queryKey: ['cogs-margins'],
     queryFn: getCogsMargins,
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useForecastShift(asin) {
+  return useQuery({
+    queryKey: ['forecast-shift', asin || 'all'],
+    queryFn: () => getForecastShift(asin),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useAnnualProjection() {
+  return useQuery({
+    queryKey: ['annual-projection'],
+    queryFn: getAnnualProjection,
     staleTime: STALE_TIME,
     retry: 2,
   });

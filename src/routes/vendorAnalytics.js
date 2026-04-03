@@ -4,11 +4,13 @@
  * All routes are scoped to CyberPower's client_id.
  *
  * Routes:
- *   GET /vendor-analytics/overview       — KPIs + weekly trends + top ASINs + forecast table
- *   GET /vendor-analytics/vendor         — inventory health + sell-through KPIs + weekly trend
- *   GET /vendor-analytics/vendor/asins   — ASIN-level inventory detail table
- *   GET /vendor-analytics/advertising    — combined + per-type ad metrics (SP/SB/SD/DSP)
- *   GET /vendor-analytics/forecasting    — all ASINs forecast table + top 20 bar data
+ *   GET /vendor-analytics/overview           — KPIs + weekly trends + top ASINs + forecast table
+ *   GET /vendor-analytics/vendor             — inventory health + sell-through KPIs + weekly trend
+ *   GET /vendor-analytics/vendor/asins       — ASIN-level inventory detail table
+ *   GET /vendor-analytics/advertising        — combined + per-type ad metrics (SP/SB/SD/DSP)
+ *   GET /vendor-analytics/forecasting        — all ASINs forecast table + top 20 bar data
+ *   GET /vendor-analytics/forecast-shift     — how Amazon's forecast has changed over time (by generation date)
+ *   GET /vendor-analytics/annual-projection  — YTD actuals + projected remaining weeks = full-year revenue
  */
 
 const express = require('express');
@@ -348,8 +350,8 @@ router.get('/overview', async (req, res, next) => {
         const cogs    = n(r.SHIPPED_COGS) || 0;
         return {
           asin:             r.ASIN,
-          model:            r.MODEL_NUMBER || r.TITLE || r.ASIN,
-          title:            r.TITLE || r.ASIN,
+          model:            r.MODEL_NUMBER || null,
+          title:            r.TITLE || null,
           shippedRevenue:   n(r.SHIPPED_REVENUE),
           shippedUnits:     n(r.SHIPPED_UNITS),
           proceedsAfterAds: cogs - adSpend,
@@ -381,8 +383,8 @@ router.get('/overview', async (req, res, next) => {
       },
       forecastTable: forecastTable.map(r => ({
         asin:         r.ASIN,
-        model:        r.MODEL_NUMBER || r.TITLE,
-        title:        r.TITLE,
+        model:        r.MODEL_NUMBER || null,
+        title:        r.TITLE || null,
         meanForecast: n(r.MEAN_FORECAST),
         p70:          n(r.P70),
         p80:          n(r.P80),
@@ -404,10 +406,14 @@ router.get('/vendor', async (req, res, next) => {
     const [invAgg, weeklyInv, weeklyUnits] = await Promise.all([
 
       // Aggregate inventory KPIs
+      // NOTE: AVG(vendor_confirmation_rate) only over weeks with data (>0) to avoid dragging
+      //       down the average with weeks where no POs were issued (confirmation_rate=0).
+      //       receive_fill_rate is shown separately — it's expected to be 0 for recent POs
+      //       that haven't been received yet.
       query(`
         SELECT
           AVG(sell_through_rate)          AS avg_sell_through,
-          AVG(vendor_confirmation_rate)   AS avg_conf_rate,
+          AVG(CASE WHEN vendor_confirmation_rate > 0 THEN vendor_confirmation_rate END) AS avg_conf_rate,
           AVG(receive_fill_rate)          AS avg_fill_rate,
           AVG(avg_vendor_lead_time_days)  AS avg_lead_time,
           SUM(sellable_on_hand_units)     AS total_sellable,
@@ -419,13 +425,14 @@ router.get('/vendor', async (req, res, next) => {
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Weekly sell-through rate trend
+      // Only average conf_rate over rows where a PO was confirmed (rate > 0)
       query(`
         SELECT
           TO_VARCHAR(date, 'Mon DD') AS week,
           date,
-          AVG(sell_through_rate)          AS sell_through_rate,
-          AVG(vendor_confirmation_rate)   AS conf_rate,
-          AVG(receive_fill_rate)          AS fill_rate
+          AVG(sell_through_rate)                                                    AS sell_through_rate,
+          AVG(CASE WHEN vendor_confirmation_rate > 0 THEN vendor_confirmation_rate END) AS conf_rate,
+          AVG(receive_fill_rate)                                                    AS fill_rate
         FROM ${SCHEMA}.RETAIL_INVENTORY
         WHERE client_id = ? AND date BETWEEN ? AND ?
         GROUP BY date
@@ -514,6 +521,8 @@ router.get('/vendor/asins', async (req, res, next) => {
       `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
+    // Also fetch conf_rate filtered for ASIN table (only where >0 to avoid diluting with no-PO weeks)
+
     // Note: total ad spend is available but not ASIN-level (AD_CAMPAIGN is campaign-level)
     // We show shipped_cogs per ASIN; proceedsAfterAds here means shipped_cogs only
     // (cannot subtract per-ASIN ad spend without an ASIN-level ad table)
@@ -527,7 +536,7 @@ router.get('/vendor/asins', async (req, res, next) => {
         const shippedCogs = cogsMap[r.ASIN] || null;
         return {
           asin:             r.ASIN,
-          model:            r.MODEL_NUMBER || r.TITLE,
+          model:            r.MODEL_NUMBER,
           title:            r.TITLE,
           sellableOnHand:   n(r.SELLABLE_ON_HAND),
           aged90Plus:       n(r.AGED_90_PLUS),
@@ -914,8 +923,8 @@ router.get('/forecasting', async (req, res, next) => {
           : null;
         return {
           asin:         r.ASIN,
-          model:        r.MODEL_NUMBER || r.TITLE,
-        title:        r.TITLE,
+          model:        r.MODEL_NUMBER || null,
+          title:        r.TITLE || null,
           meanForecast,
           p70:          n(r.P70),
           p80:          n(r.P80),
@@ -932,6 +941,259 @@ router.get('/forecasting', async (req, res, next) => {
       })),
       weeks,
       totalAsins: allForecasts.length,
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/forecast-shift ────────────────────────────────────
+// Returns how Amazon's forecast has changed over time per ASIN (by FORECAST_GENERATION_DATE)
+router.get('/forecast-shift', async (req, res, next) => {
+  try {
+    const CLIENT_ID = getClientId(req);
+    const asinParam = req.query.asin || null; // optional: filter to single ASIN
+
+    // Get top 10 ASINs by total forecasted units (next 8 weeks, latest generation)
+    // Then for each, return all generation dates with their next-4-week totals
+    const [topAsins, shiftData] = await Promise.all([
+      // Top ASINs by latest forecast
+      query(`
+        WITH latest_gen AS (
+          SELECT MAX(forecast_generation_date) AS max_gen
+          FROM ${SCHEMA}.RETAIL_FORECAST
+          WHERE client_id = ?
+        ),
+        top_asins AS (
+          SELECT
+            f.asin,
+            MAX(p.title) AS title,
+            MAX(p.model_number) AS model_number,
+            SUM(f.mean_forecast_units) AS total_forecast
+          FROM ${SCHEMA}.RETAIL_FORECAST f
+          LEFT JOIN ${SCHEMA}.RETAIL_LISTING p
+            ON p.client_id = f.client_id AND p.asin = f.asin
+          CROSS JOIN latest_gen lg
+          WHERE f.client_id = ?
+            AND f.forecast_generation_date = lg.max_gen
+            AND f.start_date >= CURRENT_DATE
+            AND f.start_date <= DATEADD('week', 8, CURRENT_DATE)
+          GROUP BY f.asin
+          ORDER BY total_forecast DESC NULLS LAST
+          LIMIT 10
+        )
+        SELECT asin, title, model_number, total_forecast FROM top_asins
+      `, [CLIENT_ID, CLIENT_ID]),
+
+      // For each generation date, sum next-4-week forecast for each ASIN
+      query(`
+        WITH gen_dates AS (
+          SELECT DISTINCT forecast_generation_date
+          FROM ${SCHEMA}.RETAIL_FORECAST
+          WHERE client_id = ?
+          ORDER BY forecast_generation_date DESC
+          LIMIT 16
+        ),
+        top_asins AS (
+          SELECT
+            f.asin,
+            SUM(f.mean_forecast_units) AS total_forecast
+          FROM ${SCHEMA}.RETAIL_FORECAST f
+          CROSS JOIN (
+            SELECT MAX(forecast_generation_date) AS max_gen
+            FROM ${SCHEMA}.RETAIL_FORECAST WHERE client_id = ?
+          ) lg
+          WHERE f.client_id = ?
+            AND f.forecast_generation_date = lg.max_gen
+            AND f.start_date >= CURRENT_DATE
+            AND f.start_date <= DATEADD('week', 8, CURRENT_DATE)
+          GROUP BY f.asin
+          ORDER BY total_forecast DESC NULLS LAST
+          LIMIT 10
+        )
+        SELECT
+          f.asin,
+          f.forecast_generation_date,
+          f.start_date,
+          f.mean_forecast_units,
+          f.p70_forecast_units,
+          f.p80_forecast_units
+        FROM ${SCHEMA}.RETAIL_FORECAST f
+        JOIN top_asins ta ON ta.asin = f.asin
+        JOIN gen_dates gd ON gd.forecast_generation_date = f.forecast_generation_date
+        WHERE f.client_id = ?
+          AND f.start_date >= CURRENT_DATE
+          AND f.start_date <= DATEADD('week', 4, CURRENT_DATE)
+        ORDER BY f.asin, f.forecast_generation_date, f.start_date
+      `, [CLIENT_ID, CLIENT_ID, CLIENT_ID, CLIENT_ID]),
+    ]);
+
+    // Build lookup maps
+    const asinMeta = {};
+    for (const r of topAsins) {
+      asinMeta[r.ASIN] = {
+        title: r.TITLE,
+        modelNumber: r.MODEL_NUMBER,
+        totalForecast: n(r.TOTAL_FORECAST),
+      };
+    }
+
+    // Group shift data by ASIN → generationDate → weeks
+    const byAsin = {};
+    for (const r of shiftData) {
+      const asin = r.ASIN;
+      const genDate = dateStr(r.FORECAST_GENERATION_DATE);
+      const startDate = dateStr(r.START_DATE);
+      if (!byAsin[asin]) byAsin[asin] = {};
+      if (!byAsin[asin][genDate]) byAsin[asin][genDate] = [];
+      byAsin[asin][genDate].push({
+        startDate,
+        meanForecast: n(r.MEAN_FORECAST_UNITS),
+        p70: n(r.P70_FORECAST_UNITS),
+        p80: n(r.P80_FORECAST_UNITS),
+      });
+    }
+
+    // Build output per ASIN
+    const result = topAsins.map(r => {
+      const asin = r.ASIN;
+      const genDates = byAsin[asin] || {};
+      const generationDates = Object.keys(genDates)
+        .sort()
+        .map(date => {
+          const weeks = genDates[date];
+          const totalForecastNext4Weeks = weeks.reduce((s, w) => s + (w.meanForecast || 0), 0);
+          return { date, totalForecastNext4Weeks, weeklyBreakdown: weeks };
+        });
+      return {
+        asin,
+        title: r.TITLE,
+        modelNumber: r.MODEL_NUMBER,
+        generationDates,
+      };
+    });
+
+    res.json({ asins: result });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/annual-projection ──────────────────────────────────
+// Returns YTD actuals + projected remaining weeks = full-year revenue projection
+router.get('/annual-projection', async (req, res, next) => {
+  try {
+    const CLIENT_ID = getClientId(req);
+    const currentYear = new Date().getUTCFullYear();
+    const janFirst = `${currentYear}-01-01`;
+
+    // Last complete Sunday (end of last full week)
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay(); // 0=Sun
+    const lastSunday = new Date(now);
+    lastSunday.setUTCDate(now.getUTCDate() - (dayOfWeek === 0 ? 7 : dayOfWeek));
+    const lastSundayStr = lastSunday.toISOString().substring(0, 10);
+
+    const [ytdActuals, weeklyActuals, futureForecasts] = await Promise.all([
+      // YTD aggregate actuals (Jan 1 through last complete Sunday)
+      query(`
+        SELECT
+          SUM(shipped_revenue) AS total_revenue,
+          SUM(shipped_cogs)    AS total_cogs,
+          SUM(shipped_units)   AS total_units
+        FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
+        WHERE client_id = ?
+          AND date >= ?
+          AND date <= ?
+      `, [CLIENT_ID, janFirst, lastSundayStr]),
+
+      // Week-by-week actuals for the year
+      query(`
+        SELECT
+          date,
+          TO_VARCHAR(date, 'Mon DD') AS week_label,
+          SUM(shipped_revenue) AS shipped_revenue,
+          SUM(shipped_cogs)    AS shipped_cogs,
+          SUM(shipped_units)   AS shipped_units
+        FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
+        WHERE client_id = ?
+          AND date >= ?
+          AND date <= ?
+        GROUP BY date
+        ORDER BY date ASC
+      `, [CLIENT_ID, janFirst, lastSundayStr]),
+
+      // Future forecast: sum mean_forecast_units per week for remaining weeks of the year
+      // Use latest generation date for each start_date
+      query(`
+        WITH latest_forecasts AS (
+          SELECT
+            start_date,
+            SUM(mean_forecast_units) AS mean_forecast_units
+          FROM ${SCHEMA}.RETAIL_FORECAST f
+          WHERE f.client_id = ?
+            AND f.start_date > ?
+            AND f.start_date <= ?
+            AND f.forecast_generation_date = (
+              SELECT MAX(forecast_generation_date)
+              FROM ${SCHEMA}.RETAIL_FORECAST
+              WHERE client_id = ? AND asin = f.asin
+            )
+          GROUP BY start_date
+        )
+        SELECT
+          start_date,
+          TO_VARCHAR(start_date, 'Mon DD') AS week_label,
+          SUM(mean_forecast_units) AS mean_forecast_units
+        FROM latest_forecasts
+        GROUP BY start_date
+        ORDER BY start_date ASC
+      `, [CLIENT_ID, lastSundayStr, `${currentYear}-12-31`, CLIENT_ID]),
+    ]);
+
+    // Compute per-unit averages from YTD actuals
+    const ytdRevenue = n(ytdActuals[0]?.TOTAL_REVENUE) || 0;
+    const ytdCogs    = n(ytdActuals[0]?.TOTAL_COGS) || 0;
+    const ytdUnits   = n(ytdActuals[0]?.TOTAL_UNITS) || 0;
+    const avgSellingPrice = ytdUnits > 0 ? ytdRevenue / ytdUnits : 0;
+    const avgCogsPerUnit  = ytdUnits > 0 ? ytdCogs / ytdUnits : 0;
+
+    // Build week-by-week output: actuals first, then projections
+    const weeklyActualsOut = weeklyActuals.map(r => ({
+      week: r.WEEK_LABEL,
+      startDate: dateStr(r.DATE),
+      type: 'actual',
+      shippedRevenue: n(r.SHIPPED_REVENUE),
+      shippedCogs:    n(r.SHIPPED_COGS),
+      shippedUnits:   n(r.SHIPPED_UNITS),
+    }));
+
+    const projectedRevenue = futureForecasts.reduce((s, r) => s + (n(r.MEAN_FORECAST_UNITS) || 0) * avgSellingPrice, 0);
+    const projectedCogs    = futureForecasts.reduce((s, r) => s + (n(r.MEAN_FORECAST_UNITS) || 0) * avgCogsPerUnit, 0);
+
+    const weeklyProjectedOut = futureForecasts.map(r => {
+      const units = n(r.MEAN_FORECAST_UNITS) || 0;
+      return {
+        week: r.WEEK_LABEL,
+        startDate: dateStr(r.START_DATE),
+        type: 'projected',
+        forecastedUnits: units,
+        projectedRevenue: units * avgSellingPrice,
+        projectedCogs:    units * avgCogsPerUnit,
+      };
+    });
+
+    res.json({
+      summary: {
+        ytdRevenue,
+        ytdCogs,
+        ytdUnits,
+        projectedRevenue,
+        projectedCogs,
+        fullYearRevenue: ytdRevenue + projectedRevenue,
+        fullYearCogs:    ytdCogs + projectedCogs,
+        avgSellingPrice,
+        avgCogsPerUnit,
+        lastActualDate: lastSundayStr,
+        year: currentYear,
+      },
+      weeklyData: [...weeklyActualsOut, ...weeklyProjectedOut],
     });
   } catch (err) { next(err); }
 });
