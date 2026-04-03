@@ -128,7 +128,7 @@ const JOB_HANDLERS = {
 async function ingestVendorAllClients({ triggeredBy = 'cron' } = {}) {
   const { query: _q } = require('../services/snowflakeService');
   try {
-    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active'`);
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
     const { ingestVendorReports } = vendorIngestion();
     let ran = 0;
     for (const row of (clients || [])) {
@@ -155,7 +155,7 @@ async function ingestVendorAllClients({ triggeredBy = 'cron' } = {}) {
 async function ingestDspAllClients({ triggeredBy = 'cron' } = {}) {
   const { query: _q } = require('../services/snowflakeService');
   try {
-    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active'`);
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
     const { ingestDsp } = adsIngestion();
     let ran = 0;
     for (const row of (clients || [])) {

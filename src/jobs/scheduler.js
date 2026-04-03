@@ -74,7 +74,7 @@ async function runFullSync() {
 
   try {
     // Query active clients from Snowflake
-    const clients = await query(`SELECT client_id FROM clients`);
+    const clients = await query(`SELECT client_id FROM clients WHERE linked_client_id IS NULL`);
     console.log(`[Scheduler] Found ${clients.length} clients`);
 
     for (const row of clients) {

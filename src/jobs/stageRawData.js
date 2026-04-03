@@ -60,7 +60,7 @@ async function getActiveAccounts() {
   } catch (err) {
     console.warn('[stageRawData] getActiveAccounts fallback to clients table:', err.message);
     try {
-      const rows = await query(`SELECT client_id FROM clients WHERE status = 'active'`);
+      const rows = await query(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
       return (rows || []).map(r => ({ accountId: r.CLIENT_ID || r.client_id, clientId: r.CLIENT_ID || r.client_id }));
     } catch {
       return [];
@@ -871,7 +871,7 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
         if (!pass) failures++;
 
         await query(`
-          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
@@ -1030,7 +1030,7 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
 
         // Log as a quality issue so it's visible
         await query(`
-          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES

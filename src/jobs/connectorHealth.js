@@ -65,7 +65,7 @@ async function getActiveConnections() {
 }
 
 async function getConnectionsFromClients() {
-  const rows = await query(`SELECT client_id, connections FROM clients WHERE status = 'active'`);
+  const rows = await query(`SELECT client_id, connections FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
   const result = [];
   for (const row of rows || []) {
     const clientId = row.CLIENT_ID || row.client_id;
