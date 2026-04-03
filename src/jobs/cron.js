@@ -37,6 +37,7 @@ let _stageRawData       = null;
 let _buildCanonical     = null;
 let _slaChecker         = null;
 let _adsIngestion       = null;
+let _vendorIngestion    = null;
 
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
@@ -44,6 +45,7 @@ function stageRawData()       { return _stageRawData       || (_stageRawData    
 function buildCanonical()     { return _buildCanonical     || (_buildCanonical     = require('./buildCanonicalModels')); }
 function slaChecker()         { return _slaChecker         || (_slaChecker         = require('./slaChecker')); }
 function adsIngestion()       { return _adsIngestion       || (_adsIngestion       = require('./adsIngestion')); }
+function vendorIngestion()    { return _vendorIngestion    || (_vendorIngestion    = require('./vendorIngestion')); }
 
 // ─── In-process run lock ──────────────────────────────────────────────────────
 // Prevents a slow job from stacking up if the cron fires again before it finishes.
@@ -90,6 +92,11 @@ const JOB_HANDLERS = {
   // Runs every 6h; each run fetches up to 95 days to ensure full backfill.
   ingest_dsp:                () => ingestDspAllClients({ triggeredBy: 'cron' }),
 
+  // ── Every 6 hours — Vendor retail ingestion ───────────────────────────────
+  // Pulls vendor sales, inventory, traffic, net PPM, and forecasts via SP-API.
+  // 3-day data lag on DAY reports; runs 4x/day so data is current within hours of availability.
+  ingest_vendor_reports:     () => ingestVendorAllClients({ triggeredBy: 'cron' }),
+
   // ── Hourly ────────────────────────────────────────────────────────────────
   stage_raw_data:               () => stageRawData().stageRawData({ triggeredBy: 'cron' }),
   run_quality_checks:           () => stageRawData().runQualityChecks({ triggeredBy: 'cron' }),
@@ -117,6 +124,32 @@ const JOB_HANDLERS = {
 };
 
 // ─── DSP ingestion helper ────────────────────────────────────────────────────
+// Runs ingestVendorReports for all active clients with a vendor connection.
+async function ingestVendorAllClients({ triggeredBy = 'cron' } = {}) {
+  const { query: _q } = require('../services/snowflakeService');
+  try {
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active'`);
+    const { ingestVendorReports } = vendorIngestion();
+    let ran = 0;
+    for (const row of (clients || [])) {
+      const clientId = row.CLIENT_ID || row.client_id;
+      try {
+        const { getConnectionStatus } = require('../services/amazonAuthService');
+        const conn = await getConnectionStatus(clientId);
+        if (!conn?.vendor?.connected) continue;
+        console.log(`[cron] ingest_vendor_reports starting for ${clientId}`);
+        await ingestVendorReports(clientId);
+        ran++;
+      } catch (err) {
+        console.warn(`[cron] ingest_vendor_reports ${clientId} failed:`, err.message);
+      }
+    }
+    console.log(`[cron] ingest_vendor_reports complete ─ ran for ${ran} client(s)`);
+  } catch (err) {
+    console.error('[cron] ingestVendorAllClients error:', err.message);
+  }
+}
+
 // Runs ingestDsp for all active clients that have a DSP connection.
 
 async function ingestDspAllClients({ triggeredBy = 'cron' } = {}) {
@@ -271,6 +304,12 @@ const CRON_SCHEDULE = [
   {
     jobId: 'ingest_dsp',
     expr:  '0 */6 * * *',  // 00:00, 06:00, 12:00, 18:00 UTC
+  },
+
+  // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)
+  {
+    jobId: 'ingest_vendor_reports',
+    expr:  '30 */6 * * *',  // 00:30, 06:30, 12:30, 18:30 UTC (offset from DSP)
   },
 
   // ── Daily (post-models) ────────────────────────────────────────────────────
