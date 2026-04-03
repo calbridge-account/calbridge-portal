@@ -36,12 +36,14 @@ let _reportOrchestrator = null;
 let _stageRawData       = null;
 let _buildCanonical     = null;
 let _slaChecker         = null;
+let _adsIngestion       = null;
 
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
 function stageRawData()       { return _stageRawData       || (_stageRawData       = require('./stageRawData')); }
 function buildCanonical()     { return _buildCanonical     || (_buildCanonical     = require('./buildCanonicalModels')); }
 function slaChecker()         { return _slaChecker         || (_slaChecker         = require('./slaChecker')); }
+function adsIngestion()       { return _adsIngestion       || (_adsIngestion       = require('./adsIngestion')); }
 
 // ─── In-process run lock ──────────────────────────────────────────────────────
 // Prevents a slow job from stacking up if the cron fires again before it finishes.
@@ -82,6 +84,12 @@ const JOB_HANDLERS = {
   refresh_queue_status:      () => refreshQueueStatus(),
   sync_job_metadata:         () => syncJobMetadata(),
 
+  // ── Every 6 hours — DSP ingestion ────────────────────────────────────────
+  // DSP uses a separate report API (DSP reporting endpoint, not v3 Ads API)
+  // and requires advertiser-level auth — cannot be batched with SA reports.
+  // Runs every 6h; each run fetches up to 95 days to ensure full backfill.
+  ingest_dsp:                () => ingestDspAllClients({ triggeredBy: 'cron' }),
+
   // ── Hourly ────────────────────────────────────────────────────────────────
   stage_raw_data:               () => stageRawData().stageRawData({ triggeredBy: 'cron' }),
   run_quality_checks:           () => stageRawData().runQualityChecks({ triggeredBy: 'cron' }),
@@ -107,6 +115,34 @@ const JOB_HANDLERS = {
   // credential_audit:          () => connectorHealth().credentialAudit({ triggeredBy: 'cron' }),
   // warehouse_cleanup:         () => pipeline().warehouseCleanup({ triggeredBy: 'cron' }),
 };
+
+// ─── DSP ingestion helper ────────────────────────────────────────────────────
+// Runs ingestDsp for all active clients that have a DSP connection.
+
+async function ingestDspAllClients({ triggeredBy = 'cron' } = {}) {
+  const { query: _q } = require('../services/snowflakeService');
+  try {
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active'`);
+    const { ingestDsp } = adsIngestion();
+    let ran = 0;
+    for (const row of (clients || [])) {
+      const clientId = row.CLIENT_ID || row.client_id;
+      try {
+        const { getConnectionStatus } = require('../services/amazonAuthService');
+        const conn = await getConnectionStatus(clientId);
+        if (!conn?.dsp?.connected) continue;
+        console.log(`[cron] ingest_dsp starting for ${clientId}`);
+        await ingestDsp(clientId, 'dsp', 95);
+        ran++;
+      } catch (err) {
+        console.warn(`[cron] ingest_dsp ${clientId} failed:`, err.message);
+      }
+    }
+    console.log(`[cron] ingest_dsp complete ─ ran for ${ran} client(s)`);
+  } catch (err) {
+    console.error('[cron] ingestDspAllClients error:', err.message);
+  }
+}
 
 // ─── Lightweight inline jobs ──────────────────────────────────────────────────
 // Simple jobs that don't warrant their own file yet.
@@ -229,6 +265,12 @@ const CRON_SCHEDULE = [
   {
     jobId: 'generate_operator_summary',
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
+  },
+
+  // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ────────
+  {
+    jobId: 'ingest_dsp',
+    expr:  '0 */6 * * *',  // 00:00, 06:00, 12:00, 18:00 UTC
   },
 
   // ── Daily (post-models) ────────────────────────────────────────────────────
