@@ -54,7 +54,7 @@ function yesterday() {
 
 async function ensureKpiTable() {
   await query(`
-    CREATE TABLE IF NOT EXISTS CALBRIDGE.ANALYTICS.KPI_DAILY (
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.ANALYTICS.KPI_DAILY (
       -- Lineage
       metric_version            VARCHAR(32)   NOT NULL DEFAULT '1.0'     COMMENT 'Formula version from src/config/metrics.js',
       pipeline_run_id           VARCHAR(64)   NOT NULL                    COMMENT 'Pipeline run UUID',
@@ -100,7 +100,7 @@ async function ensureKpiTable() {
 
 async function ensureAnomalyLogTable() {
   await query(`
-    CREATE TABLE IF NOT EXISTS CALBRIDGE.PIPELINE.ANOMALY_LOG (
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.PIPELINE.ANOMALY_LOG (
       anomaly_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
       detected_at       TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
       client_id         VARCHAR(36)   NOT NULL,
@@ -146,7 +146,7 @@ async function buildCanonicalModels({ triggeredBy = 'cron' } = {}) {
   try {
     const rows = await query(`
       SELECT DISTINCT account_id, client_id
-      FROM CALBRIDGE.PIPELINE.JOB_RUNS
+      FROM CALBRIDGE_PROD.PIPELINE.JOB_RUNS
       WHERE started_at >= DATEADD('day', -14, CURRENT_TIMESTAMP())
         AND account_id NOT IN ('unknown', 'system')
     `);
@@ -174,7 +174,7 @@ async function buildCanonicalModels({ triggeredBy = 'cron' } = {}) {
       // Verify prior-day data exists in canonical tables
       const check = await query(`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
         WHERE client_id = ? AND account_id = ? AND date = ?
       `, [clientId, accountId, priorDate]);
 
@@ -192,7 +192,7 @@ async function buildCanonicalModels({ triggeredBy = 'cron' } = {}) {
 
       // Update freshness for this account's canonical tables
       await query(`
-        MERGE INTO CALBRIDGE.PIPELINE.FRESHNESS tgt
+        MERGE INTO CALBRIDGE_PROD.PIPELINE.FRESHNESS tgt
         USING (SELECT ? AS table_name, ? AS account_id, ? AS client_id) src
         ON tgt.table_name = src.table_name AND tgt.account_id = src.account_id AND tgt.client_id = src.client_id
         WHEN MATCHED THEN UPDATE SET
@@ -202,9 +202,9 @@ async function buildCanonicalModels({ triggeredBy = 'cron' } = {}) {
           (table_name, account_id, client_id, last_pipeline_run_id, last_successful_load_at, updated_at)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
       `, [
-        'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE', accountId, clientId,
+        'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE', accountId, clientId,
         triggeredBy,
-        'CALBRIDGE.ANALYTICS.ADS_PERFORMANCE', accountId, clientId, triggeredBy,
+        'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE', accountId, clientId, triggeredBy,
       ]).catch(() => {});
 
       await completeJob(runId, { rowsRead: cnt, rowsWritten: cnt });
@@ -238,7 +238,7 @@ async function computeCoreKpis({ triggeredBy = 'cron' } = {}) {
   try {
     const rows = await query(`
       SELECT DISTINCT client_id, account_id
-      FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE
+      FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
       WHERE date = ?
     `, [priorDate]);
     accounts = (rows || []).map(r => ({ clientId: r.CLIENT_ID || r.client_id, accountId: r.ACCOUNT_ID || r.account_id }));
@@ -257,7 +257,7 @@ async function computeCoreKpis({ triggeredBy = 'cron' } = {}) {
     try {
       // Account-level KPI rollup
       const written = await query(`
-        MERGE INTO CALBRIDGE.ANALYTICS.KPI_DAILY tgt
+        MERGE INTO CALBRIDGE_PROD.ANALYTICS.KPI_DAILY tgt
         USING (
           SELECT
             ?                   AS metric_version,
@@ -291,8 +291,8 @@ async function computeCoreKpis({ triggeredBy = 'cron' } = {}) {
                  THEN ap.cost / ap.clicks END AS cpc,
             CASE WHEN COALESCE(ap.clicks, 0) > 0
                  THEN ap.purchases_30d::FLOAT / ap.clicks END AS cvr
-          FROM CALBRIDGE.ANALYTICS.ADS_PERFORMANCE ap
-          LEFT JOIN CALBRIDGE.ANALYTICS.RETAIL_PERFORMANCE rp
+          FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE ap
+          LEFT JOIN CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE rp
             ON  rp.client_id   = ap.client_id
             AND rp.account_id  = ap.account_id
             AND rp.date        = ap.date
@@ -376,7 +376,7 @@ async function detectAnomalies({ triggeredBy = 'cron' } = {}) {
     // Get accounts with KPI data for yesterday
     const accounts = await query(`
       SELECT DISTINCT client_id, account_id
-      FROM CALBRIDGE.ANALYTICS.KPI_DAILY
+      FROM CALBRIDGE_PROD.ANALYTICS.KPI_DAILY
       WHERE date = ?
     `, [priorDate]).catch(() => []);
 
@@ -399,7 +399,7 @@ async function detectAnomalies({ triggeredBy = 'cron' } = {}) {
             SUM(ad_revenue)  AS revenue_yday,
             AVG(acos)        AS acos_yday,
             AVG(roas)        AS roas_yday
-          FROM CALBRIDGE.ANALYTICS.KPI_DAILY
+          FROM CALBRIDGE_PROD.ANALYTICS.KPI_DAILY
           WHERE client_id = ? AND account_id = ? AND date = ?
         ),
         prior AS (
@@ -415,7 +415,7 @@ async function detectAnomalies({ triggeredBy = 'cron' } = {}) {
               SUM(ad_revenue) AS daily_rev,
               AVG(acos)       AS acos_avg,
               AVG(roas)       AS roas_avg
-            FROM CALBRIDGE.ANALYTICS.KPI_DAILY
+            FROM CALBRIDGE_PROD.ANALYTICS.KPI_DAILY
             WHERE client_id = ? AND account_id = ?
               AND date >= DATEADD('day', -8, ?)
               AND date < ?
@@ -450,7 +450,7 @@ async function detectAnomalies({ triggeredBy = 'cron' } = {}) {
           const severity  = Math.abs(pctChange) >= 0.5 ? 'critical' : 'warn';
 
           await query(`
-            INSERT INTO CALBRIDGE.PIPELINE.ANOMALY_LOG
+            INSERT INTO CALBRIDGE_PROD.PIPELINE.ANOMALY_LOG
               (anomaly_id, detected_at, client_id, account_id, date,
                metric, grain, grain_id,
                value_yesterday, value_prior_7d_avg, pct_change, direction, severity)
@@ -511,7 +511,7 @@ async function generateOperatorSummary({ triggeredBy = 'cron' } = {}) {
         AVG(roas)            AS avg_roas,
         SUM(impressions)     AS total_impressions,
         SUM(clicks)          AS total_clicks
-      FROM CALBRIDGE.ANALYTICS.KPI_DAILY
+      FROM CALBRIDGE_PROD.ANALYTICS.KPI_DAILY
       WHERE date = ?
       GROUP BY account_id
       ORDER BY total_spend DESC
@@ -520,7 +520,7 @@ async function generateOperatorSummary({ triggeredBy = 'cron' } = {}) {
     // Anomalies detected today
     const anomalies = await query(`
       SELECT account_id, metric, direction, pct_change, severity, value_yesterday, value_prior_7d_avg
-      FROM CALBRIDGE.PIPELINE.ANOMALY_LOG
+      FROM CALBRIDGE_PROD.PIPELINE.ANOMALY_LOG
       WHERE date = ?
         AND detected_at >= DATEADD('day', -1, CURRENT_TIMESTAMP())
       ORDER BY ABS(pct_change) DESC
@@ -530,7 +530,7 @@ async function generateOperatorSummary({ triggeredBy = 'cron' } = {}) {
     // Restock alerts
     const restocks = await query(`
       SELECT account_id, asin, sku, fulfillable_quantity, estimated_days_of_supply_30
-      FROM CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT
+      FROM CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT
       WHERE snapshot_date = CURRENT_DATE() - 1
         AND restock_alert = TRUE
       ORDER BY estimated_days_of_supply_30 ASC
@@ -540,7 +540,7 @@ async function generateOperatorSummary({ triggeredBy = 'cron' } = {}) {
     // SLA breaches (jobs that haven't run in their SLA window)
     const slaBreaches = await query(`
       SELECT job_type, account_id, MAX(completed_at) AS last_completed
-      FROM CALBRIDGE.PIPELINE.JOB_RUNS
+      FROM CALBRIDGE_PROD.PIPELINE.JOB_RUNS
       WHERE status = 'completed'
         AND completed_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
       GROUP BY job_type, account_id

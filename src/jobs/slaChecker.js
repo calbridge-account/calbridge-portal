@@ -121,7 +121,7 @@ function buildBreachEmail(breaches, stuckJobs) {
 
       <p style="margin-top:24px;color:#555">
         <strong>What to do:</strong> Check
-        <code>CALBRIDGE.PIPELINE.JOB_RUNS</code> for error details.
+        <code>CALBRIDGE_PROD.PIPELINE.JOB_RUNS</code> for error details.
         See <code>docs/runbooks/</code> for standard remediation steps.<br/>
         This alert deduplicates — you won't receive another for the same issue for 1 hour.
       </p>
@@ -142,7 +142,7 @@ function buildBreachEmail(breaches, stuckJobs) {
       `  ${j.JOB_TYPE ?? j.job_type} / ${j.ACCOUNT_ID ?? j.account_id}: running ${j.RUNNING_MINUTES ?? j.running_minutes} min`
     ),
     '',
-    'Check CALBRIDGE.PIPELINE.JOB_RUNS for details.',
+    'Check CALBRIDGE_PROD.PIPELINE.JOB_RUNS for details.',
   ].join('\n');
 
   return { html, text };
