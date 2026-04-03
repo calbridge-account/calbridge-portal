@@ -157,7 +157,8 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
         for (const window of windows) {
           for (const rt of REPORT_TYPES) {
-            // Dedup: skip if already pending/completed for this combination
+            // Dedup: skip if already pending/ready/completed for this combination.
+            // Also skip if failed <24h ago (avoid tight retry loops on transient errors).
             const existing = await query(`
               SELECT COUNT(*) AS cnt
               FROM ads_report_queue
@@ -165,7 +166,10 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
                 AND profile_id   = ?
                 AND report_type  = ?
                 AND report_date  = ?
-                AND status IN ('pending', 'completed')
+                AND (
+                  status IN ('pending', 'ready', 'completed')
+                  OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
+                )
             `, [clientId, profileId, rt.key, window.rangeKey]);
 
             if (Number(existing?.[0]?.CNT || existing?.[0]?.cnt || 0) > 0) continue;

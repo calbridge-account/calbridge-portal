@@ -801,60 +801,60 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
   let failures  = 0;
 
   const checks = [
-    // Check 1: ADS_PERFORMANCE has no null campaign_ids for recent data
+    // Check 1: RAW.AD_CAMPAIGN has no null campaign_ids for recent data
     {
-      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
       assertion: 'no_null_campaign_id',
       checkType: 'null_check',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
-        WHERE client_id = ? AND account_id = ?
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        WHERE client_id = ?
           AND campaign_id IS NULL
           AND date >= DATEADD('day', -7, CURRENT_DATE())
-      `, [clientId, accountId]],
+      `, [clientId]],
       pass:      (cnt) => cnt === 0,
     },
     // Check 2: No negative spend in recent ads data
     {
-      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
       assertion: 'spend_not_negative',
       checkType: 'range_check',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
-        WHERE client_id = ? AND account_id = ?
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        WHERE client_id = ?
           AND cost < 0
           AND date >= DATEADD('day', -7, CURRENT_DATE())
-      `, [clientId, accountId]],
+      `, [clientId]],
       pass:      (cnt) => cnt === 0,
     },
-    // Check 3: ADS_PERFORMANCE has at least one row in the last 3 days
+    // Check 3: RAW.AD_CAMPAIGN has at least one row in the last 3 days
     {
-      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
       assertion: 'row_count_gt_0_3d',
       checkType: 'row_count',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
-        WHERE client_id = ? AND account_id = ?
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        WHERE client_id = ?
           AND date >= DATEADD('day', -3, CURRENT_DATE())
-      `, [clientId, accountId]],
+      `, [clientId]],
       pass:      (cnt) => cnt > 0,
       warn:      true, // WARN not FAIL — data may just be new
     },
     // Check 4: No rows with zero impressions AND zero clicks AND non-zero spend
     {
-      table:     'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+      table:     'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
       assertion: 'no_ghost_spend',
       checkType: 'anomaly',
       sql:       (clientId, accountId) => [`
         SELECT COUNT(*) AS cnt
-        FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
-        WHERE client_id = ? AND account_id = ?
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        WHERE client_id = ?
           AND impressions = 0 AND clicks = 0 AND cost > 0
           AND date >= DATEADD('day', -7, CURRENT_DATE())
-      `, [clientId, accountId]],
+      `, [clientId]],
       pass:      (cnt) => cnt === 0,
     },
   ];
