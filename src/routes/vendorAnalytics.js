@@ -32,35 +32,48 @@ function getClientId(req) {
 /**
  * Parse date range from query params.
  * Supports:
- *   ?range=4w | 8w | 12w | 26w | 52w      (rolling weeks)
+ *   ?range=7d | 14d                        (rolling days)
+ *   ?range=mtd                              (month to date)
  *   ?range=ytd                              (Jan 1 to today)
  *   ?range=custom&start=YYYY-MM-DD&end=YYYY-MM-DD
- * Default: 12 weeks rolling
+ *   ?range=4w | 8w | 12w | 26w | 52w      (rolling weeks, legacy)
+ * Default: MTD
  */
 function parseDateRange(req) {
-  const range = req.query.range || '12w';
+  const range = req.query.range || 'mtd';
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+
+  if (range === 'mtd') {
+    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    return { start: start.toISOString().split('T')[0], end: todayStr, label: 'MTD' };
+  }
 
   if (range === 'ytd') {
-    const start = new Date(today.getUTCFullYear(), 0, 1);
-    return { start: start.toISOString().split('T')[0], end: today.toISOString().split('T')[0], label: 'YTD' };
+    const start = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+    return { start: start.toISOString().split('T')[0], end: todayStr, label: 'YTD' };
   }
 
   if (range === 'custom') {
-    const start = req.query.start || new Date(today - 84 * 86400000).toISOString().split('T')[0];
-    const end   = req.query.end   || today.toISOString().split('T')[0];
+    const start = req.query.start || new Date(today - 30 * 86400000).toISOString().split('T')[0];
+    const end   = req.query.end   || todayStr;
     return { start, end, label: 'Custom' };
   }
 
-  // Rolling weeks: 4w, 8w, 12w, 26w, 52w
-  const weeks = parseInt(range) || 12;
+  // Rolling days: 7d, 14d
+  const dayMatch = range.match(/^(\d+)d$/);
+  if (dayMatch) {
+    const days = parseInt(dayMatch[1]);
+    const start = new Date(today - (days - 1) * 86400000);
+    return { start: start.toISOString().split('T')[0], end: todayStr, label: `${days}D` };
+  }
+
+  // Rolling weeks (legacy): 4w, 8w, 12w, 26w, 52w
+  const weekMatch = range.match(/^(\d+)w$/);
+  const weeks = weekMatch ? parseInt(weekMatch[1]) : 4;
   const start = new Date(today - weeks * 7 * 86400000);
-  return {
-    start: start.toISOString().split('T')[0],
-    end: today.toISOString().split('T')[0],
-    label: `${weeks}W`
-  };
+  return { start: start.toISOString().split('T')[0], end: todayStr, label: `${weeks}W` };
 }
 
 function dateStr(d) {

@@ -126,7 +126,9 @@ app.use('/auth/forgot-password', authLimiter);
 // Routes
 app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
-app.use('/dashboard', dashboardRoutes);
+// /dashboard is deprecated — redirect everything to /analytics
+app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
+app.get('/dashboard/*', (req, res) => res.redirect(301, '/analytics/'));
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);
