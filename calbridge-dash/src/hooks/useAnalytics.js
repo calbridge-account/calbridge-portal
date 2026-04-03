@@ -16,9 +16,9 @@ const STALE_TIME = 5 * 60 * 1000; // 5 minutes
 
 // Serialise range object for use as a stable query key
 function rangeKey(range) {
-  if (!range) return '12w';
+  if (!range) return 'mtd';
   if (range.type === 'custom') return `custom:${range.start}:${range.end}`;
-  return range.type || '12w';
+  return range.type || 'mtd';
 }
 
 export function useOverview(range) {

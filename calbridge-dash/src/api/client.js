@@ -23,14 +23,14 @@ async function fetchJSON(path, options = {}) {
 
 /**
  * Build query string from a date range object.
- * range: { type: '4w'|'8w'|'12w'|'26w'|'52w'|'ytd'|'custom', start?, end? }
+ * range: { type: '7d'|'14d'|'mtd'|'ytd'|'custom', start?, end? }
  */
 function rangeParams(range) {
-  if (!range) return '?range=12w';
+  if (!range) return '?range=mtd';
   if (range.type === 'custom' && range.start && range.end) {
     return `?range=custom&start=${range.start}&end=${range.end}`;
   }
-  return `?range=${range.type || '12w'}`;
+  return `?range=${range.type || 'mtd'}`;
 }
 
 export const getOverview          = (range) => fetchJSON(`/overview${rangeParams(range)}`);
