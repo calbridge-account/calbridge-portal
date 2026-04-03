@@ -18,11 +18,10 @@ const METRIC_DEFS = [
 ];
 let _adsTrendData = null;          // cached daily series
 let _selectedMetrics = ['roas', 'spend']; // default selection
-// Default to Month to Date — computed at page load
-const _mtdStart = new Date(); _mtdStart.setDate(1); _mtdStart.setHours(0,0,0,0);
-let currentDays  = Math.max(1, Math.ceil((new Date() - _mtdStart) / 86400000)) || 1;
-let currentStart = _mtdStart.toISOString().split('T')[0];
-let currentEnd   = new Date().toISOString().split('T')[0];
+// Date range state — initialised by setupDateFilter() from URL (defaults to MTD)
+let currentDays  = 1;
+let currentStart = null;
+let currentEnd   = null;
 
 // Build date query params — uses explicit startDate/endDate for custom/MTD/YTD ranges
 // so the API queries the exact historical window instead of rolling back from today.
@@ -43,9 +42,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await checkAuth();
   setupNav();
+  // setupFilters calls setupDateFilter which fires onChange immediately,
+  // setting currentDays/Start/End from URL before the first loadAll().
   setupFilters();
   setupBell();
-  await loadAll();
+  // loadAll() is now triggered by the onChange callback inside setupFilters,
+  // so we only need to load decisions here.
   await loadDecisions();
 });
 
@@ -108,7 +110,24 @@ function setupFilters() {
     currentEnd   = endDate   || null;
     $('section-sub').textContent = label;
     _adsTrendData = null; // force refetch on date change
+    // Reset lazy-load flags so all tabs re-fetch with the new range
+    performanceLoaded = false;
+    forecastLoaded    = false;
+    pacingLoaded      = false;
+    ntbLoaded         = false;
+    trendsLoaded      = false;
+    _trendMap         = null;
     await loadAll();
+    // Also re-fetch the currently active tab (if it's not overview)
+    const activeSection = document.querySelector('.dashboard-section:not(.hidden)');
+    if (activeSection) {
+      const sectionId = activeSection.id.replace('section-', '');
+      if (sectionId === 'performance') { performanceLoaded = false; loadPerformance(); }
+      if (sectionId === 'forecast')    { forecastLoaded    = false; loadForecast(); }
+      if (sectionId === 'pacing')      { pacingLoaded      = false; loadBudgetPacing(); }
+      if (sectionId === 'ntb')         { ntbLoaded         = false; loadNtb(); }
+      if (sectionId === 'trends')      { trendsLoaded      = false; loadProfitabilityTrends(); }
+    }
   });
 
   $('sync-btn').addEventListener('click', async () => {
@@ -130,6 +149,7 @@ async function loadAll() {
     loadConnections()
   ]);
 }
+
 
 // ---- Performance Tab ----
 let performanceLoaded = false;
