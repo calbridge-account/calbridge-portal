@@ -128,7 +128,7 @@ app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
 // /dashboard is deprecated — redirect everything to /analytics
 app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
-app.get('/dashboard/*', (req, res) => res.redirect(301, '/analytics/'));
+app.get('/dashboard/*path', (req, res) => res.redirect(301, '/analytics/'));
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);
