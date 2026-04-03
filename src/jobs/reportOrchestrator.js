@@ -86,12 +86,12 @@ async function getAccountId(clientId) {
  * Returns [{startIso, endIso, rangeKey}], oldest window first.
  */
 function buildDateWindows(daysBack) {
-  const yesterday = new Date();
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  yesterday.setUTCHours(0, 0, 0, 0);
+  // Use today as the end date — Amazon has same-day data available (with a few hours lag)
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
 
   const windows = [];
-  let windowEnd = new Date(yesterday);
+  let windowEnd = new Date(today);
   let remaining = daysBack;
 
   while (remaining > 0) {
