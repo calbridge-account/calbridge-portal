@@ -613,7 +613,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d)     AS ntb_sales
+          SUM(new_to_brand_sales)     AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND ad_type = 'SB' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -627,7 +627,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d)     AS ntb_sales
+          SUM(new_to_brand_sales)     AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND ad_type = 'SD' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -640,10 +640,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(orders)       AS purchases,
           SUM(clicks)                AS clicks,
           SUM(impressions)           AS impressions,
-          SUM(viewable_impressions)  AS viewable_impressions,
+          SUM(impressions)  AS viewable_impressions,
           SUM(0)     AS detail_page_views,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d) AS ntb_sales
+          SUM(new_to_brand_sales) AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND ad_type = 'DSP' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -701,7 +701,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(adjusted_spend)           AS spend,
           SUM(sales)          AS sales,
           SUM(impressions)          AS impressions,
-          SUM(viewable_impressions) AS viewable_impressions,
+          SUM(impressions) AS viewable_impressions,
           SUM(clicks)               AS clicks
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND ad_type = 'DSP' AND date BETWEEN ? AND ?
@@ -741,7 +741,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d)     AS ntb_sales,
+          SUM(new_to_brand_sales)     AS ntb_sales,
           CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
@@ -763,7 +763,7 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d)     AS ntb_sales,
+          SUM(new_to_brand_sales)     AS ntb_sales,
           CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
@@ -782,11 +782,11 @@ router.get('/advertising', async (req, res, next) => {
           SUM(sales)           AS sales,
           SUM(orders)       AS purchases,
           SUM(impressions)           AS impressions,
-          SUM(viewable_impressions)  AS viewable_impressions,
+          SUM(impressions)  AS viewable_impressions,
           SUM(clicks)                AS clicks,
           SUM(0)     AS detail_page_views,
           SUM(new_to_brand_purchases) AS ntb_purchases,
-          SUM(ntb_sales_14d) AS ntb_sales,
+          SUM(new_to_brand_sales) AS ntb_sales,
           CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
