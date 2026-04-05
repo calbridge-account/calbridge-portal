@@ -34,7 +34,14 @@ function daysAgo(n) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function spClient(clientId) {
-  const token = await getValidToken(clientId, 'vendor');
+  let token;
+  try {
+    token = await getValidToken(clientId, 'vendor');
+  } catch (err) {
+    console.error('[vendorIngestion] Failed to get vendor token:', err.message);
+    throw err;
+  }
+  if (!token) throw new Error('getValidToken returned empty token for vendor');
   return axios.create({
     baseURL: SP_API_BASE,
     headers: { 'x-amz-access-token': token, 'Content-Type': 'application/json' },
