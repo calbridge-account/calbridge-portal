@@ -183,7 +183,7 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT SUM(adjusted_spend) AS total_ad_spend
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // Previous period total ad spend (for WoW on proceeds_after_ads)
@@ -197,7 +197,7 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT
           TO_VARCHAR(start_date, 'Mon DD') AS week,
-          date,
+          start_date AS date,
           SUM(shipped_revenue) AS shipped_revenue,
           SUM(ordered_revenue) AS ordered_revenue,
           SUM(shipped_units)   AS shipped_units
@@ -218,7 +218,7 @@ router.get('/overview', async (req, res, next) => {
         FROM ${SCHEMA}.VENDOR_SALES s
         LEFT JOIN ${SCHEMA}.PRODUCTS p
           ON p.client_id = s.client_id AND p.asin = s.asin
-        WHERE s.client_id = ? AND s.date >= DATEADD('week', -4, CURRENT_DATE)
+        WHERE s.client_id = ? AND s.start_date >= DATEADD('week', -4, CURRENT_DATE)
         GROUP BY s.asin
         ORDER BY shipped_revenue DESC NULLS LAST
         LIMIT 10
@@ -281,7 +281,7 @@ router.get('/overview', async (req, res, next) => {
           SELECT asin, SUM(sellable_on_hand_units) AS sellable_on_hand
           FROM ${SCHEMA}.VENDOR_INVENTORY
           WHERE client_id = ?
-            AND date = (SELECT MAX(date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?)
+            AND start_date = (SELECT MAX(start_date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?)
           GROUP BY asin
         ),
         next2w_forecast AS (
@@ -302,9 +302,9 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT
           SUM(adjusted_spend) AS spend,
-          SUM(sales_14d) AS sales
+          SUM(sales) AS sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS'
+        WHERE client_id = ? AND ad_type = 'SP'
           AND start_date >= DATEADD('day', -7, CURRENT_DATE)
       `, [CLIENT_ID]),
 
@@ -312,9 +312,9 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT
           SUM(adjusted_spend) AS spend,
-          SUM(sales_14d) AS sales
+          SUM(sales) AS sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS'
+        WHERE client_id = ? AND ad_type = 'SP'
           AND start_date >= DATEADD('day', -14, CURRENT_DATE) AND start_date < DATEADD('day', -7, CURRENT_DATE)
       `, [CLIENT_ID]),
     ]);
@@ -452,7 +452,7 @@ router.get('/vendor', async (req, res, next) => {
       query(`
         SELECT
           TO_VARCHAR(start_date, 'Mon DD') AS week,
-          date,
+          start_date AS date,
           AVG(sell_through_rate)                                                    AS sell_through_rate,
           AVG(CASE WHEN vendor_confirmation_rate > 0 THEN vendor_confirmation_rate END) AS conf_rate,
           AVG(receive_fill_rate)                                                    AS fill_rate
@@ -466,7 +466,7 @@ router.get('/vendor', async (req, res, next) => {
       query(`
         SELECT
           TO_VARCHAR(start_date, 'Mon DD') AS week,
-          date,
+          start_date AS date,
           SUM(ordered_units)  AS ordered_units,
           SUM(shipped_units)  AS shipped_units
         FROM ${SCHEMA}.VENDOR_SALES
@@ -530,7 +530,7 @@ router.get('/vendor/asins', async (req, res, next) => {
         FROM ${SCHEMA}.VENDOR_INVENTORY i
         LEFT JOIN ${SCHEMA}.PRODUCTS p
           ON p.client_id = i.client_id AND p.asin = i.asin
-        WHERE i.client_id = ? AND i.date >= ?
+        WHERE i.client_id = ? AND i.start_date >= ?
         GROUP BY i.asin
         ORDER BY sellable_on_hand DESC NULLS LAST
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -596,26 +596,26 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           SUM(adjusted_spend)            AS spend,
-          SUM(sales_14d)      AS sales,
-          SUM(purchases_14d)  AS purchases,
+          SUM(sales)      AS sales,
+          SUM(orders)  AS purchases,
           SUM(clicks)          AS clicks,
           SUM(impressions)     AS impressions
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND ad_type = 'SP' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB aggregate ──
       query(`
         SELECT
           SUM(adjusted_spend)          AS spend,
-          SUM(sales_14d)         AS sales,
-          SUM(purchases_14d)     AS purchases,
+          SUM(sales)         AS sales,
+          SUM(orders)     AS purchases,
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND ad_type = 'SB' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD aggregate ── SD is display (view-attributed): use sales_30d/purchases_30d like DSP
@@ -626,10 +626,10 @@ router.get('/advertising', async (req, res, next) => {
           SUM(purchases_30d)     AS purchases,
           SUM(clicks)        AS clicks,
           SUM(impressions)   AS impressions,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND ad_type = 'SD' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP aggregate ── DSP uses total (view-attributed) sales = sales_30d
@@ -642,61 +642,61 @@ router.get('/advertising', async (req, res, next) => {
           SUM(impressions)           AS impressions,
           SUM(viewable_impressions)  AS viewable_impressions,
           SUM(0)     AS detail_page_views,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'DSP' AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND ad_type = 'DSP' AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SP weekly trend ──
       query(`
         SELECT
-          date AS week_start,
+          start_date AS week_start,
           TO_VARCHAR(start_date, 'Mon DD') AS week,
           SUM(adjusted_spend)           AS spend,
-          SUM(sales_14d)     AS sales,
+          SUM(sales)     AS sales,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND start_date BETWEEN ? AND ?
-        GROUP BY start_date
-        ORDER BY start_date ASC
+        WHERE client_id = ? AND ad_type = 'SP' AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SB weekly trend ──
       query(`
         SELECT
-          date AS week_start,
+          start_date AS week_start,
           TO_VARCHAR(start_date, 'Mon DD') AS week,
           SUM(adjusted_spend)       AS spend,
-          SUM(sales_14d)      AS sales,
+          SUM(sales)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND start_date BETWEEN ? AND ?
-        GROUP BY start_date
-        ORDER BY start_date ASC
+        WHERE client_id = ? AND ad_type = 'SB' AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SD weekly trend ── SD is display (view-attributed): use sales_30d like DSP
       query(`
         SELECT
-          date AS week_start,
+          start_date AS week_start,
           TO_VARCHAR(start_date, 'Mon DD') AS week,
           SUM(adjusted_spend)       AS spend,
           SUM(sales_30d)      AS sales,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND start_date BETWEEN ? AND ?
-        GROUP BY start_date
-        ORDER BY start_date ASC
+        WHERE client_id = ? AND ad_type = 'SD' AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── DSP weekly trend ──
       query(`
         SELECT
-          date AS week_start,
+          start_date AS week_start,
           TO_VARCHAR(start_date, 'Mon DD') AS week,
           SUM(adjusted_spend)           AS spend,
           SUM(sales_30d)          AS sales,
@@ -704,9 +704,9 @@ router.get('/advertising', async (req, res, next) => {
           SUM(viewable_impressions) AS viewable_impressions,
           SUM(clicks)               AS clicks
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'DSP' AND start_date BETWEEN ? AND ?
-        GROUP BY start_date
-        ORDER BY start_date ASC
+        WHERE client_id = ? AND ad_type = 'DSP' AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
       // ── SP top campaigns ──
@@ -714,17 +714,17 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           campaign_id,
           campaign_name,
-          status,
+          campaign_status AS status,
           SUM(adjusted_spend)           AS spend,
-          SUM(sales_14d)     AS sales,
-          SUM(purchases_14d) AS purchases,
+          SUM(sales)     AS sales,
+          SUM(orders) AS purchases,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_spend)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales_14d)/SUM(adjusted_spend) ELSE NULL END AS roas
+          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_PRODUCTS' AND start_date BETWEEN ? AND ?
-        GROUP BY campaign_id, campaign_name, status
+        WHERE client_id = ? AND ad_type = 'SP' AND date BETWEEN ? AND ?
+        GROUP BY campaign_id, campaign_name, campaign_status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -734,19 +734,19 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           campaign_id,
           campaign_name,
-          status,
+          campaign_status AS status,
           SUM(adjusted_spend)       AS spend,
-          SUM(sales_14d)      AS sales,
-          SUM(purchases_14d)  AS purchases,
+          SUM(sales)      AS sales,
+          SUM(orders)  AS purchases,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales,
-          CASE WHEN SUM(sales_14d) > 0 THEN SUM(adjusted_spend)/SUM(sales_14d) ELSE NULL END AS acos,
-          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales_14d)/SUM(adjusted_spend) ELSE NULL END AS roas
+          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_BRANDS' AND start_date BETWEEN ? AND ?
-        GROUP BY campaign_id, campaign_name, status
+        WHERE client_id = ? AND ad_type = 'SB' AND date BETWEEN ? AND ?
+        GROUP BY campaign_id, campaign_name, campaign_status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -756,19 +756,19 @@ router.get('/advertising', async (req, res, next) => {
         SELECT
           campaign_id,
           campaign_name,
-          status,
+          campaign_status AS status,
           SUM(adjusted_spend)       AS spend,
           SUM(sales_30d)      AS sales,
           SUM(purchases_30d)  AS purchases,
           SUM(impressions) AS impressions,
           SUM(clicks)     AS clicks,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d)     AS ntb_sales,
           CASE WHEN SUM(sales_30d) > 0 THEN SUM(adjusted_spend)/SUM(sales_30d) ELSE NULL END AS acos,
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales_30d)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'SPONSORED_DISPLAY' AND start_date BETWEEN ? AND ?
-        GROUP BY campaign_id, campaign_name, status
+        WHERE client_id = ? AND ad_type = 'SD' AND date BETWEEN ? AND ?
+        GROUP BY campaign_id, campaign_name, campaign_status
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -785,12 +785,12 @@ router.get('/advertising', async (req, res, next) => {
           SUM(viewable_impressions)  AS viewable_impressions,
           SUM(clicks)                AS clicks,
           SUM(0)     AS detail_page_views,
-          SUM(ntb_orders_14d) AS ntb_purchases,
+          SUM(new_to_brand_purchases) AS ntb_purchases,
           SUM(ntb_sales_14d) AS ntb_sales,
           CASE WHEN SUM(sales_30d) > 0 THEN SUM(adjusted_spend)/SUM(sales_30d) ELSE NULL END AS acos,
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales_30d)/SUM(adjusted_spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND ad_product = 'DSP' AND start_date BETWEEN ? AND ?
+        WHERE client_id = ? AND ad_type = 'DSP' AND date BETWEEN ? AND ?
         GROUP BY campaign_id, campaign_name
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
@@ -921,8 +921,8 @@ router.get('/forecasting', async (req, res, next) => {
           SUM(sellable_on_hand_units) AS sellable_on_hand
         FROM ${SCHEMA}.VENDOR_INVENTORY
         WHERE client_id = ?
-          AND date = (
-            SELECT MAX(date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?
+          AND start_date = (
+            SELECT MAX(start_date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?
           )
         GROUP BY asin
       `, [CLIENT_ID, CLIENT_ID]),
@@ -1123,13 +1123,13 @@ router.get('/annual-projection', async (req, res, next) => {
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ?
           AND start_date >= ?
-          AND date <= ?
+          AND start_date <= ?
       `, [CLIENT_ID, janFirst, lastSundayStr]),
 
       // Week-by-week actuals for the year
       query(`
         SELECT
-          date,
+          start_date AS date,
           TO_VARCHAR(start_date, 'Mon DD') AS week_label,
           SUM(shipped_revenue) AS shipped_revenue,
           SUM(shipped_cogs)    AS shipped_cogs,
@@ -1137,7 +1137,7 @@ router.get('/annual-projection', async (req, res, next) => {
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ?
           AND start_date >= ?
-          AND date <= ?
+          AND start_date <= ?
         GROUP BY start_date
         ORDER BY start_date ASC
       `, [CLIENT_ID, janFirst, lastSundayStr]),
