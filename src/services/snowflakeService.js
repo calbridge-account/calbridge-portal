@@ -1,5 +1,7 @@
 require('dotenv').config();
 const snowflake = require('snowflake-sdk');
+const fs = require('fs');
+const crypto = require('crypto');
 
 snowflake.configure({ logLevel: 'ERROR' });
 
@@ -14,11 +16,22 @@ const CONNECT_TIMEOUT = 15000; // 15s to establish connection
 const pool = [];       // { conn, inUse, createdAt }
 const waitQueue = [];  // resolve fns waiting for a free connection
 
+function loadPrivateKey() {
+  const keyPath = process.env.SNOWFLAKE_PRIVATE_KEY_PATH;
+  const keyStr  = process.env.SNOWFLAKE_PRIVATE_KEY;
+  const raw = keyPath ? fs.readFileSync(keyPath, 'utf8') : keyStr;
+  if (!raw) throw new Error('No Snowflake private key configured (SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PRIVATE_KEY)');
+  const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
+  const keyObj = crypto.createPrivateKey({ key: raw, format: 'pem', passphrase });
+  return keyObj.export({ format: 'pem', type: 'pkcs8' });
+}
+
 function createConnectionConfig() {
   return {
-    account:   process.env.SNOWFLAKE_ACCOUNT,
-    username:  process.env.SNOWFLAKE_USER,
-    password:  process.env.SNOWFLAKE_PASSWORD,
+    account:       process.env.SNOWFLAKE_ACCOUNT,
+    username:      process.env.SNOWFLAKE_USER,
+    authenticator: 'SNOWFLAKE_JWT',
+    privateKey:    loadPrivateKey(),
     warehouse: process.env.SNOWFLAKE_WAREHOUSE,
     database:  process.env.SNOWFLAKE_DATABASE,
     schema:    process.env.SNOWFLAKE_SCHEMA,
