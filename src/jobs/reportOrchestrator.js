@@ -54,6 +54,7 @@ async function getActiveAdsClients() {
       SELECT client_id
       FROM clients
       WHERE status = 'active'
+        AND linked_client_id IS NULL
     `);
     return (rows || []).map(r => r.CLIENT_ID || r.client_id);
   } catch (err) {

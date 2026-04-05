@@ -7,9 +7,13 @@
  *
  * What this does:
  *   build_canonical_models:
- *     - Ensures all prior-day raw data has been staged into ANALYTICS.*
- *     - Materializes a clean prior-day snapshot per account
- *     - Marks stale/incomplete data clearly
+ *     - Populates CANONICAL.ACCOUNTS from APP.CLIENTS
+ *     - Populates CANONICAL.CAMPAIGNS from RAW.AD_CAMPAIGN
+ *     - Populates CANONICAL.AD_GROUPS from RAW.AD_GROUP
+ *     - Populates CANONICAL.KEYWORD_TARGETS from RAW.AD_KEYWORD_TARGET
+ *     - Populates CANONICAL.PRODUCTS from RAW.RETAIL_LISTING + APP.PRODUCTS
+ *     - Populates CANONICAL.INVENTORY_SNAPSHOTS from RAW.RETAIL_INVENTORY
+ *     - Populates CANONICAL.CONTRIBUTION_MARGINS from APP.CONTRIBUTION_MARGIN
  *
  *   compute_core_kpis:
  *     - Computes ACoS, ROAS, CPC, CVR, TACoS, contribution margin signals

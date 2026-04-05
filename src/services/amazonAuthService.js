@@ -127,7 +127,7 @@ async function refreshAccessToken({ refreshToken, type }) {
     refresh_token: refreshToken,
     client_id:     clientId,
     client_secret: clientSecret
-  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000 });
 
   const { access_token, expires_in } = response.data;
   return {
