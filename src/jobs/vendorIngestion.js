@@ -427,4 +427,105 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   return { recordsWritten: totalWritten, breakdown: results };
 }
 
-module.exports = { ingestVendorReports };
+/**
+ * Backfill vendor reports for a given date range.
+ * Chunks into 31-day windows (Amazon's max per request).
+ * Skips FORECASTS (no date range) and uses DAY grain for sales/inventory,
+ * WEEK grain for traffic/netPPM.
+ *
+ * @param {string} clientId
+ * @param {string} startDate  YYYY-MM-DD
+ * @param {string} endDate    YYYY-MM-DD
+ * @param {string} marketplaceId
+ */
+async function backfillVendorReports(clientId, startDate, endDate, marketplaceId = 'ATVPDKIKX0DER') {
+  const client = await spClient(clientId);
+  const results = { vendorSales: 0, vendorInventory: 0, vendorTraffic: 0, vendorNetPpm: 0, chunks: 0 };
+
+  // Build 31-day chunks
+  const chunks = [];
+  let cursor = new Date(startDate);
+  const end  = new Date(endDate);
+  while (cursor <= end) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setDate(chunkEnd.getDate() + 30);
+    if (chunkEnd > end) chunkEnd.setTime(end.getTime());
+    chunks.push({ start: toDateStr(cursor), end: toDateStr(chunkEnd) });
+    cursor = new Date(chunkEnd);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  console.log(`[vendorBackfill] ${chunks.length} chunks from ${startDate} → ${endDate} for client ${clientId}`);
+
+  for (const chunk of chunks) {
+    results.chunks++;
+    console.log(`[vendorBackfill] Chunk ${results.chunks}/${chunks.length}: ${chunk.start} → ${chunk.end}`);
+
+    // Sales (DAY)
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
+        reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
+      }, marketplaceId);
+      const rows = Array.isArray(data) ? data : (data?.reportData || data?.salesByAsin || []);
+      const written = await writeVendorSales(clientId, rows);
+      results.vendorSales += written;
+      console.log(`[vendorBackfill] SALES chunk ${results.chunks}: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] SALES chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+    }
+    await sleep(2000);
+
+    // Inventory (DAY)
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+        reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
+      }, marketplaceId);
+      const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
+      const written = await writeVendorInventory(clientId, rows);
+      results.vendorInventory += written;
+      console.log(`[vendorBackfill] INVENTORY chunk ${results.chunks}: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] INVENTORY chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+    }
+    await sleep(2000);
+
+    // Traffic (WEEK)
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
+        reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
+      }, marketplaceId);
+      const rows = Array.isArray(data) ? data : (data?.reportData || data?.trafficByAsin || []);
+      const written = await writeVendorTraffic(clientId, rows);
+      results.vendorTraffic += written;
+      console.log(`[vendorBackfill] TRAFFIC chunk ${results.chunks}: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] TRAFFIC chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+    }
+    await sleep(2000);
+
+    // Net PPM (WEEK)
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
+        reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
+      }, marketplaceId);
+      const rows = Array.isArray(data) ? data : (data?.reportData || data?.netPpmByAsin || []);
+      const written = await writeVendorNetPpm(clientId, rows);
+      results.vendorNetPpm += written;
+      console.log(`[vendorBackfill] NET_PPM chunk ${results.chunks}: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] NET_PPM chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+    }
+
+    // Pause between chunks to avoid rate limits
+    if (results.chunks < chunks.length) await sleep(5000);
+  }
+
+  console.log(`[vendorBackfill] Done — ${results.chunks} chunks, sales=${results.vendorSales} inventory=${results.vendorInventory} traffic=${results.vendorTraffic} netPpm=${results.vendorNetPpm}`);
+  return results;
+}
+
+module.exports = { ingestVendorReports, backfillVendorReports };
