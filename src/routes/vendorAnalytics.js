@@ -652,7 +652,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           date AS week_start,
-          TO_VARCHAR(start_date, 'Mon DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(adjusted_spend)           AS spend,
           SUM(sales)     AS sales,
           SUM(impressions)    AS impressions,
@@ -667,7 +667,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           date AS week_start,
-          TO_VARCHAR(start_date, 'Mon DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(adjusted_spend)       AS spend,
           SUM(sales)      AS sales,
           SUM(impressions) AS impressions,
@@ -682,7 +682,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           date AS week_start,
-          TO_VARCHAR(start_date, 'Mon DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(adjusted_spend)       AS spend,
           SUM(sales)      AS sales,
           SUM(impressions) AS impressions,
@@ -697,7 +697,7 @@ router.get('/advertising', async (req, res, next) => {
       query(`
         SELECT
           date AS week_start,
-          TO_VARCHAR(start_date, 'Mon DD') AS week,
+          TO_VARCHAR(date, 'Mon DD') AS week,
           SUM(adjusted_spend)           AS spend,
           SUM(sales)          AS sales,
           SUM(impressions)          AS impressions,
