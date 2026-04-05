@@ -611,4 +611,30 @@ router.post('/trigger-sync', async (req, res, next) => {
   });
 });
 
+// POST /admin/trigger-vendor-sync
+// Manually kick off vendor/retail ingestion for all active clients.
+router.post('/trigger-vendor-sync', async (req, res, next) => {
+  const internalToken = process.env.INTERNAL_SYNC_TOKEN;
+  const providedToken = req.headers['x-internal-token'] || req.body?.token;
+  const isAdmin       = !!req.session?.adminId;
+  const isTokenValid  = internalToken && providedToken === internalToken;
+
+  if (!isAdmin && !isTokenValid) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  res.json({ ok: true, message: 'Vendor sync triggered', triggeredAt: new Date().toISOString() });
+
+  setImmediate(async () => {
+    try {
+      const { runJob } = require('../jobs/cron');
+      console.log('[trigger-vendor-sync] Starting vendor ingestion...');
+      await runJob('ingest_vendor_reports', { triggeredBy: 'manual' });
+      console.log('[trigger-vendor-sync] ✅ Done');
+    } catch (err) {
+      console.error('[trigger-vendor-sync] Failed:', err.message);
+    }
+  });
+});
+
 module.exports = router;
