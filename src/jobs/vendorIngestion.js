@@ -102,6 +102,11 @@ async function writeVendorSales(clientId, rows) {
     const startDate  = row.startDate || row.reportingDate;
     const endDate    = row.endDate   || row.reportingDate;
     if (!asin || !startDate) continue;
+    const orderedAmt  = typeof row.orderedRevenue === 'object' ? (row.orderedRevenue?.amount ?? 0) : (row.orderedRevenue ?? 0);
+    const orderedCcy  = row.orderedRevenue?.currencyCode || 'USD';
+    const shippedAmt  = typeof row.shippedRevenue === 'object' ? (row.shippedRevenue?.amount ?? 0) : (row.shippedRevenue ?? 0);
+    const shippedCcy  = row.shippedRevenue?.currencyCode || 'USD';
+    const cogsAmt     = typeof row.shippedCOGS === 'object'    ? (row.shippedCOGS?.amount ?? 0)    : (row.shippedCogs ?? 0);
     await query(`
       MERGE INTO CALBRIDGE_PROD.APP.VENDOR_SALES t
       USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
@@ -120,24 +125,14 @@ async function writeVendorSales(clientId, rows) {
     `, [
       clientId, asin, startDate,
       endDate,
-      row.orderedUnits       || 0,
-      row.orderedRevenue?.amount     || row.orderedRevenue     || 0,
-      row.orderedRevenue?.currencyCode || 'USD',
-      row.shippedUnits       || 0,
-      row.shippedRevenue?.amount     || row.shippedRevenue     || 0,
-      row.shippedCOGS?.amount        || row.shippedCogs        || 0,
-      row.shippedRevenue?.currencyCode || 'USD',
-      row.customerReturns    || 0,
+      row.orderedUnits ?? 0, orderedAmt, orderedCcy,
+      row.shippedUnits ?? 0, shippedAmt, cogsAmt, shippedCcy,
+      row.customerReturns ?? 0,
       // INSERT values
       clientId, asin, startDate, endDate,
-      row.orderedUnits       || 0,
-      row.orderedRevenue?.amount     || row.orderedRevenue     || 0,
-      row.orderedRevenue?.currencyCode || 'USD',
-      row.shippedUnits       || 0,
-      row.shippedRevenue?.amount     || row.shippedRevenue     || 0,
-      row.shippedCOGS?.amount        || row.shippedCogs        || 0,
-      row.shippedRevenue?.currencyCode || 'USD',
-      row.customerReturns    || 0,
+      row.orderedUnits ?? 0, orderedAmt, orderedCcy,
+      row.shippedUnits ?? 0, shippedAmt, cogsAmt, shippedCcy,
+      row.customerReturns ?? 0,
     ]);
     written++;
   }
