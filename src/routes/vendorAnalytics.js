@@ -190,7 +190,7 @@ router.get('/overview', async (req, res, next) => {
       query(`
         SELECT SUM(adjusted_spend) AS total_ad_spend
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
-        WHERE client_id = ? AND date >= ? AND start_date < ?
+        WHERE client_id = ? AND date >= ? AND date < ?
       `, [CLIENT_ID, prevCutoff, cutoff]),
 
       // Weekly trend: shipped + ordered revenue by week
@@ -315,7 +315,7 @@ router.get('/overview', async (req, res, next) => {
           SUM(sales) AS sales
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND ad_type = 'SP'
-          AND date >= DATEADD('day', -14, CURRENT_DATE) AND start_date < DATEADD('day', -7, CURRENT_DATE)
+          AND date >= DATEADD('day', -14, CURRENT_DATE) AND date < DATEADD('day', -7, CURRENT_DATE)
       `, [CLIENT_ID]),
     ]);
 
