@@ -63,7 +63,8 @@ function usePageTitle() {
 
 function Sidebar({ collapsed, onToggle, hasRole, user }) {
   const location = useLocation();
-  const clientName = user?.clientName || user?.name || 'Client';
+  const clientName = user?.companyName || user?.clientName || user?.name || 'Client';
+  const logoUrl = user?.logoUrl || null;
   const initials = getInitials(clientName);
 
   return (
@@ -80,7 +81,8 @@ function Sidebar({ collapsed, onToggle, hasRole, user }) {
         {!collapsed ? (
           <>
             <img
-              src="/calbridge-logo.png"
+              src={logoUrl || '/calbridge-logo.png'}
+              onError={e => { e.target.src = '/calbridge-logo.png'; }}
               alt="Calbridge"
               className="h-8 object-contain flex-1 min-w-0"
             />

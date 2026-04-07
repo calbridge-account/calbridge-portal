@@ -119,6 +119,7 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
   const [periodEnd, setPeriodEnd]     = useState(budget?.period_end   ? budget.period_end.split('T')[0]   : '');
   const [notes, setNotes]             = useState(budget?.notes || '');
   const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
 
   const isEdit = !!budget;
 
@@ -126,6 +127,7 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
     e.preventDefault();
     if (!name || !totalAmount || !periodStart || !periodEnd) return;
     setSaving(true);
+    setError(null);
     try {
       const body = { name, total_amount: Number(totalAmount), currency, period_start: periodStart, period_end: periodEnd, notes: notes || null };
       if (isEdit) {
@@ -136,6 +138,7 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
       onClose();
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -186,6 +189,11 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} rows={2} placeholder="Optional notes..." />
           </div>
           <div className="flex justify-end gap-2 pt-1">
+            {error && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 col-span-2">
+                {error}
+              </div>
+            )}
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800">Cancel</button>
             <button type="submit" disabled={saving || !name || !totalAmount || !periodStart || !periodEnd} className={btnPrimary}>
               {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Budget'}
