@@ -105,7 +105,7 @@ async function ensureKpiTable() {
 async function ensureAnomalyLogTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.PIPELINE.ANOMALY_LOG (
-      anomaly_id        VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
+      anomaly_id        VARCHAR(36)   NOT NULL DEFAULT require('crypto').randomUUID(),
       detected_at       TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
       client_id         VARCHAR(36)   NOT NULL,
       account_id        VARCHAR(64)   NOT NULL,
@@ -459,7 +459,7 @@ async function detectAnomalies({ triggeredBy = 'cron' } = {}) {
                metric, grain, grain_id,
                value_yesterday, value_prior_7d_avg, pct_change, direction, severity)
             VALUES
-              (UUID_STRING(), CURRENT_TIMESTAMP(), ?, ?, ?,
+              (require('crypto').randomUUID(), CURRENT_TIMESTAMP(), ?, ?, ?,
                ?, 'account', NULL,
                ?, ?, ?, ?, ?)
           `, [

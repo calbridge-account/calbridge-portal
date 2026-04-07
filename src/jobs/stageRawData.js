@@ -887,11 +887,11 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
         if (!pass) failures++;
 
         await query(`
-          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
-            (UUID_STRING(), ?, CURRENT_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (require('crypto').randomUUID(), ?, CURRENT_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           logRunId,
           check.table,
@@ -1046,11 +1046,11 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
 
         // Log as a quality issue so it's visible
         await query(`
-          INSERT INTO CALBRIDGE.PIPELINE.QUALITY_LOG
+          INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
-            (UUID_STRING(), ?, CURRENT_TIMESTAMP(), 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+            (require('crypto').randomUUID(), ?, CURRENT_TIMESTAMP(), 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
              ?, ?, 'no_missing_partitions', 'row_count', 'WARN', 30, ?, ?)
         `, [
           uuidv4(),

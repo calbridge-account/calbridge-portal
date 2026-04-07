@@ -4,7 +4,7 @@
  * Job state manager for the Calbridge platform.
  * Owned by: Control 🎛️
  *
- * Writes job lifecycle events to CALBRIDGE.PIPELINE.JOB_RUNS.
+ * Writes job lifecycle events to CALBRIDGE_PROD.PIPELINE.JOB_RUNS.
  * Every agent that runs a job should call startJob() / completeJob() / failJob()
  * so Control has a complete audit trail and can enforce SLAs.
  *
