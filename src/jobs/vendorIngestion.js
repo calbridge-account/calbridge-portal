@@ -68,9 +68,23 @@ async function requestAndDownload(client, reportType, reportOptions, marketplace
   if (dataStartTime) body.dataStartTime = dataStartTime;
   if (dataEndTime)   body.dataEndTime   = dataEndTime;
 
-  // Create report
-  const createRes = await client.post('/reports/2021-06-30/reports', body);
-  const reportId = createRes.data?.reportId;
+  // Create report — retry up to 3x on 429
+  let createRes;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      createRes = await client.post('/reports/2021-06-30/reports', body);
+      break;
+    } catch (err) {
+      if (err.response?.status === 429 && attempt < 3) {
+        const retryAfter = Number(err.response.headers?.['retry-after'] || 60);
+        console.log(`[vendorIngestion] ${reportType} 429 — waiting ${retryAfter}s (attempt ${attempt}/3)`);
+        await sleep(retryAfter * 1000);
+      } else {
+        throw err;
+      }
+    }
+  }
+  const reportId = createRes?.data?.reportId;
   if (!reportId) throw new Error(`No reportId for ${reportType}`);
 
   // Poll
@@ -539,8 +553,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
       console.warn(`[vendorBackfill] NET_PPM chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
     }
 
-    // Pause between chunks to avoid rate limits
-    if (results.chunks < chunks.length) await sleep(5000);
+    // SP-API Reports: ~1 create/min rate limit. Wait 65s between chunks.
+    if (results.chunks < chunks.length) {
+      console.log(`[vendorBackfill] Waiting 65s before next chunk...`);
+      await sleep(65000);
+    }
   }
 
   console.log(`[vendorBackfill] Done — ${results.chunks} chunks, sales=${results.vendorSales} inventory=${results.vendorInventory} traffic=${results.vendorTraffic} netPpm=${results.vendorNetPpm}`);
