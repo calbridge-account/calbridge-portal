@@ -430,6 +430,22 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
     const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
     totalRows += rows;
     if (rows > 0) console.log('[stageAdCampaignRaw] DSP:', rows, 'rows for', clientId);
+
+    // Post-write dedup: remove any DSP rows whose advertiser_id is not in dsp_advertiser.
+    // Catches truncated/rounded IDs that slipped through the write filter.
+    try {
+      const dedup = await query(`
+        DELETE FROM CALBRIDGE_PROD.APP.DSP_CAMPAIGN_REPORT
+        WHERE client_id = ?
+          AND advertiser_id NOT IN (
+            SELECT advertiser_id FROM CALBRIDGE_PROD.APP.DSP_ADVERTISER WHERE is_active = TRUE
+          )
+      `, [clientId]);
+      const deleted = dedup?.[0]?.['number of rows deleted'] || 0;
+      if (deleted > 0) console.warn(`[stageAdCampaignRaw] Removed ${deleted} DSP rows with unrecognised advertiser_id for ${clientId}`);
+    } catch (dedupErr) {
+      console.warn('[stageAdCampaignRaw] DSP dedup cleanup failed (non-fatal):', dedupErr.message);
+    }
   } catch (err) {
     console.warn('[stageAdCampaignRaw] DSP failed (non-fatal):', err.message);
   }

@@ -1734,7 +1734,32 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   // NOTE: DSP is NOT dual-written to RAW.AD_CAMPAIGN here.
   // stageRawData.js (stageAdCampaignRaw) is the sole writer for DSP → RAW.AD_CAMPAIGN.
   // Dual-writing caused duplicate rows (mismatched report_id format = 2× spend/sales).
-  const mapped = rows.map(r => ({
+
+  // Validate advertiser_id against dsp_advertiser table to reject truncated/corrupted IDs.
+  // Amazon 64-bit IDs overflow JS Number and get rounded — safeParse fixes NEW downloads,
+  // but cached report re-downloads from Amazon can still return rounded values.
+  // Only write rows whose advertiserId matches our known-good advertiser_id.
+  let trustedAdvertiserIds;
+  try {
+    const knownRows = await query('SELECT advertiser_id FROM dsp_advertiser WHERE is_active = TRUE');
+    trustedAdvertiserIds = new Set(knownRows.map(r => String(r.ADVERTISER_ID || r.advertiser_id)));
+  } catch (err) {
+    console.warn('[DSP] Could not load trusted advertiser IDs — skipping validation:', err.message);
+    trustedAdvertiserIds = null;
+  }
+
+  const filteredRows = trustedAdvertiserIds
+    ? rows.filter(r => {
+        const aid = String(r.advertiserId || advertiserId);
+        const trusted = trustedAdvertiserIds.has(aid);
+        if (!trusted) console.warn(`[DSP] Rejecting row with unknown advertiserId ${aid} (truncation artifact)`);
+        return trusted;
+      })
+    : rows;
+
+  if (!filteredRows.length) return 0;
+
+  const mapped = filteredRows.map(r => ({
     advertiser_id:                String(r.advertiserId || advertiserId),
     profile_id:                   realProfileId,
     client_id:                    clientId,
