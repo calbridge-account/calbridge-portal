@@ -266,7 +266,27 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
             placeholder="Search campaigns…"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
-          <p className="text-xs text-gray-400 mt-1.5">{selected.size} selected{search ? ` · ${filtered.length} shown` : ` of ${allCampaigns.length}`}</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-xs text-gray-400">{selected.size} selected{search ? ` · ${filtered.length} shown` : ` of ${allCampaigns.length}`}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setSelected(new Set(filtered.map(c => c.campaign_id)))}
+                className="text-xs text-brand hover:underline font-medium"
+              >
+                Select all {search ? `${filtered.length} results` : 'campaigns'}
+              </button>
+              {selected.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-2 space-y-0.5">
           {filtered.length === 0 && (

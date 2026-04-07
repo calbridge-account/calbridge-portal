@@ -40,13 +40,18 @@ router.get('/campaigns/available', async (req, res) => {
   const clientId = getClientId(req);
   try {
     const rows = await query(
-      `SELECT DISTINCT campaign_id, campaign_name,
-         MAX(ad_type) AS ad_type,
+      -- For DSP, multiple campaign_ids can share the same order name due to
+      -- 64-bit ID truncation across advertiser profiles. Group by name+ad_type
+      -- and pick the campaign_id with the highest spend as the canonical one.
+      `SELECT
+         MAX_BY(campaign_id, adjusted_spend) AS campaign_id,
+         campaign_name,
+         ad_type,
          SUM(adjusted_spend) AS total_spend
        FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
        WHERE client_id = ?
          AND date >= DATEADD('day', -90, CURRENT_DATE())
-       GROUP BY campaign_id, campaign_name
+       GROUP BY campaign_name, ad_type
        ORDER BY total_spend DESC NULLS LAST`,
       [clientId]
     );
