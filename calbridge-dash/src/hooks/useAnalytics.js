@@ -10,6 +10,13 @@ import {
   getCogsEntries,
   getCogsMargins,
   upsertCogsEntry,
+  getBudgets,
+  getBudgetCampaigns,
+  getBudgetDetail,
+  createBudget,
+  updateBudget,
+  deleteBudget,
+  updateBudgetCampaigns,
 } from '../api/client';
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
@@ -110,5 +117,57 @@ export function useUpsertCogs() {
       qc.invalidateQueries({ queryKey: ['cogs-entries'] });
       qc.invalidateQueries({ queryKey: ['cogs-margins'] });
     },
+  });
+}
+
+// ─── Budget Tracker hooks ──────────────────────────────────────────────────
+
+export function useBudgets() {
+  return useQuery({
+    queryKey: ['budgets'],
+    queryFn: getBudgets,
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useBudgetCampaigns() {
+  return useQuery({
+    queryKey: ['budget-campaigns'],
+    queryFn: getBudgetCampaigns,
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useCreateBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createBudget,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
+  });
+}
+
+export function useUpdateBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }) => updateBudget(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
+  });
+}
+
+export function useDeleteBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: deleteBudget,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
+  });
+}
+
+export function useUpdateBudgetCampaigns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, campaigns }) => updateBudgetCampaigns(id, campaigns),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
   });
 }

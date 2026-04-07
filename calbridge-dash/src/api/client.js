@@ -62,3 +62,25 @@ export const upsertCogsEntry  = (body) => cogsJSON('/entries', {
   method: 'POST',
   body: JSON.stringify(body),
 });
+
+// Budget Tracker — uses /budgets base
+async function budgetJSON(path, options = {}) {
+  const res = await fetch(`/budgets${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export const getBudgets              = () => budgetJSON('');
+export const getBudgetDetail         = (id) => budgetJSON(`/${id}`);
+export const getBudgetCampaigns      = () => budgetJSON('/campaigns/available');
+export const createBudget            = (body) => budgetJSON('', { method: 'POST', body: JSON.stringify(body) });
+export const updateBudget            = (id, body) => budgetJSON(`/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const deleteBudget            = (id) => budgetJSON(`/${id}`, { method: 'DELETE' });
+export const updateBudgetCampaigns   = (id, campaigns) => budgetJSON(`/${id}/campaigns`, { method: 'PUT', body: JSON.stringify({ campaigns }) });

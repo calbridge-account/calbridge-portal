@@ -590,7 +590,8 @@ router.get('/advertising', async (req, res, next) => {
 
     const [spAgg, sbAgg, sdAgg, dspAgg,
            spWeekly, sbWeekly, sdWeekly, dspWeekly,
-           spCampaigns, sbCampaigns, sdCampaigns, dspOrders] = await Promise.all([
+           spCampaigns, sbCampaigns, sdCampaigns, dspOrders,
+           topAsins] = await Promise.all([
 
       // ── SP aggregate ──
       query(`
@@ -795,6 +796,31 @@ router.get('/advertising', async (req, res, next) => {
         ORDER BY spend DESC NULLS LAST
         LIMIT 20
       `, [CLIENT_ID, cutoff, rangeEnd]),
+
+      // ── Top 20 ASINs by spend (SP advertised product report) ──
+      query(`
+        SELECT
+          r.advertised_asin                                          AS asin,
+          COALESCE(p.title, r.advertised_asin)                       AS title,
+          p.model_number                                             AS model_number,
+          SUM(r.cost)                                                AS spend,
+          SUM(r.sales_30_d)                                          AS sales,
+          SUM(r.purchases_30_d)                                      AS purchases,
+          SUM(r.impressions)                                         AS impressions,
+          SUM(r.clicks)                                              AS clicks,
+          SUM(r.units_sold_clicks_30_d)                              AS units_sold,
+          CASE WHEN SUM(r.sales_30_d) > 0 THEN SUM(r.cost)/SUM(r.sales_30_d) ELSE NULL END AS acos,
+          CASE WHEN SUM(r.cost) > 0 THEN SUM(r.sales_30_d)/SUM(r.cost) ELSE NULL END        AS roas
+        FROM CALBRIDGE_PROD.APP.SP_ADVERTISED_PRODUCT_REPORT r
+        LEFT JOIN CALBRIDGE_PROD.APP.PRODUCTS p
+          ON p.client_id = r.client_id AND p.asin = r.advertised_asin
+        WHERE r.client_id = ?
+          AND r.date BETWEEN ? AND ?
+          AND r.advertised_asin != 'UNATTRIBUTED'
+        GROUP BY r.advertised_asin, p.title, p.model_number
+        ORDER BY spend DESC NULLS LAST
+        LIMIT 20
+      `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
     // Helper to compute summary from agg row
@@ -828,15 +854,20 @@ router.get('/advertising', async (req, res, next) => {
 
     // Merge weekly trends into a single timeline keyed by week
     function mergeWeekly(arr) {
-      return arr.map(r => ({
-        week:                r.WEEK,
-        weekStart:           dateStr(r.WEEK_START),
-        spend:               n(r.SPEND),
-        sales:               n(r.SALES),
-        impressions:         n(r.IMPRESSIONS),
-        clicks:              n(r.CLICKS),
-        viewableImpressions: n(r.VIEWABLE_IMPRESSIONS),
-      }));
+      return arr.map(r => {
+        const spend = n(r.SPEND) || 0;
+        const sales = n(r.SALES) || 0;
+        return {
+          week:                r.WEEK,
+          weekStart:           dateStr(r.WEEK_START),
+          spend,
+          sales,
+          roas:                spend > 0 ? sales / spend : null,
+          impressions:         n(r.IMPRESSIONS),
+          clicks:              n(r.CLICKS),
+          viewableImpressions: n(r.VIEWABLE_IMPRESSIONS),
+        };
+      });
     }
 
     function mapCampaign(r) {
@@ -878,6 +909,19 @@ router.get('/advertising', async (req, res, next) => {
         sd:  sdCampaigns.map(mapCampaign),
         dsp: dspOrders.map(mapCampaign),
       },
+      topAsins: (topAsins || []).map(r => ({
+        asin:        r.ASIN,
+        title:       r.TITLE,
+        modelNumber: r.MODEL_NUMBER,
+        spend:       n(r.SPEND),
+        sales:       n(r.SALES),
+        purchases:   n(r.PURCHASES),
+        impressions: n(r.IMPRESSIONS),
+        clicks:      n(r.CLICKS),
+        unitsSold:   n(r.UNITS_SOLD),
+        acos:        n(r.ACOS),
+        roas:        n(r.ROAS),
+      })),
       weeks: req.query.weeks || 12,
       range: { start: cutoff, end: rangeEnd, label: rangeLabel },
     });

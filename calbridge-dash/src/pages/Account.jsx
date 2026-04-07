@@ -1,6 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import PageHeader from '../components/PageHeader';
 import { useUser } from '../context/UserContext';
+import {
+  useBudgets,
+  useBudgetCampaigns,
+  useCreateBudget,
+  useUpdateBudget,
+  useDeleteBudget,
+  useUpdateBudgetCampaigns,
+} from '../hooks/useAnalytics';
 
 // ─── Reusable section card ────────────────────────────────────────────────────
 function Section({ title, children }) {
@@ -68,12 +76,381 @@ function Toast({ message, type = 'success', onClose }) {
   );
 }
 
+// ─── Budget helpers ──────────────────────────────────────────────────────────
+
+function fmt$(n) {
+  if (n == null) return '$0';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+}
+
+function fmtDateShort(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+const PACE_BADGE = {
+  on_pace: { label: 'On Pace',      bg: 'bg-green-100',  text: 'text-green-800'  },
+  over:    { label: 'Overspending', bg: 'bg-red-100',    text: 'text-red-800'    },
+  under:   { label: 'Under',        bg: 'bg-yellow-100', text: 'text-yellow-800' },
+};
+
+function PaceBadge({ status }) {
+  const s = PACE_BADGE[status] || PACE_BADGE.on_pace;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
+      {s.label}
+    </span>
+  );
+}
+
+function AdTypeBadge({ type }) {
+  const map = { SP: 'bg-blue-100 text-blue-700', SB: 'bg-purple-100 text-purple-700', SD: 'bg-orange-100 text-orange-700', DSP: 'bg-teal-100 text-teal-700' };
+  const cls = map[type] || 'bg-gray-100 text-gray-600';
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{type || '?'}</span>;
+}
+
+// ─── Budget Form Modal ────────────────────────────────────────────────────────
+
+function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
+  const [name, setName]               = useState(budget?.name || '');
+  const [totalAmount, setTotalAmount] = useState(budget?.total_amount || '');
+  const [currency, setCurrency]       = useState(budget?.currency || 'USD');
+  const [periodStart, setPeriodStart] = useState(budget?.period_start ? budget.period_start.split('T')[0] : '');
+  const [periodEnd, setPeriodEnd]     = useState(budget?.period_end   ? budget.period_end.split('T')[0]   : '');
+  const [notes, setNotes]             = useState(budget?.notes || '');
+  const [saving, setSaving]           = useState(false);
+
+  const isEdit = !!budget;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name || !totalAmount || !periodStart || !periodEnd) return;
+    setSaving(true);
+    try {
+      const body = { name, total_amount: Number(totalAmount), currency, period_start: periodStart, period_end: periodEnd, notes: notes || null };
+      if (isEdit) {
+        await onUpdate(budget.budget_id, body);
+      } else {
+        await onCreate(body);
+      }
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent';
+  const btnPrimary = 'px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-900">{isEdit ? 'Edit Budget' : 'New Budget'}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Budget Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} className={inputCls} placeholder="Q1 2026 Brand Budget" required />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Total Amount *</label>
+              <input type="number" min="0" step="0.01" value={totalAmount} onChange={e => setTotalAmount(e.target.value)} className={inputCls} placeholder="50000" required />
+            </div>
+            <div className="w-24">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Currency</label>
+              <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+                <option value="CAD">CAD</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Period Start *</label>
+              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className={inputCls} required />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Period End *</label>
+              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className={inputCls} required />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} rows={2} placeholder="Optional notes..." />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800">Cancel</button>
+            <button type="submit" disabled={saving || !name || !totalAmount || !periodStart || !periodEnd} className={btnPrimary}>
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Budget'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Campaign Assignment Modal ─────────────────────────────────────────────────
+
+function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
+  const assigned = useMemo(() => new Set((budget.campaigns || []).map(c => c.campaign_id)), [budget]);
+  const [selected, setSelected] = useState(new Set(assigned));
+  const [search, setSearch]     = useState('');
+  const [saving, setSaving]     = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allCampaigns;
+    const terms = search.trim().toLowerCase().split(/\s+/);
+    return allCampaigns.filter(c => {
+      const name = (c.campaign_name || '').toLowerCase();
+      return terms.every(t => name.includes(t));
+    });
+  }, [allCampaigns, search]);
+
+  function toggle(cid) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(cid)) next.delete(cid);
+      else next.add(cid);
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const campaigns = allCampaigns.filter(c => selected.has(c.campaign_id)).map(c => ({
+        campaign_id:   c.campaign_id,
+        campaign_name: c.campaign_name,
+        ad_type:       c.ad_type,
+      }));
+      await onSave(budget.budget_id, campaigns);
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Assign Campaigns</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{budget.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <div className="px-6 py-3 border-b border-gray-100">
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search campaigns…"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+          <p className="text-xs text-gray-400 mt-1.5">{selected.size} selected{search ? ` · ${filtered.length} shown` : ` of ${allCampaigns.length}`}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-0.5">
+          {filtered.length === 0 && (
+            <p className="text-sm text-gray-400 py-4 text-center">No campaigns match your search.</p>
+          )}
+          {filtered.map(c => (
+            <label key={c.campaign_id} className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg px-2 -mx-2">
+              <input
+                type="checkbox"
+                checked={selected.has(c.campaign_id)}
+                onChange={() => toggle(c.campaign_id)}
+                className="w-4 h-4 text-brand rounded border-gray-300 flex-shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-800 truncate">{c.campaign_name || c.campaign_id}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {c.ad_type && <AdTypeBadge type={c.ad_type} />}
+                <span className="text-xs text-gray-400">{fmt$(c.total_spend)}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving…' : `Save (${selected.size} campaigns)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Budgets Tab ───────────────────────────────────────────────────────────────
+
+function BudgetsTab({ showToast }) {
+  const { data: budgets = [], isLoading } = useBudgets();
+  const { data: availCampaigns = [] }     = useBudgetCampaigns();
+  const createMutation                    = useCreateBudget();
+  const updateMutation                    = useUpdateBudget();
+  const deleteMutation                    = useDeleteBudget();
+  const assignMutation                    = useUpdateBudgetCampaigns();
+
+  const [showBudgetModal, setShowBudgetModal]   = useState(false);
+  const [editingBudget, setEditingBudget]       = useState(null); // null = new
+  const [assigningBudget, setAssigningBudget]   = useState(null);
+
+  async function handleCreate(body) {
+    await createMutation.mutateAsync(body);
+    showToast('Budget created');
+  }
+
+  async function handleUpdate(id, body) {
+    await updateMutation.mutateAsync({ id, body });
+    showToast('Budget updated');
+  }
+
+  async function handleDelete(budget) {
+    if (!confirm(`Delete budget "${budget.name}"? This cannot be undone.`)) return;
+    await deleteMutation.mutateAsync(budget.budget_id);
+    showToast('Budget deleted');
+  }
+
+  async function handleAssign(id, campaigns) {
+    await assignMutation.mutateAsync({ id, campaigns });
+    showToast(`${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} assigned`);
+  }
+
+  const btnPrimary = 'px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">Manage budgets and track campaign pacing.</p>
+        <button onClick={() => { setEditingBudget(null); setShowBudgetModal(true); }} className={btnPrimary}>
+          + New Budget
+        </button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-3">
+          {[1,2].map(i => <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />)}
+        </div>
+      )}
+
+      {!isLoading && budgets.length === 0 && (
+        <div className="text-center py-10 text-sm text-gray-400">
+          No budgets yet. Click “+ New Budget” to get started.
+        </div>
+      )}
+
+      {!isLoading && budgets.length > 0 && (
+        <div className="space-y-3">
+          {budgets.map(b => (
+            <div key={b.budget_id} className="border border-gray-200 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-semibold text-gray-900">{b.name}</h4>
+                    <PaceBadge status={b.pace_status} />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {fmtDateShort(b.period_start)} – {fmtDateShort(b.period_end)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => setAssigningBudget(b)}
+                    className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    Manage Campaigns
+                  </button>
+                  <button
+                    onClick={() => { setEditingBudget(b); setShowBudgetModal(true); }}
+                    className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:border-brand hover:text-brand transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(b)}
+                    className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-xs">
+                <div>
+                  <span className="text-gray-400">Total</span>
+                  <p className="font-semibold text-gray-800">{fmt$(b.total_amount)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Spent</span>
+                  <p className="font-semibold text-gray-800">{fmt$(b.spent)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Remaining</span>
+                  <p className="font-semibold text-gray-800">{fmt$(b.remaining)}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${ b.pace_status === 'over' ? 'bg-red-500' : b.pace_status === 'under' ? 'bg-yellow-500' : 'bg-green-500'}`}
+                    style={{ width: `${Math.min(100, Math.round((b.pct_used || 0) * 100))}%` }}
+                  />
+                </div>
+                <span className="text-xs text-gray-500 flex-shrink-0">{Math.round((b.pct_used || 0) * 100)}% used</span>
+              </div>
+              {b.campaign_count > 0 && (
+                <p className="text-xs text-gray-400 mt-2">{b.campaign_count} campaign{b.campaign_count !== 1 ? 's' : ''} assigned</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Budget create/edit modal */}
+      {showBudgetModal && (
+        <BudgetModal
+          budget={editingBudget}
+          onClose={() => { setShowBudgetModal(false); setEditingBudget(null); }}
+          onCreate={handleCreate}
+          onUpdate={handleUpdate}
+        />
+      )}
+
+      {/* Campaign assignment modal */}
+      {assigningBudget && (
+        <CampaignAssignModal
+          budget={assigningBudget}
+          allCampaigns={availCampaigns}
+          onClose={() => setAssigningBudget(null)}
+          onSave={handleAssign}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Account() {
-  const [profile, setProfile]     = useState(null);
-  const [connStatus, setConnStatus] = useState(null);
-  const [loading, setLoading]     = useState(true);
-  const [toast, setToast]         = useState(null);
+  const [activeTab, setActiveTab]     = useState('profile');
+  const [profile, setProfile]         = useState(null);
+  const [connStatus, setConnStatus]   = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [toast, setToast]             = useState(null);
   const { hasRole } = useUser() || { hasRole: () => true };
   const canManage = hasRole('manager');
 
@@ -246,9 +623,41 @@ export default function Account() {
   const inputClass = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent";
   const btnPrimary = "px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
+  const TABS = [
+    { id: 'profile', label: 'Profile & Team' },
+    { id: 'budgets', label: '💰 Budgets' },
+  ];
+
   return (
     <div className="max-w-2xl">
       <PageHeader title="Account" subtitle="Manage your profile, connections, and team" />
+
+      {/* ── Tab navigation ───────────────────────────────────────────────── */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab.id
+                ? 'border-brand text-brand'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Budgets tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'budgets' && (
+        <Section title="💰 Budget Tracker">
+          <BudgetsTab showToast={showToast} />
+        </Section>
+      )}
+
+      {/* ── Profile tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'profile' && <>
 
       {/* ── Branding ─────────────────────────────────────────────────────────── */}
       {canManage && <Section title="🖼️ Branding">
@@ -404,6 +813,8 @@ export default function Account() {
           Sign out
         </a>
       </div>
+
+      </> /* end profile tab */}
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />

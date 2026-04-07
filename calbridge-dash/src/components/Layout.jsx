@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { path: '/advertising', label: 'Advertising',        emoji: '📢', minRole: 'viewer'  },
   { path: '/forecasting', label: 'Forecasting',        emoji: '📈', minRole: 'analyst' },
   { path: '/cogs',        label: 'COGS & Margins',     emoji: '💰', minRole: 'analyst' },
+  { path: '/pacing',      label: 'Budget Pacing',      emoji: '📊', minRole: 'analyst' },
   { path: '/account',     label: 'Account',            emoji: '⚙️',  minRole: 'viewer'  },
 ];
 
