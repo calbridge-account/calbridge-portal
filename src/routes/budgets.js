@@ -1,3 +1,5 @@
+const { randomUUID } = require('crypto');
+
 /**
  * Calbridge Budget Tracker API
  *
@@ -351,8 +353,8 @@ router.post('/', async (req, res) => {
     await query(
       `INSERT INTO ${SCHEMA}.CLIENT_BUDGETS
          (budget_id, client_id, name, total_amount, currency, period_start, period_end, notes)
-       VALUES (UUID_STRING(), ?, ?, ?, ?, ?, ?, ?)`,
-      [clientId, name, n(total_amount), currency, period_start, period_end, notes || null]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [randomUUID(), clientId, name, n(total_amount), currency, period_start, period_end, notes || null]
     );
 
     // Return the newly created budget
