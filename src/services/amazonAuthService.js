@@ -139,7 +139,18 @@ async function refreshAccessToken({ refreshToken, type }) {
 /**
  * Get a valid access token for a client+type, auto-refreshing if needed
  */
+// In-process token cache: avoid hitting Snowflake on every call within the same Node process.
+// Key: `${clientId}:${type}`, value: { accessToken, expiresAt (ms) }
+const _tokenCache = new Map();
+
 async function getValidToken(clientId, type) {
+  const cacheKey = `${clientId}:${type}`;
+  const cached = _tokenCache.get(cacheKey);
+  // Use cache if token is valid for >30 more minutes
+  if (cached && cached.expiresAt - Date.now() > 30 * 60 * 1000) {
+    return cached.accessToken;
+  }
+
   const client = await authService.getById(clientId);
   const conn = client.connections?.[type];
   if (!conn) throw Object.assign(new Error(`${type} not connected`), { status: 401 });
@@ -152,9 +163,11 @@ async function getValidToken(clientId, type) {
     const updated = { ...conn, ...refreshed };
     const connections = { ...(client.connections || {}), [type]: updated };
     await authService.updateClient(clientId, { connections });
+    _tokenCache.set(cacheKey, { accessToken: updated.accessToken, expiresAt: new Date(updated.expiresAt).getTime() });
     return updated.accessToken;
   }
 
+  _tokenCache.set(cacheKey, { accessToken: conn.accessToken, expiresAt });
   return conn.accessToken;
 }
 
