@@ -109,11 +109,13 @@ async function writeVendorSales(clientId, rows) {
     const startDate  = row.startDate || row.reportingDate;
     const endDate    = row.endDate   || row.reportingDate;
     if (!asin || !startDate) continue;
-    const orderedAmt  = typeof row.orderedRevenue === 'object' ? (row.orderedRevenue?.amount ?? 0) : (row.orderedRevenue ?? 0);
+    // Revenue fields may come as { amount, currencyCode } objects or plain numbers
+    const moneyAmt = (v) => (v != null && typeof v === 'object') ? (v.amount ?? 0) : (v ?? 0);
+    const orderedAmt  = moneyAmt(row.orderedRevenue);
     const orderedCcy  = row.orderedRevenue?.currencyCode || 'USD';
-    const shippedAmt  = typeof row.shippedRevenue === 'object' ? (row.shippedRevenue?.amount ?? 0) : (row.shippedRevenue ?? 0);
+    const shippedAmt  = moneyAmt(row.shippedRevenue);
     const shippedCcy  = row.shippedRevenue?.currencyCode || 'USD';
-    const cogsAmt     = typeof row.shippedCOGS === 'object'    ? (row.shippedCOGS?.amount ?? 0)    : (row.shippedCogs ?? 0);
+    const cogsAmt     = moneyAmt(row.shippedCogs ?? row.shippedCOGS);
     await query(`
       MERGE INTO CALBRIDGE_PROD.APP.VENDOR_SALES t
       USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
@@ -439,7 +441,7 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
  * @param {string} marketplaceId
  */
 async function backfillVendorReports(clientId, startDate, endDate, marketplaceId = 'ATVPDKIKX0DER') {
-  const client = await spClient(clientId);
+  // Note: client is refreshed per-chunk to avoid token expiry on long backfills
   const results = { vendorSales: 0, vendorInventory: 0, vendorTraffic: 0, vendorNetPpm: 0, chunks: 0 };
 
   // Build 31-day chunks
@@ -457,9 +459,19 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
 
   console.log(`[vendorBackfill] ${chunks.length} chunks from ${startDate} → ${endDate} for client ${clientId}`);
 
+  // Helper: normalise SP-API vendor report response to an array of ASIN rows
+  const toRows = (data, ...keys) => {
+    if (Array.isArray(data)) return data;
+    for (const k of keys) { if (Array.isArray(data?.[k])) return data[k]; }
+    return [];
+  };
+
   for (const chunk of chunks) {
     results.chunks++;
     console.log(`[vendorBackfill] Chunk ${results.chunks}/${chunks.length}: ${chunk.start} → ${chunk.end}`);
+
+    // Refresh token each chunk — backfills can run >1h and tokens expire
+    const client = await spClient(clientId);
 
     // Sales (DAY)
     try {
@@ -467,7 +479,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId);
-      const rows = Array.isArray(data) ? data : (data?.reportData || data?.salesByAsin || []);
+      const rows = toRows(data, 'salesByAsin', 'reportData');
       const written = await writeVendorSales(clientId, rows);
       results.vendorSales += written;
       console.log(`[vendorBackfill] SALES chunk ${results.chunks}: ${written} rows`);
@@ -482,7 +494,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId);
-      const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
+      const rows = toRows(data, 'inventoryByAsin', 'reportData');
       const written = await writeVendorInventory(clientId, rows);
       results.vendorInventory += written;
       console.log(`[vendorBackfill] INVENTORY chunk ${results.chunks}: ${written} rows`);
@@ -497,7 +509,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
         reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId);
-      const rows = Array.isArray(data) ? data : (data?.reportData || data?.trafficByAsin || []);
+      const rows = toRows(data, 'trafficByAsin', 'reportData');
       const written = await writeVendorTraffic(clientId, rows);
       results.vendorTraffic += written;
       console.log(`[vendorBackfill] TRAFFIC chunk ${results.chunks}: ${written} rows`);
@@ -512,7 +524,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
         reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId);
-      const rows = Array.isArray(data) ? data : (data?.reportData || data?.netPpmByAsin || []);
+      const rows = toRows(data, 'netPpmByAsin', 'reportData');
       const written = await writeVendorNetPpm(clientId, rows);
       results.vendorNetPpm += written;
       console.log(`[vendorBackfill] NET_PPM chunk ${results.chunks}: ${written} rows`);
