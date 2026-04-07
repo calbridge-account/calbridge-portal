@@ -40,10 +40,8 @@ router.get('/campaigns/available', async (req, res) => {
   const clientId = getClientId(req);
   try {
     const rows = await query(
-      -- For DSP, multiple campaign_ids can share the same order name due to
-      -- 64-bit ID truncation across advertiser profiles. Group by name+ad_type
-      -- and pick the campaign_id with the highest spend as the canonical one.
-      `SELECT
+      `/* Group by name+ad_type to dedupe DSP campaigns with truncated IDs */
+       SELECT
          MAX_BY(campaign_id, adjusted_spend) AS campaign_id,
          campaign_name,
          ad_type,
