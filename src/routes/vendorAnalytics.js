@@ -124,6 +124,26 @@ router.get('/overview', async (req, res, next) => {
     const prevPeriodStart = new Date(cutoff); prevPeriodStart.setDate(prevPeriodStart.getDate() - 7);
     const prevPeriodStartStr = prevPeriodStart.toISOString().split('T')[0];
 
+    // Check latest available vendor data date — fall back to last 30 days if
+    // selected range has no vendor data (e.g. MTD when data is stale)
+    const latestDateRow = await query(
+      `SELECT MAX(start_date) AS latest FROM ${SCHEMA}.VENDOR_SALES WHERE client_id = ?`,
+      [CLIENT_ID]
+    );
+    const latestDate = latestDateRow?.[0]?.LATEST || latestDateRow?.[0]?.latest;
+    const dataThrough = latestDate ? dateStr(latestDate) : null;
+
+    // If selected range has no vendor data, silently shift to last 30 days of available data
+    let effectiveCutoff = cutoff;
+    let effectiveRangeEnd = rangeEnd;
+    if (dataThrough && dataThrough < cutoff) {
+      const d = new Date(dataThrough);
+      const s = new Date(dataThrough); s.setDate(s.getDate() - 29);
+      effectiveCutoff    = s.toISOString().split('T')[0];
+      effectiveRangeEnd  = dataThrough;
+      console.log(`[overview] Selected range ${cutoff}–${rangeEnd} has no vendor data — falling back to ${effectiveCutoff}–${effectiveRangeEnd}`);
+    }
+
     const [salesAgg, prevSalesAgg, trafficAgg, prevTrafficAgg, ppmAgg, prevPpmAgg,
            adSpendAgg, prevAdSpendAgg,
            weeklyTrend, topAsins, forecastTable,
@@ -140,7 +160,7 @@ router.get('/overview', async (req, res, next) => {
           SUM(ordered_units)   AS ordered_units
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
-      `, [CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
 
       // Previous week only (for WoW)
       query(`
@@ -149,51 +169,51 @@ router.get('/overview', async (req, res, next) => {
           SUM(shipped_cogs)    AS shipped_cogs
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date >= ? AND start_date < ?
-      `, [CLIENT_ID, prevCutoff, cutoff]),
+      `, [CLIENT_ID, prevCutoff, effectiveCutoff]),
 
       // Current glance views
       query(`
         SELECT SUM(glance_views) AS glance_views
         FROM ${SCHEMA}.VENDOR_TRAFFIC
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
-      `, [CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
 
       // Previous glance views
       query(`
         SELECT SUM(glance_views) AS glance_views
         FROM ${SCHEMA}.VENDOR_TRAFFIC
         WHERE client_id = ? AND start_date >= ? AND start_date < ?
-      `, [CLIENT_ID, prevCutoff, cutoff]),
+      `, [CLIENT_ID, prevCutoff, effectiveCutoff]),
 
       // Net PPM — avg of weekly values
       query(`
         SELECT AVG(net_pure_product_margin) AS net_ppm
         FROM ${SCHEMA}.VENDOR_NET_PPM
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
-      `, [CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
 
       // Previous net PPM
       query(`
         SELECT AVG(net_pure_product_margin) AS net_ppm
         FROM ${SCHEMA}.VENDOR_NET_PPM
         WHERE client_id = ? AND start_date >= ? AND start_date < ?
-      `, [CLIENT_ID, prevCutoff, cutoff]),
+      `, [CLIENT_ID, prevCutoff, effectiveCutoff]),
 
-      // Current period total ad spend (all ad types)
+      // Current period total ad spend (all ad types) — use original range (ads are current)
       query(`
         SELECT SUM(adjusted_spend) AS total_ad_spend
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
-      // Previous period total ad spend (for WoW on proceeds_after_ads)
+      // Previous period total ad spend
       query(`
         SELECT SUM(adjusted_spend) AS total_ad_spend
         FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE
         WHERE client_id = ? AND date >= ? AND date < ?
       `, [CLIENT_ID, prevCutoff, cutoff]),
 
-      // Weekly trend: shipped + ordered revenue by week
+      // Weekly trend: use effective range so chart always has data
       query(`
         SELECT
           TO_VARCHAR(start_date, 'Mon DD') AS week,
@@ -205,7 +225,7 @@ router.get('/overview', async (req, res, next) => {
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
         GROUP BY start_date
         ORDER BY start_date ASC
-      `, [CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
 
       // Top 10 ASINs by shipped revenue (last 4 weeks) + their ad spend
       query(`
@@ -415,6 +435,8 @@ router.get('/overview', async (req, res, next) => {
       })),
       weeks: req.query.weeks || 12,
       range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+      dataThrough,
+      usingFallbackRange: effectiveCutoff !== cutoff,
     });
   } catch (err) { next(err); }
 });

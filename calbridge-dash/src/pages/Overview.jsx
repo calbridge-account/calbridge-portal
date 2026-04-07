@@ -100,6 +100,8 @@ export default function Overview() {
   const topAsins = data?.topAsins || [];
   const forecastTable = data?.forecastTable || [];
   const gs = data?.growthSignals || {};
+  const dataThrough = data?.dataThrough || null;
+  const usingFallback = data?.usingFallbackRange || false;
 
   // Revenue WoW pct
   const revPct = gs.revenueGrowthWoW?.pctChange;
@@ -110,6 +112,12 @@ export default function Overview() {
 
   return (
     <div>
+      {usingFallback && dataThrough && (
+        <div className="mb-4 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+          <span>⚠️</span>
+          <span>Retail data available through <strong>{new Date(dataThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</strong> — showing most recent 30 days. Data for the selected range is not yet available.</span>
+        </div>
+      )}
       <PageHeader
         title="Overview Dashboard"
         subtitle="CyberPower — Amazon Vendor Analytics"
