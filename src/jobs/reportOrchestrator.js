@@ -134,6 +134,23 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
   const { REPORT_TYPES, requestV3Report, adsClient: makeAdsClient } = getAdsIngestion();
   const windows = buildDateWindows(daysBack);
+
+  // Rolling refresh: reset the most recent window (today's rangeKey) back to pending
+  // so every 6-hour run re-fetches fresh same-day data from Amazon.
+  // Older windows stay completed — only the latest 1 window gets refreshed each cycle.
+  const latestWindow = windows[windows.length - 1]; // most recent (today)
+  try {
+    const resetCount = await query(`
+      UPDATE ads_report_queue
+      SET status = 'pending', completed_at = NULL, error_message = NULL
+      WHERE report_date = ?
+        AND status = 'completed'
+    `, [latestWindow.rangeKey]);
+    const n = resetCount?.[0]?.['number of rows updated'] || 0;
+    if (n > 0) console.log(`[submitReports] Rolling refresh: reset ${n} completed reports for window ${latestWindow.rangeKey}`);
+  } catch (err) {
+    console.warn('[submitReports] Rolling refresh reset failed (non-fatal):', err.message);
+  }
   let totalQueued = 0;
 
   for (const clientId of clientIds) {

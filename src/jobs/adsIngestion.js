@@ -2431,12 +2431,13 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
       console.warn('[DSP] advertiser_client_map lookup failed, using default clientId:', err.message);
     }
 
-    // Build 31-day windows (Amazon max range per request)
-    const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+    // Build 31-day windows (Amazon max range per request).
+    // Use today as end date — Amazon has same-day data available.
+    const today = new Date(); today.setUTCHours(0,0,0,0);
     const windows = [];
     for (let offset = 0; offset < daysBack; offset += 31) {
-      const wEnd = new Date(yesterday); wEnd.setDate(wEnd.getDate() - offset);
-      const wStart = new Date(wEnd); wStart.setDate(wStart.getDate() - Math.min(30, daysBack-1-offset));
+      const wEnd = new Date(today); wEnd.setUTCDate(wEnd.getUTCDate() - offset);
+      const wStart = new Date(wEnd); wStart.setUTCDate(wStart.getUTCDate() - Math.min(30, daysBack-1-offset));
       windows.push({
         startDate: wStart.toISOString().split('T')[0],
         endDate:   wEnd.toISOString().split('T')[0]
@@ -2444,7 +2445,21 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
     }
     windows.reverse();
 
-    const rangeKey = windows[0].startDate.replace(/-/g,'') + '_' + windows[windows.length-1].endDate.replace(/-/g,'');
+    // Rolling refresh: reset today's window (most recent) back to pending so
+    // every 6-hour run re-fetches fresh same-day data from Amazon.
+    const latestWindow = windows[windows.length - 1];
+    const latestRangeKey = latestWindow.startDate.replace(/-/g,'') + '_' + latestWindow.endDate.replace(/-/g,'');
+    try {
+      const reset = await query(
+        `UPDATE ads_report_queue SET status='pending', completed_at=NULL, error_message=NULL
+         WHERE report_date=? AND report_type='dspCampaign' AND status='completed'`,
+        [latestRangeKey]
+      );
+      const n = reset?.[0]?.['number of rows updated'] || 0;
+      if (n > 0) console.log(`[DSP] Rolling refresh: reset ${n} completed reports for window ${latestRangeKey}`);
+    } catch (err) {
+      console.warn('[DSP] Rolling refresh reset failed (non-fatal):', err.message);
+    }
 
     console.log(`[DSP] ${advertiserRows.length} advertisers, ${windows.length} windows × ${DSP_REPORT_TYPES.length} type`);
     let totalQueued = 0;

@@ -311,11 +311,11 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   const results = {};
   let totalWritten = 0;
 
-  // ── 1. Vendor Sales (DAY grain, last 15 days with 3-day lag) ────────────────
+  // ── 1. Vendor Sales (DAY grain, last 30 days) ─────────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    const endDate   = daysAgo(3);   // 3-day lag
-    const startDate = daysAgo(17);  // 15-day window + 3-day lag
+    const endDate   = daysAgo(0);   // today — Amazon has same-day data
+    const startDate = daysAgo(29);  // 30-day rolling window
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'MANUFACTURING',
@@ -335,11 +335,11 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
-  // ── 2. Vendor Inventory (DAY grain, last 15 days with 3-day lag) ────────────
+  // ── 2. Vendor Inventory (DAY grain, last 30 days) ─────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    const endDate   = daysAgo(3);
-    const startDate = daysAgo(17);
+    const endDate   = daysAgo(0);
+    const startDate = daysAgo(29);
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'MANUFACTURING',
@@ -362,8 +362,8 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 3. Vendor Traffic (WEEK grain, last 8 weeks) ─────────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
-    const endDate   = daysAgo(3);
-    const startDate = daysAgo(59);  // ~8 weeks
+    const endDate   = daysAgo(0);
+    const startDate = daysAgo(55);  // ~8 weeks from today
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
       reportPeriod:     'WEEK',
       distributorView:  'MANUFACTURING',
@@ -386,8 +386,8 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 4. Vendor Net PPM (WEEK grain, last 8 weeks) ─────────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT...');
-    const endDate   = daysAgo(3);
-    const startDate = daysAgo(59);
+    const endDate   = daysAgo(0);
+    const startDate = daysAgo(55);
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
       reportPeriod:     'WEEK',
       distributorView:  'MANUFACTURING',
