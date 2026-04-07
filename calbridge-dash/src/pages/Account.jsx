@@ -231,8 +231,11 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
     });
   }
 
+  const [saveError, setSaveError] = useState(null);
+
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       const campaigns = allCampaigns.filter(c => selected.has(c.campaign_id)).map(c => ({
         campaign_id:   c.campaign_id,
@@ -243,6 +246,7 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
       onClose();
     } catch (err) {
       console.error(err);
+      setSaveError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -310,6 +314,11 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
             </label>
           ))}
         </div>
+        {saveError && (
+          <div className="mx-6 mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {saveError}
+          </div>
+        )}
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800">Cancel</button>
           <button
@@ -356,8 +365,12 @@ function BudgetsTab({ showToast }) {
   }
 
   async function handleAssign(id, campaigns) {
-    await assignMutation.mutateAsync({ id, campaigns });
-    showToast(`${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} assigned`);
+    try {
+      await assignMutation.mutateAsync({ id, campaigns });
+      showToast(`${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} assigned`);
+    } catch (err) {
+      throw err; // re-throw so CampaignAssignModal can surface the error
+    }
   }
 
   const btnPrimary = 'px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors';
