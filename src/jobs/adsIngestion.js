@@ -1731,34 +1731,9 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   const [advertiserId, realProfileId] = profileId.includes('|')
     ? profileId.split('|')
     : [profileId, profileId];
-  // Dual-write to unified RAW.AD_CAMPAIGN (DSP uses order_id as campaign_id)
-  const rawRows = rows.map(r => ({
-    client_id:      clientId,
-    campaign_id:    String(r.orderId || r.entityId || ''),
-    date:           String(r.date || r.DATE || '').substring(0, 10) || null,
-    ad_product:     'DSP',
-    platform:       'amazon',
-    campaign_name:  r.orderName || null,
-    status:         null,
-    daily_budget:   r.orderBudget || null,
-    impressions:    r.impressions || 0,
-    clicks:         r.clicks || 0,
-    cost:           r.totalCost || 0,
-    purchases_1d:   null,
-    purchases_7d:   null,
-    purchases_14d:  r.purchases || null,
-    purchases_30d:  r.totalPurchases || null,
-    sales_1d:       null,
-    sales_7d:       null,
-    sales_14d:      r.sales || null,
-    sales_30d:      r.totalSales || null,
-    ntb_orders_14d: r.newToBrandPurchases || null,
-    ntb_sales_14d:  r.newToBrandProductSales || null,
-    viewable_impressions: r.viewableImpressions || null,
-    ingested_at:    new Date().toISOString(),
-    data_maturity:  'preliminary',
-  }));
-  await writeRawAdCampaign(rawRows).catch(e => console.warn('[adsIngestion] RAW.AD_CAMPAIGN DSP write failed (non-fatal):', e.message));
+  // NOTE: DSP is NOT dual-written to RAW.AD_CAMPAIGN here.
+  // stageRawData.js (stageAdCampaignRaw) is the sole writer for DSP → RAW.AD_CAMPAIGN.
+  // Dual-writing caused duplicate rows (mismatched report_id format = 2× spend/sales).
   const mapped = rows.map(r => ({
     advertiser_id:                String(r.advertiserId || advertiserId),
     profile_id:                   realProfileId,
@@ -1791,11 +1766,17 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks || null,
     new_to_brand_product_sales:   r.newToBrandProductSales || null,
   }));
+  // Key on (client_id, profile_id, date, order_id) — NOT advertiser_id.
+  // Amazon's 64-bit advertiser/order IDs can be truncated differently by JSON.parse(),
+  // causing the same real campaign to appear under two advertiser_id values.
+  // Excluding advertiser_id from the PK ensures a second write for the same
+  // order+date is an UPDATE (not a second INSERT), preventing double-counting.
+  // advertiser_id is still written/updated via dataColumns.
   return batchMerge({
     table: 'dsp_campaign_report',
-    keyColumns: ['advertiser_id', 'profile_id', 'date', 'order_id'],
+    keyColumns: ['client_id', 'profile_id', 'date', 'order_id'],
     dataColumns: [
-      'client_id', 'order_name', 'order_budget', 'order_start_date', 'order_end_date',
+      'advertiser_id', 'order_name', 'order_budget', 'order_start_date', 'order_end_date',
       'order_currency', 'advertiser_name', 'entity_id',
       'impressions', 'clicks', 'total_cost',
       'viewable_impressions', 'viewability_rate',
