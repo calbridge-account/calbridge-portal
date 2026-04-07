@@ -75,10 +75,13 @@ async function requestAndDownload(client, reportType, reportOptions, marketplace
 
   // Poll
   const start = Date.now();
+  let pollCount = 0;
   while (Date.now() - start < maxWaitMs) {
     await sleep(8000);
+    pollCount++;
     const poll = await client.get(`/reports/2021-06-30/reports/${reportId}`);
     const { processingStatus, reportDocumentId } = poll.data;
+    if (pollCount % 5 === 0) console.log(`[vendorIngestion] ${reportType} poll #${pollCount}: ${processingStatus}`);
 
     if (processingStatus === 'DONE' && reportDocumentId) {
       const docRes = await client.get(`/reports/2021-06-30/documents/${reportDocumentId}`);
@@ -475,10 +478,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
 
     // Sales (DAY)
     try {
+      const BACKFILL_TIMEOUT = 180000; // 3 min per report — shorter than normal ingest
       const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId);
+      }, marketplaceId, BACKFILL_TIMEOUT);
       const rows = toRows(data, 'salesByAsin', 'reportData');
       const written = await writeVendorSales(clientId, rows);
       results.vendorSales += written;
@@ -490,10 +494,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
 
     // Inventory (DAY)
     try {
+      const BACKFILL_TIMEOUT = 180000;
       const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId);
+      }, marketplaceId, BACKFILL_TIMEOUT);
       const rows = toRows(data, 'inventoryByAsin', 'reportData');
       const written = await writeVendorInventory(clientId, rows);
       results.vendorInventory += written;
@@ -505,10 +510,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
 
     // Traffic (WEEK)
     try {
+      const BACKFILL_TIMEOUT = 180000;
       const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
         reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId);
+      }, marketplaceId, BACKFILL_TIMEOUT);
       const rows = toRows(data, 'trafficByAsin', 'reportData');
       const written = await writeVendorTraffic(clientId, rows);
       results.vendorTraffic += written;
@@ -520,10 +526,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
 
     // Net PPM (WEEK)
     try {
+      const BACKFILL_TIMEOUT = 180000;
       const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
         reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId);
+      }, marketplaceId, BACKFILL_TIMEOUT);
       const rows = toRows(data, 'netPpmByAsin', 'reportData');
       const written = await writeVendorNetPpm(clientId, rows);
       results.vendorNetPpm += written;
