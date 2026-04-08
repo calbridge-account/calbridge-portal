@@ -141,7 +141,7 @@ export default function VendorPerformance() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="text-sm text-gray-500 mb-1">Sellable On Hand</div>
           <div className="text-xl font-bold text-gray-900">{fmt(m.totalSellable)}</div>
-          <div className="text-xs text-gray-400 mt-1">Total units across all ASINs</div>
+          <div className="text-xs text-gray-400 mt-1">Units in Amazon FCs, sellable condition</div>
         </div>
         <div className="bg-white rounded-xl border border-orange-100 p-5">
           <div className="text-sm text-gray-500 mb-1">Aged 90+ Days</div>
@@ -231,7 +231,8 @@ export default function VendorPerformance() {
                   {[
                     { h: 'ASIN', def: null },
                     { h: 'Model / Product', def: null },
-                    { h: 'Sellable On Hand', def: 'Units in Amazon FCs in sellable condition at end of period. Includes backorders as negative.' },
+                    { h: 'On Hand', def: 'Units currently in Amazon FCs in sellable condition.' },
+                    { h: 'Open PO Units', def: 'Units on open / confirmed purchase orders from Amazon. These are ordered but not yet received at the FC. Comes from the Vendor Inventory report.' },
                     { h: 'Aged 90+', def: 'Sellable units that have been in Amazon\'s fulfillment centers for 90+ days. At risk of long-term storage fees.' },
                     { h: 'Unhealthy', def: 'Excess inventory units beyond what Amazon\'s demand forecast suggests is needed. Amazon flags these as overstocked.' },
                     { h: 'OOS Units', def: 'Customer orders that could not be fulfilled due to out-of-stock inventory (unfilled customer ordered units).' },
@@ -258,6 +259,9 @@ export default function VendorPerformance() {
                       {!row.model && !row.title && '—'}
                     </td>
                     <td className="py-2.5 px-3 text-right font-medium">{fmt(row.sellableOnHand)}</td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className={row.openPoUnits > 0 ? 'text-blue-700 font-medium' : 'text-gray-400'}>{fmt(row.openPoUnits ?? 0)}</span>
+                    </td>
                     <td className="py-2.5 px-3 text-right">
                       <span className={row.aged90Plus > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>{fmt(row.aged90Plus)}</span>
                     </td>

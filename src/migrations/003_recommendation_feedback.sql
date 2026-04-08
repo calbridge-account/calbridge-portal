@@ -26,7 +26,7 @@
 -- Never query directly from dashboards — use CANONICAL.* for cross-agent reads.
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.METRICS
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.METRICS
   COMMENT = 'Economist-computed metrics and scored opportunities. Append-only tables — do not upsert. Query CANONICAL.OPPORTUNITY_SCORES for cross-agent access.';
 
 
@@ -42,7 +42,7 @@ CREATE SCHEMA IF NOT EXISTS CALBRIDGE.METRICS
 -- by the recommendation and budget-allocation engines.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.METRICS.OPPORTUNITY_SCORES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.METRICS.OPPORTUNITY_SCORES (
   -- Identity
   score_id                VARCHAR          NOT NULL DEFAULT UUID_STRING()
                             COMMENT 'Unique ID for this scored opportunity row',
@@ -99,7 +99,7 @@ COMMENT = 'Append-only opportunity score output from the Economist scoring engin
 -- If 002 already ran, this is a no-op.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.RECOMMENDATION_LOG (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.RECOMMENDATION_LOG (
   recommendation_id       VARCHAR          NOT NULL DEFAULT UUID_STRING()
                             COMMENT 'UUID for this recommendation. FK target from RECOMMENDATION_OUTCOMES.',
   account_id              VARCHAR          NOT NULL
@@ -142,7 +142,7 @@ COMMENT = 'Immutable recommendation audit log. Every recommendation issued — m
 -- Created in migration 002. This IF NOT EXISTS is a safe fallback.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.RECOMMENDATION_OUTCOMES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.RECOMMENDATION_OUTCOMES (
   outcome_id              VARCHAR          NOT NULL DEFAULT UUID_STRING(),
   recommendation_id       VARCHAR          NOT NULL
                             COMMENT 'FK → CANONICAL.RECOMMENDATION_LOG.recommendation_id',
@@ -175,7 +175,7 @@ COMMENT = 'Outcome tracking for issued recommendations. Filled N days post-actio
 -- This is a safe fallback (IF NOT EXISTS) matching the task spec.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.ACCOUNT_OVERRIDES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.ACCOUNT_OVERRIDES (
   account_id              VARCHAR          NOT NULL
                             COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   override_type           VARCHAR          NOT NULL

@@ -30,7 +30,7 @@
 -- SCHEMA
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.CANONICAL
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.CANONICAL
   COMMENT = 'Source-agnostic canonical entity layer. Ground truth for all reporting and scoring. Never query RAW_* for reporting — use this schema.';
 
 
@@ -40,7 +40,7 @@ CREATE SCHEMA IF NOT EXISTS CALBRIDGE.CANONICAL
 -- This is the tenant isolation anchor; every other table FKs to here.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.ACCOUNTS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.ACCOUNTS (
   -- Internal identity
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING() COMMENT 'Calbridge internal UUID for this account',
   client_id                            VARCHAR(36)   NOT NULL COMMENT 'Calbridge client/org UUID (tenant)',
@@ -82,7 +82,7 @@ COMMENT = 'Canonical account/advertiser records. Tenant isolation anchor — eve
 -- Static reference table; seeded once, rarely changed.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.CHANNELS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.CHANNELS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   code                                 VARCHAR(32)   NOT NULL COMMENT 'Short code: SP | SB | SD | DSP | RETAIL | WALMART | META | GOOGLE',
   name                                 VARCHAR(128)  NOT NULL COMMENT 'Display name: Sponsored Products',
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.CHANNELS (
 COMMENT = 'Advertising channel lookup table. Seeded once. All campaign records reference channel_code.';
 
 -- Seed canonical channels
-INSERT INTO CALBRIDGE.CANONICAL.CHANNELS
+INSERT INTO CALBRIDGE_PROD.CANONICAL.CHANNELS
   (code, name, platform, channel_type, supports_keyword_targeting, supports_asin_targeting, supports_audience_targeting)
 SELECT code, name, platform, channel_type, kw, asin, audience FROM (VALUES
   ('SP',      'Sponsored Products', 'amazon',  'paid_search', TRUE,  TRUE,  FALSE),
@@ -115,7 +115,7 @@ SELECT code, name, platform, channel_type, kw, asin, audience FROM (VALUES
   ('META',    'Meta Ads',           'meta',    'display',     FALSE, FALSE, TRUE),
   ('GOOGLE',  'Google Ads',         'google',  'paid_search', TRUE,  FALSE, TRUE)
 ) AS t(code, name, platform, channel_type, kw, asin, audience)
-WHERE NOT EXISTS (SELECT 1 FROM CALBRIDGE.CANONICAL.CHANNELS WHERE code = t.code);
+WHERE NOT EXISTS (SELECT 1 FROM CALBRIDGE_PROD.CANONICAL.CHANNELS WHERE code = t.code);
 
 
 -- ============================================================
@@ -124,7 +124,7 @@ WHERE NOT EXISTS (SELECT 1 FROM CALBRIDGE.CANONICAL.CHANNELS WHERE code = t.code
 -- One row per campaign, updated on each sync.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.CAMPAIGNS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.CAMPAIGNS (
   -- Internal identity
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
@@ -172,7 +172,7 @@ COMMENT = 'Canonical campaign registry. One row per campaign, all ad types. Upda
 -- Ad groups / line items — normalized across SP/SB/SD
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.AD_GROUPS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.AD_GROUPS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -208,7 +208,7 @@ COMMENT = 'Canonical ad group / line item registry. One row per ad group.';
 -- Covers: SP keywords, SP ASIN targets, SB keywords, SD audiences
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.KEYWORD_TARGETS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.KEYWORD_TARGETS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -255,7 +255,7 @@ COMMENT = 'Canonical keyword and targeting expression registry. Covers SP keywor
 -- Updated on each SP-API listings sync
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.PRODUCTS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.PRODUCTS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -311,7 +311,7 @@ COMMENT = 'Canonical product catalog. One row per ASIN per marketplace. Includes
 -- Daily snapshot; used for restock signals and inventory-constrained opportunity scoring
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.INVENTORY_SNAPSHOTS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.INVENTORY_SNAPSHOTS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -364,7 +364,7 @@ COMMENT = 'Canonical FBA inventory snapshot by ASIN/SKU/date. is_inventory_const
 -- Source of truth for margin-aware recommendation scoring
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.CONTRIBUTION_MARGINS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.CONTRIBUTION_MARGINS (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -420,7 +420,7 @@ COMMENT = 'Contribution margin per product per period. CM1 = before ads, CM2 = a
 -- The recommendation engine outputs rows here before publishing to RECOMMENDATION_LOG
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.OPPORTUNITY_SCORES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.OPPORTUNITY_SCORES (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -485,7 +485,7 @@ COMMENT = 'Scored opportunities from the recommendation engine. inputs VARIANT s
 -- Never update rows here; insert new ones.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.RECOMMENDATION_LOG (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.RECOMMENDATION_LOG (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,
@@ -544,7 +544,7 @@ COMMENT = 'Immutable audit log of every recommendation issued. Never update rows
 -- Links back to RECOMMENDATION_LOG; filled N days post-action
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.RECOMMENDATION_OUTCOMES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.RECOMMENDATION_OUTCOMES (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   recommendation_id                    VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.RECOMMENDATION_LOG.id',
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
@@ -599,7 +599,7 @@ COMMENT = 'Actual outcomes after recommendations. Filled N days post-action by t
 -- The recommendation engine checks this table before issuing any recommendation
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.CANONICAL.ACCOUNT_OVERRIDES (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.CANONICAL.ACCOUNT_OVERRIDES (
   id                                   VARCHAR(36)   NOT NULL DEFAULT UUID_STRING(),
   account_id                           VARCHAR(36)   NOT NULL COMMENT 'FK → CANONICAL.ACCOUNTS.id',
   client_id                            VARCHAR(36)   NOT NULL,

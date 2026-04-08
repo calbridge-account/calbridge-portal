@@ -542,11 +542,12 @@ router.get('/vendor/asins', async (req, res, next) => {
           MAX(p.title)                        AS title,
           MAX(p.model_number)                 AS model_number,
           SUM(i.sellable_on_hand_units)       AS sellable_on_hand,
+          SUM(i.open_purchase_order_units)    AS open_po_units,
           SUM(i.aged_90_plus_units)           AS aged_90_plus,
           SUM(i.unhealthy_units)              AS unhealthy,
           SUM(i.unfilled_customer_ordered_units) AS oos_units,
           AVG(i.sell_through_rate)            AS sell_through,
-          AVG(i.vendor_confirmation_rate)     AS conf_rate,
+          AVG(CASE WHEN i.vendor_confirmation_rate > 0 THEN i.vendor_confirmation_rate END) AS conf_rate,
           AVG(i.receive_fill_rate)            AS fill_rate,
           AVG(i.avg_vendor_lead_time_days)    AS lead_time
         FROM ${SCHEMA}.VENDOR_INVENTORY i
@@ -584,6 +585,7 @@ router.get('/vendor/asins', async (req, res, next) => {
           model:            r.MODEL_NUMBER,
           title:            r.TITLE,
           sellableOnHand:   n(r.SELLABLE_ON_HAND),
+          openPoUnits:      n(r.OPEN_PO_UNITS),
           aged90Plus:       n(r.AGED_90_PLUS),
           unhealthy:        n(r.UNHEALTHY),
           oosUnits:         n(r.OOS_UNITS),

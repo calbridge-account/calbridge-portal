@@ -33,6 +33,32 @@ function daysAgo(n) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Returns the most recent completed Saturday (end of last full week).
+ * Amazon WEEK reports require Sunday→Saturday alignment, and data is available
+ * ~48h after Saturday close. We use end-of-last-Saturday-with-data as the safe cutoff.
+ */
+function lastCompletedSaturday() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+  // Days since last Saturday: if today is Sun (0) → 1 day ago, Sat (6) → 7 days ago (prev week)
+  const daysSinceSat = day === 0 ? 1 : (day === 6 ? 7 : day + 1);
+  const sat = new Date(now);
+  sat.setUTCDate(now.getUTCDate() - daysSinceSat);
+  return toDateStr(sat);
+}
+
+/**
+ * Returns the Sunday that starts the week containing lastCompletedSaturday().
+ */
+function lastCompletedSunday() {
+  const satStr = lastCompletedSaturday();
+  const sat = new Date(satStr);
+  const sun = new Date(sat);
+  sun.setUTCDate(sat.getUTCDate() - 6);
+  return toDateStr(sun);
+}
+
 async function spClient(clientId) {
   let token;
   try {
@@ -330,11 +356,11 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   const results = {};
   let totalWritten = 0;
 
-  // ── 1. Vendor Sales (DAY grain, last 30 days) ─────────────────────────────
+  // ── 1. Vendor Sales (DAY grain, max 14 days per request) ──────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    const endDate   = daysAgo(0);   // today — Amazon has same-day data
-    const startDate = daysAgo(29);  // 30-day rolling window
+    const endDate   = daysAgo(1);   // yesterday (same-day data unreliable)
+    const startDate = daysAgo(13);  // 14-day rolling window (Amazon max for DAY)
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'MANUFACTURING',
@@ -354,11 +380,11 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
-  // ── 2. Vendor Inventory (DAY grain, last 30 days) ─────────────────────────
+  // ── 2. Vendor Inventory (DAY grain, max 14 days per request) ───────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    const endDate   = daysAgo(0);
-    const startDate = daysAgo(29);
+    const endDate   = daysAgo(1);
+    const startDate = daysAgo(13);
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'MANUFACTURING',
@@ -378,15 +404,16 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
-  // ── 3. Vendor Traffic (WEEK grain, last 8 weeks) ─────────────────────────────
+  // ── 3. Vendor Traffic (WEEK grain, Sun→Sat aligned, no distributorView/sellingProgram) ─
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
-    const endDate   = daysAgo(0);
-    const startDate = daysAgo(55);  // ~8 weeks from today
+    // WEEK reports require Sunday start + Saturday end, strict alignment.
+    // Data is available ~48h after Saturday close — use last completed Sat.
+    const endDate   = lastCompletedSaturday();
+    const startDate = lastCompletedSunday(); // one full week only per daily run
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
       reportPeriod:     'WEEK',
-      distributorView:  'MANUFACTURING',
-      sellingProgram:   'RETAIL',
+      // NOTE: distributorView and sellingProgram are NOT supported for traffic/netPPM reports
       dataStartTime:    startDate,
       dataEndTime:      endDate,
     }, marketplaceId);
@@ -402,15 +429,15 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
-  // ── 4. Vendor Net PPM (WEEK grain, last 8 weeks) ─────────────────────────────
+  // ── 4. Vendor Net PPM (WEEK grain, Sun→Sat aligned) ─────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT...');
-    const endDate   = daysAgo(0);
-    const startDate = daysAgo(55);
+    // Same alignment rules as traffic report
+    const endDate   = lastCompletedSaturday();
+    const startDate = lastCompletedSunday();
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
       reportPeriod:     'WEEK',
-      distributorView:  'MANUFACTURING',
-      sellingProgram:   'RETAIL',
+      // NOTE: distributorView and sellingProgram are NOT supported for netPPM reports
       dataStartTime:    startDate,
       dataEndTime:      endDate,
     }, marketplaceId);
@@ -448,33 +475,18 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
 /**
  * Backfill vendor reports for a given date range.
- * Chunks into 31-day windows (Amazon's max per request).
- * Skips FORECASTS (no date range) and uses DAY grain for sales/inventory,
- * WEEK grain for traffic/netPPM.
+ *
+ * DAY reports (sales, inventory): max 14-day windows per Amazon limit.
+ * WEEK reports (traffic, netPPM): must align to Sunday start → Saturday end.
+ *   No distributorView/sellingProgram options allowed.
  *
  * @param {string} clientId
- * @param {string} startDate  YYYY-MM-DD
- * @param {string} endDate    YYYY-MM-DD
+ * @param {string} startDate  YYYY-MM-DD  (for DAY: any date; for WEEK: snapped to prev Sunday)
+ * @param {string} endDate    YYYY-MM-DD  (for DAY: any date; for WEEK: snapped to prev Saturday)
  * @param {string} marketplaceId
  */
 async function backfillVendorReports(clientId, startDate, endDate, marketplaceId = 'ATVPDKIKX0DER') {
-  // Note: client is refreshed per-chunk to avoid token expiry on long backfills
-  const results = { vendorSales: 0, vendorInventory: 0, vendorTraffic: 0, vendorNetPpm: 0, chunks: 0 };
-
-  // Build 31-day chunks
-  const chunks = [];
-  let cursor = new Date(startDate);
-  const end  = new Date(endDate);
-  while (cursor <= end) {
-    const chunkEnd = new Date(cursor);
-    chunkEnd.setDate(chunkEnd.getDate() + 30);
-    if (chunkEnd > end) chunkEnd.setTime(end.getTime());
-    chunks.push({ start: toDateStr(cursor), end: toDateStr(chunkEnd) });
-    cursor = new Date(chunkEnd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  console.log(`[vendorBackfill] ${chunks.length} chunks from ${startDate} → ${endDate} for client ${clientId}`);
+  const results = { vendorSales: 0, vendorInventory: 0, vendorTraffic: 0, vendorNetPpm: 0, dayChunks: 0, weekChunks: 0 };
 
   // Helper: normalise SP-API vendor report response to an array of ASIN rows
   const toRows = (data, ...keys) => {
@@ -483,84 +495,137 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     return [];
   };
 
-  for (const chunk of chunks) {
-    results.chunks++;
-    console.log(`[vendorBackfill] Chunk ${results.chunks}/${chunks.length}: ${chunk.start} → ${chunk.end}`);
+  // ── DAY chunks: max 14 days each ─────────────────────────────────────────
+  const dayChunks = [];
+  let cursor = new Date(startDate + 'T00:00:00Z');
+  const dayEnd = new Date(endDate + 'T00:00:00Z');
+  while (cursor <= dayEnd) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + 13); // 14 days (0-indexed: +13)
+    if (chunkEnd > dayEnd) chunkEnd.setTime(dayEnd.getTime());
+    dayChunks.push({ start: toDateStr(cursor), end: toDateStr(chunkEnd) });
+    cursor = new Date(chunkEnd);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  console.log(`[vendorBackfill] DAY: ${dayChunks.length} chunks (${startDate} → ${endDate}) for client ${clientId}`);
 
-    // Refresh token each chunk — backfills can run >1h and tokens expire
+  for (const chunk of dayChunks) {
+    results.dayChunks++;
     const client = await spClient(clientId);
+    console.log(`[vendorBackfill] DAY chunk ${results.dayChunks}/${dayChunks.length}: ${chunk.start} → ${chunk.end}`);
 
     // Sales (DAY)
     try {
-      const BACKFILL_TIMEOUT = 180000; // 3 min per report — shorter than normal ingest
       const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId, BACKFILL_TIMEOUT);
+      }, marketplaceId, 600000);
       const rows = toRows(data, 'salesByAsin', 'reportData');
       const written = await writeVendorSales(clientId, rows);
       results.vendorSales += written;
-      console.log(`[vendorBackfill] SALES chunk ${results.chunks}: ${written} rows`);
+      console.log(`[vendorBackfill] SALES: ${written} rows`);
     } catch (err) {
-      console.warn(`[vendorBackfill] SALES chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+      console.warn(`[vendorBackfill] SALES failed:`, err.message?.substring(0, 200));
     }
     await sleep(2000);
 
     // Inventory (DAY)
     try {
-      const BACKFILL_TIMEOUT = 180000;
       const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
         reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId, BACKFILL_TIMEOUT);
+      }, marketplaceId, 600000);
       const rows = toRows(data, 'inventoryByAsin', 'reportData');
       const written = await writeVendorInventory(clientId, rows);
       results.vendorInventory += written;
-      console.log(`[vendorBackfill] INVENTORY chunk ${results.chunks}: ${written} rows`);
+      console.log(`[vendorBackfill] INVENTORY: ${written} rows`);
     } catch (err) {
-      console.warn(`[vendorBackfill] INVENTORY chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
-    }
-    await sleep(2000);
-
-    // Traffic (WEEK)
-    try {
-      const BACKFILL_TIMEOUT = 180000;
-      const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
-        reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
-        dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId, BACKFILL_TIMEOUT);
-      const rows = toRows(data, 'trafficByAsin', 'reportData');
-      const written = await writeVendorTraffic(clientId, rows);
-      results.vendorTraffic += written;
-      console.log(`[vendorBackfill] TRAFFIC chunk ${results.chunks}: ${written} rows`);
-    } catch (err) {
-      console.warn(`[vendorBackfill] TRAFFIC chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
-    }
-    await sleep(2000);
-
-    // Net PPM (WEEK)
-    try {
-      const BACKFILL_TIMEOUT = 180000;
-      const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
-        reportPeriod: 'WEEK', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
-        dataStartTime: chunk.start, dataEndTime: chunk.end,
-      }, marketplaceId, BACKFILL_TIMEOUT);
-      const rows = toRows(data, 'netPpmByAsin', 'reportData');
-      const written = await writeVendorNetPpm(clientId, rows);
-      results.vendorNetPpm += written;
-      console.log(`[vendorBackfill] NET_PPM chunk ${results.chunks}: ${written} rows`);
-    } catch (err) {
-      console.warn(`[vendorBackfill] NET_PPM chunk ${results.chunks} failed:`, err.message?.substring(0, 120));
+      console.warn(`[vendorBackfill] INVENTORY failed:`, err.message?.substring(0, 200));
     }
 
-    // SP-API Reports: ~1 create/min rate limit. Wait 65s between chunks.
-    if (results.chunks < chunks.length) {
-      console.log(`[vendorBackfill] Waiting 65s before next chunk...`);
-      await sleep(65000);
+    // Rate limit: wait 65s between chunks (4 report types per chunk)
+    if (results.dayChunks < dayChunks.length) {
+      console.log(`[vendorBackfill] Waiting 30s before next day chunk...`);
+      await sleep(30000);
     }
   }
 
-  console.log(`[vendorBackfill] Done — ${results.chunks} chunks, sales=${results.vendorSales} inventory=${results.vendorInventory} traffic=${results.vendorTraffic} netPpm=${results.vendorNetPpm}`);
+  // ── WEEK chunks: align to Sunday→Saturday ────────────────────────────────
+  // Snap startDate back to nearest Sunday
+  const wkStart = new Date(startDate + 'T00:00:00Z');
+  const wkStartDay = wkStart.getUTCDay(); // 0=Sun
+  if (wkStartDay !== 0) wkStart.setUTCDate(wkStart.getUTCDate() - wkStartDay);
+
+  // Snap endDate forward to nearest Saturday, but cap at last completed Saturday
+  const lastSat = new Date(lastCompletedSaturday() + 'T00:00:00Z');
+  const wkEnd = new Date(endDate + 'T00:00:00Z');
+  const wkEndDay = wkEnd.getUTCDay();
+  if (wkEndDay !== 6) wkEnd.setUTCDate(wkEnd.getUTCDate() + (6 - wkEndDay));
+  if (wkEnd > lastSat) wkEnd.setTime(lastSat.getTime());
+
+  const weekChunks = [];
+  let wkCursor = new Date(wkStart);
+  while (wkCursor <= wkEnd) {
+    const chunkSat = new Date(wkCursor);
+    chunkSat.setUTCDate(chunkSat.getUTCDate() + 6); // Sun + 6 = Sat
+    if (chunkSat > wkEnd) chunkSat.setTime(wkEnd.getTime());
+    weekChunks.push({ start: toDateStr(wkCursor), end: toDateStr(chunkSat) });
+    wkCursor = new Date(chunkSat);
+    wkCursor.setUTCDate(wkCursor.getUTCDate() + 1); // next Sunday
+  }
+  console.log(`[vendorBackfill] WEEK: ${weekChunks.length} chunks (${toDateStr(wkStart)} → ${toDateStr(wkEnd)})`);
+
+  // Batch week chunks: each chunk is one week, combine into groups of 8 to reduce API calls
+  // Amazon allows multi-week ranges as long as start=Sunday and end=Saturday within the lookback
+  const WEEKS_PER_REQUEST = 8; // stay well within any undocumented limits
+  const weekBatches = [];
+  for (let i = 0; i < weekChunks.length; i += WEEKS_PER_REQUEST) {
+    const batch = weekChunks.slice(i, i + WEEKS_PER_REQUEST);
+    weekBatches.push({ start: batch[0].start, end: batch[batch.length - 1].end });
+  }
+  console.log(`[vendorBackfill] WEEK batches: ${weekBatches.length} (${WEEKS_PER_REQUEST} weeks each)`);
+
+  for (const batch of weekBatches) {
+    results.weekChunks++;
+    const client = await spClient(clientId);
+    console.log(`[vendorBackfill] WEEK batch ${results.weekChunks}/${weekBatches.length}: ${batch.start} → ${batch.end}`);
+
+    // Traffic (WEEK) — no distributorView/sellingProgram
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
+        reportPeriod: 'WEEK',
+        dataStartTime: batch.start, dataEndTime: batch.end,
+      }, marketplaceId, 600000);
+      const rows = toRows(data, 'trafficByAsin', 'reportData');
+      const written = await writeVendorTraffic(clientId, rows);
+      results.vendorTraffic += written;
+      console.log(`[vendorBackfill] TRAFFIC: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] TRAFFIC failed:`, err.message?.substring(0, 200));
+    }
+    await sleep(2000);
+
+    // Net PPM (WEEK) — no distributorView/sellingProgram
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
+        reportPeriod: 'WEEK',
+        dataStartTime: batch.start, dataEndTime: batch.end,
+      }, marketplaceId, 600000);
+      const rows = toRows(data, 'netPpmByAsin', 'reportData');
+      const written = await writeVendorNetPpm(clientId, rows);
+      results.vendorNetPpm += written;
+      console.log(`[vendorBackfill] NET_PPM: ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] NET_PPM failed:`, err.message?.substring(0, 200));
+    }
+
+    if (results.weekChunks < weekBatches.length) {
+      console.log(`[vendorBackfill] Waiting 30s before next week batch...`);
+      await sleep(30000);
+    }
+  }
+
+  console.log(`[vendorBackfill] Done — sales=${results.vendorSales} inventory=${results.vendorInventory} traffic=${results.vendorTraffic} netPpm=${results.vendorNetPpm}`);
   return results;
 }
 

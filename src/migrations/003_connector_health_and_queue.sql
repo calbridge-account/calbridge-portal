@@ -17,7 +17,7 @@
 
 -- ── 1. CONNECTOR_HEALTH ──────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.SANDBOX.CONNECTOR_HEALTH (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.SANDBOX.CONNECTOR_HEALTH (
   client_id        VARCHAR(36)   NOT NULL                              COMMENT 'Calbridge client UUID',
   connection_type  VARCHAR(32)   NOT NULL                              COMMENT 'ads | dsp | seller | vendor',
   account_id       VARCHAR(64)   NOT NULL                              COMMENT 'Amazon profile_id or sellingPartnerId',

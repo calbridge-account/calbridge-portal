@@ -18,10 +18,10 @@
 -- We keep both sets valid — jobRunner.js uses the canonical set below.
 -- ============================================================
 
-ALTER TABLE CALBRIDGE.PIPELINE.JOB_RUNS
+ALTER TABLE CALBRIDGE_PROD.PIPELINE.JOB_RUNS
   ADD COLUMN IF NOT EXISTS metric_version VARCHAR(32)
   COMMENT 'Metric formula version that ran (e.g. "1.2"). Populated by scoring/KPI jobs.';
 
-ALTER TABLE CALBRIDGE.PIPELINE.JOB_RUNS
+ALTER TABLE CALBRIDGE_PROD.PIPELINE.JOB_RUNS
   ADD COLUMN IF NOT EXISTS triggered_by VARCHAR(32)
   COMMENT 'What triggered this job: cron | manual | dependency | retry';

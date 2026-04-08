@@ -17,16 +17,16 @@
 -- SCHEMA CREATION
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS
   COMMENT = 'Raw staging tables for Amazon Advertising API (SP, SB, SD)';
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.RAW_SP_API
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.RAW_SP_API
   COMMENT = 'Raw staging tables for Amazon Selling Partner API (listings, inventory, sales)';
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.ANALYTICS
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.ANALYTICS
   COMMENT = 'Canonical normalized warehouse tables — all ad types unified';
 
-CREATE SCHEMA IF NOT EXISTS CALBRIDGE.PIPELINE
+CREATE SCHEMA IF NOT EXISTS CALBRIDGE_PROD.PIPELINE
   COMMENT = 'Pipeline metadata: freshness, quality checks, job run log';
 
 
@@ -36,7 +36,7 @@ CREATE SCHEMA IF NOT EXISTS CALBRIDGE.PIPELINE
 -- Logical dedup key: (report_id, account_id, campaign_id, date)
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SP_CAMPAIGNS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SP_CAMPAIGNS (
   -- Pipeline metadata (every staging row)
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT 'UTC timestamp this row arrived in Snowflake',
   account_id                           VARCHAR(64)   NOT NULL                             COMMENT 'Amazon Advertising profile_id (acts as account boundary)',
@@ -110,7 +110,7 @@ COMMENT = 'Raw SP campaign-level performance. Dedup: (report_id, account_id, cam
 -- Raw Sponsored Products ad group-level performance rows
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SP_AD_GROUPS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SP_AD_GROUPS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -184,7 +184,7 @@ COMMENT = 'Raw SP ad group-level performance. Dedup: (report_id, account_id, ad_
 -- Raw Sponsored Products ASIN-level (advertised product) rows
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SP_ADVERTISED_PRODUCTS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SP_ADVERTISED_PRODUCTS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -258,7 +258,7 @@ COMMENT = 'Raw SP advertised product (ASIN) performance. Dedup: (report_id, acco
 -- Raw Sponsored Products search term rows
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SP_SEARCH_TERMS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SP_SEARCH_TERMS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -326,7 +326,7 @@ COMMENT = 'Raw SP search term rows. Dedup: (report_id, account_id, campaign_id, 
 -- Raw Sponsored Brands campaign-level performance rows
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SB_CAMPAIGNS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SB_CAMPAIGNS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -416,7 +416,7 @@ COMMENT = 'Raw SB campaign-level performance. Dedup: (report_id, account_id, cam
 -- Raw Sponsored Display campaign-level performance rows
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_AMAZON_ADS.SD_CAMPAIGNS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_AMAZON_ADS.SD_CAMPAIGNS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -502,7 +502,7 @@ COMMENT = 'Raw SD campaign-level performance. Dedup: (report_id, account_id, cam
 -- Raw merchant listings from SP-API catalog
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_SP_API.LISTINGS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_SP_API.LISTINGS (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL  COMMENT 'sellingPartnerId',
@@ -544,7 +544,7 @@ COMMENT = 'Raw SP-API catalog/listings snapshot. One row per ASIN per sync batch
 -- Raw FBA inventory levels from SP-API
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_SP_API.FBA_INVENTORY (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_SP_API.FBA_INVENTORY (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -593,7 +593,7 @@ COMMENT = 'Raw FBA inventory snapshot. One row per SKU per snapshot date.';
 -- Raw sales and traffic data by ASIN from SP-API
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.RAW_SP_API.SALES_TRAFFIC (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW_SP_API.SALES_TRAFFIC (
   -- Pipeline metadata
   ingested_at                          TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   account_id                           VARCHAR(64)   NOT NULL,
@@ -655,7 +655,7 @@ COMMENT = 'Raw SP-API sales and traffic report by ASIN and date.';
 -- Updated via MERGE; supports late-arriving data
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.ANALYTICS.ADS_PERFORMANCE (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE (
   -- Lineage
   source_report_id                     VARCHAR(128)  NOT NULL  COMMENT 'report_id from source staging row',
   transform_version                    VARCHAR(32)   NOT NULL  DEFAULT '1.0' COMMENT 'Version of the transform that created this row',
@@ -716,7 +716,7 @@ COMMENT = 'Canonical ads performance — SP/SB/SD unified at campaign grain. Sup
 -- Canonical retail/sales metrics — normalized from SP-API sales_traffic
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.ANALYTICS.RETAIL_PERFORMANCE (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE (
   -- Lineage
   source_report_id                     VARCHAR(128)  NOT NULL,
   transform_version                    VARCHAR(32)   NOT NULL  DEFAULT '1.0',
@@ -760,7 +760,7 @@ COMMENT = 'Canonical retail performance (orders, revenue, traffic) from SP-API. 
 -- Canonical FBA inventory levels — latest snapshot per ASIN
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.ANALYTICS.INVENTORY_SNAPSHOT (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT (
   -- Lineage
   source_report_id                     VARCHAR(128)  NOT NULL,
   transform_version                    VARCHAR(32)   NOT NULL  DEFAULT '1.0',
@@ -803,8 +803,8 @@ COMMENT = 'Canonical FBA inventory snapshot. One row per SKU per snapshot date. 
 -- Queried by orchestrator and dashboard to show data freshness
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.PIPELINE.FRESHNESS (
-  table_name                           VARCHAR(255)  NOT NULL  COMMENT 'Fully-qualified table name e.g. CALBRIDGE.RAW_AMAZON_ADS.SP_CAMPAIGNS',
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.PIPELINE.FRESHNESS (
+  table_name                           VARCHAR(255)  NOT NULL  COMMENT 'Fully-qualified table name e.g. CALBRIDGE_PROD.RAW_AMAZON_ADS.SP_CAMPAIGNS',
   account_id                           VARCHAR(64)   NOT NULL  COMMENT 'Amazon account (profile_id or sellingPartnerId)',
   client_id                            VARCHAR(36)   NOT NULL,
 
@@ -830,7 +830,7 @@ COMMENT = 'Data freshness registry — one row per (table, account, client). Orc
 -- Quality check results per pipeline run
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.PIPELINE.QUALITY_LOG (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.PIPELINE.QUALITY_LOG (
   log_id                               VARCHAR(36)   NOT NULL  DEFAULT UUID_STRING()  COMMENT 'UUID for this quality check result',
   run_id                               VARCHAR(64)   NOT NULL  COMMENT 'pipeline_run_id this check belongs to',
   checked_at                           TIMESTAMP_NTZ NOT NULL  DEFAULT CURRENT_TIMESTAMP,
@@ -861,7 +861,7 @@ COMMENT = 'Quality check log. Every post-load assertion result is recorded here.
 -- Job execution log — full audit trail of all pipeline runs
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS CALBRIDGE.PIPELINE.JOB_RUNS (
+CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.PIPELINE.JOB_RUNS (
   job_id                               VARCHAR(36)   NOT NULL  DEFAULT UUID_STRING()  COMMENT 'UUID for this job execution',
   pipeline_run_id                      VARCHAR(64)   NOT NULL  COMMENT 'Parent pipeline run (may span multiple job_ids)',
 
@@ -899,5 +899,5 @@ COMMENT = 'Full job execution audit log. Every pipeline job (ingest + transform)
 -- ============================================================
 -- ADS_REPORT_QUEUE (in default SANDBOX schema — already in codebase)
 -- Referenced here for completeness; not recreated since it exists.
--- Table: CALBRIDGE.SANDBOX.ADS_REPORT_QUEUE
+-- Table: CALBRIDGE_PROD.SANDBOX.ADS_REPORT_QUEUE
 -- ============================================================
