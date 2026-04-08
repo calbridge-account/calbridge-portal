@@ -51,6 +51,40 @@ function dateFilter(col, days, startDate, endDate) {
 }
 
 /**
+ * Translate a frontend ?range= param into { startDate, endDate, days }.
+ * Mirrors the parseDateRange helper in vendorAnalytics.js.
+ */
+function parseRange(req) {
+  const range = req.query.range || '';
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+
+  if (range === 'mtd') {
+    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    return { startDate: start.toISOString().split('T')[0], endDate: todayStr, days: 30 };
+  }
+  if (range === 'ytd') {
+    const start = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+    return { startDate: start.toISOString().split('T')[0], endDate: todayStr, days: 365 };
+  }
+  if (range === 'custom') {
+    const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+    const start = req.query.start;
+    const end   = req.query.end;
+    if (start && end && isoRe.test(start) && isoRe.test(end)) {
+      return { startDate: start, endDate: end, days: 30 };
+    }
+  }
+  const dayMatch = range.match(/^(\d+)d$/);
+  if (dayMatch) {
+    return { startDate: null, endDate: null, days: parseInt(dayMatch[1]) };
+  }
+  // Fallback: honour legacy ?days= param, or default 30
+  return { startDate: req.query.startDate || null, endDate: req.query.endDate || null, days: Number(req.query.days) || 30 };
+}
+
+/**
  * Response cache middleware factory.
  * Wraps a route handler and caches its JSON response for ttlMs milliseconds.
  * Key = clientId + method + originalUrl (includes all query params).
@@ -338,10 +372,9 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
  */
 router.get('/asin-performance', requireAuth, async (req, res, next) => {
   try {
-    const days     = Number(req.query.days)  || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 200;
+    const adType   = req.query.adType ? req.query.adType.toUpperCase() : null;
     const clientId = req.session.clientId;
 
     let rows = await reqCache(req, async () => {
@@ -369,10 +402,14 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         WHERE p.client_id = ?
           ${dateFilter("p.date", days, startDate, endDate)}
           AND p.advertised_asin != 'UNATTRIBUTED'
+          ${adType && adType !== 'DSP' ? '' : '/* sp-only table, no adType filter needed */'}
         GROUP BY p.advertised_asin
         ORDER BY spend DESC
         LIMIT ?
       `, [clientId, limit]);
+      // sp_advertised_product_report is SP-only — if a non-SP adType was requested,
+      // return empty so the fallback (which has ad_type column) can handle it
+      if (adType && !['SP', 'ALL'].includes(adType)) r = [];
     } catch (e) {
       // Fallback: older table
       r = await query(`
@@ -394,6 +431,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         WHERE ap.client_id = ?
           ${dateFilter("ap.report_date", days, startDate, endDate)}
           AND ap.advertised_asin != 'UNATTRIBUTED'
+          ${adType ? `AND ap.ad_type = '${adType}'` : ''}
         GROUP BY ap.advertised_asin
         ORDER BY spend DESC
         LIMIT ?

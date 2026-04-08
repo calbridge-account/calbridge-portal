@@ -100,6 +100,7 @@ async function advJSON(path, options = {}) {
 }
 
 export const getAsinPerformance = (range, adType) => {
-  const params = rangeParams(range).replace('?', '?') + (adType && adType !== 'all' ? `&adType=${adType.toUpperCase()}` : '');
-  return advJSON(`/asin-performance${params}`);
+  const base = rangeParams(range); // e.g. ?range=mtd or ?range=custom&start=...&end=...
+  const typeParam = adType && adType !== 'all' ? `&adType=${adType.toUpperCase()}` : '';
+  return advJSON(`/asin-performance${base}${typeParam}`);
 };
