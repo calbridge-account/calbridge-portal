@@ -137,18 +137,27 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     // so the frontend can prompt the user to set one up.
     const brandCtx = await resolveBrand(clientId, req.query.brandId);
 
-    const [salesRow, adsRow] = await Promise.all([
-      // Total retail sales = Seller ordered revenue + Vendor shipped revenue
+    const [salesRow, vendorSalesRow, adsRow] = await Promise.all([
+      // PO-ordered revenue from vendor_purchase_orders (demand signal)
       query(`
         SELECT
-          COALESCE(SUM(ordered_revenue), 0)  AS seller_revenue,
-          COALESCE(SUM(shipped_revenue), 0)  AS vendor_revenue,
-          COALESCE(SUM(ordered_revenue + shipped_revenue), 0) AS total_retail_sales,
+          COALESCE(SUM(ordered_revenue), 0)  AS po_ordered_revenue,
           COALESCE(SUM(units_ordered), 0)    AS total_units
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
       `, [clientId]),
+
+      // Shipped revenue from vendor_sales (actual invoiced revenue — hits P&L)
+      query(`
+        SELECT
+          COALESCE(SUM(shipped_revenue), 0) AS vs_shipped_revenue,
+          COALESCE(SUM(shipped_cogs), 0)    AS vs_shipped_cogs
+        FROM vendor_sales
+        WHERE client_id = ?
+          ${dateFilter("start_date", days, startDate, endDate)}
+      `, [clientId]),
+
 
       // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
       query(`
@@ -163,9 +172,13 @@ router.get('/summary', requireAuth, async (req, res, next) => {
       `, [clientId])
     ]);
 
-    const [s, a] = [salesRow[0] || {}, adsRow[0] || {}];
+    const [s, vs, a] = [salesRow[0] || {}, vendorSalesRow[0] || {}, adsRow[0] || {}];
 
-    const totalRetailSales = Number(s.TOTAL_RETAIL_SALES || 0);
+    const orderedRevenue   = Number(s.PO_ORDERED_REVENUE   || 0);
+    const shippedRevenue   = Number(vs.VS_SHIPPED_REVENUE  || 0);
+    const shippedCogs      = Number(vs.VS_SHIPPED_COGS     || 0);
+    // Total retail sales = ordered (PO demand) + shipped (P&L)
+    const totalRetailSales = orderedRevenue + shippedRevenue;
     const totalAdSpend     = Number(a.TOTAL_AD_SPEND    || 0);
 
     // Total ROAS = Total retail sales / Ad spend (true blended ROAS) — via metrics.js true_roas
@@ -235,8 +248,13 @@ router.get('/summary', requireAuth, async (req, res, next) => {
 
     res.json({
       totalRetailSales,
-      sellerRevenue:    Number(s.SELLER_REVENUE  || 0),
-      vendorRevenue:    Number(s.VENDOR_REVENUE  || 0),
+      // Distinct PO vs shipped signals
+      orderedRevenue,
+      shippedRevenue,
+      shippedCogs,
+      // Legacy fields — kept for backward compat
+      sellerRevenue:    orderedRevenue,
+      vendorRevenue:    shippedRevenue,
       totalUnits:       Number(s.TOTAL_UNITS     || 0),
       totalAdSales:     Number(a.TOTAL_AD_SALES  || 0),
       totalAdSpend,
@@ -443,6 +461,75 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         units:   Number(r.CHANNEL_UNITS   || 0)
       })),
       days
+    });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /dashboard/inventory-summary
+// Inventory health KPIs from the latest vendor_inventory snapshot.
+// Returns sellable units, open POs, unfilled orders, aged 90+ units, and weeks of cover.
+// ---------------------------------------------------------------------------
+router.get('/inventory-summary', requireAuth, async (req, res, next) => {
+  try {
+    const clientId = req.session.clientId;
+
+    // Latest snapshot rows
+    const invRows = await query(`
+      SELECT
+        SUM(sellable_on_hand_units)            AS total_sellable,
+        SUM(open_purchase_order_units)         AS total_open_po,
+        SUM(unfilled_customer_ordered_units)   AS total_unfilled,
+        SUM(aged_90_plus_units)                AS total_aged,
+        SUM(unsellable_on_hand_units)          AS total_unsellable,
+        COUNT(DISTINCT asin)                   AS asin_count,
+        MAX(end_date)                          AS snapshot_date
+      FROM vendor_inventory
+      WHERE client_id = ?
+        AND end_date = (SELECT MAX(end_date) FROM vendor_inventory WHERE client_id = ?)
+    `, [clientId, clientId]);
+
+    const inv = invRows[0] || {};
+    const totalSellable = Number(inv.TOTAL_SELLABLE || 0);
+
+    // Weeks of cover = total sellable units / avg weekly shipped units (trailing 4 weeks)
+    let weeksOfCover = null;
+    try {
+      const salesRows = await query(`
+        SELECT
+          SUM(shipped_units) AS total_shipped,
+          COUNT(DISTINCT DATE_TRUNC('week', start_date)) AS week_count
+        FROM vendor_sales
+        WHERE client_id = ?
+          AND start_date >= DATEADD(week, -4, CURRENT_DATE)
+      `, [clientId]);
+      const sr = salesRows[0] || {};
+      const weekCount  = Number(sr.WEEK_COUNT    || 0) || 4;
+      const totalShipped = Number(sr.TOTAL_SHIPPED || 0);
+      const avgWeeklyShipped = totalShipped / weekCount;
+      if (avgWeeklyShipped > 0) {
+        weeksOfCover = parseFloat((totalSellable / avgWeeklyShipped).toFixed(1));
+      }
+    } catch { /* vendor_sales optional */ }
+
+    // Format snapshot date as YYYY-MM-DD string
+    let snapshotDate = null;
+    if (inv.SNAPSHOT_DATE) {
+      const sd = inv.SNAPSHOT_DATE;
+      snapshotDate = sd instanceof Date
+        ? sd.toISOString().substring(0, 10)
+        : String(sd?.value || sd).substring(0, 10);
+    }
+
+    res.json({
+      totalSellableUnits:   totalSellable,
+      totalOpenPoUnits:     Number(inv.TOTAL_OPEN_PO   || 0),
+      totalUnfillableUnits: Number(inv.TOTAL_UNFILLED  || 0),
+      totalAgedUnits:       Number(inv.TOTAL_AGED      || 0),
+      totalUnsellableUnits: Number(inv.TOTAL_UNSELLABLE|| 0),
+      asinCount:            Number(inv.ASIN_COUNT      || 0),
+      weeksOfCover,
+      snapshotDate,
     });
   } catch (err) { next(err); }
 });

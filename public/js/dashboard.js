@@ -146,8 +146,50 @@ function setupFilters() {
 async function loadAll() {
   await Promise.all([
     loadOverview(),
-    loadConnections()
+    loadConnections(),
+    loadInventorySummary()
   ]);
+}
+
+// ---- Inventory Summary KPIs ----
+async function loadInventorySummary() {
+  try {
+    const res = await fetch('/dashboard/inventory-summary', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Show card only if there's actual inventory data
+    if (!data.asinCount && !data.totalSellableUnits) return;
+    const card = $('inventory-summary-card');
+    if (card) card.style.display = '';
+
+    // Populate values
+    $('inv-sellable').textContent  = Number(data.totalSellableUnits  || 0).toLocaleString();
+    $('inv-open-po').textContent   = Number(data.totalOpenPoUnits    || 0).toLocaleString();
+    $('inv-unfilled').textContent  = Number(data.totalUnfillableUnits|| 0).toLocaleString();
+    $('inv-aged').textContent      = Number(data.totalAgedUnits      || 0).toLocaleString();
+
+    if (data.weeksOfCover != null) {
+      $('inv-woc').textContent = data.weeksOfCover.toFixed(1) + ' wks';
+    } else {
+      $('inv-woc').textContent = '—';
+    }
+
+    // Snapshot date subtitle
+    if (data.snapshotDate) {
+      const el = $('inventory-snapshot-date');
+      if (el) el.textContent = 'Snapshot: ' + data.snapshotDate;
+    }
+
+    // Colour warnings: aged units and unfilled orders
+    const agedEl = $('inv-aged');
+    if (agedEl && data.totalAgedUnits > 0) agedEl.style.color = 'var(--warning, #d97706)';
+    const unfilledEl = $('inv-unfilled');
+    if (unfilledEl && data.totalUnfillableUnits > 0) unfilledEl.style.color = 'var(--danger)';
+
+  } catch (err) {
+    console.warn('Inventory summary unavailable:', err.message);
+  }
 }
 
 

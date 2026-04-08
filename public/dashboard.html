@@ -119,6 +119,41 @@
         </div>
       </div>
 
+      <!-- Inventory Summary KPI Cards -->
+      <div class="table-card" id="inventory-summary-card" style="margin-bottom:20px;display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h3 style="margin:0">📦 Inventory Health</h3>
+          <span id="inventory-snapshot-date" style="font-size:12px;color:var(--gray-400)"></span>
+        </div>
+        <div class="kpi-grid kpi-grid-5" style="margin-bottom:0">
+          <div class="kpi-card">
+            <div class="kpi-label">Units on Hand</div>
+            <div class="kpi-value" id="inv-sellable">—</div>
+            <div class="kpi-sub">Sellable on hand</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Open PO Units</div>
+            <div class="kpi-value" id="inv-open-po">—</div>
+            <div class="kpi-sub">Inbound / on order</div>
+          </div>
+          <div class="kpi-card highlight">
+            <div class="kpi-label">Weeks of Cover <span class="tooltip-icon" title="Sellable units on hand ÷ avg weekly shipped units (trailing 4 weeks)">ⓘ</span></div>
+            <div class="kpi-value" id="inv-woc">—</div>
+            <div class="kpi-sub">Sellable ÷ avg weekly shipped</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Unfilled Orders</div>
+            <div class="kpi-value" id="inv-unfilled">—</div>
+            <div class="kpi-sub">Customer orders not filled</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Aged 90+ Units</div>
+            <div class="kpi-value" id="inv-aged">—</div>
+            <div class="kpi-sub">Long-term storage risk</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Charts Row -->
       <div class="charts-row">
         <div class="chart-card wide">
