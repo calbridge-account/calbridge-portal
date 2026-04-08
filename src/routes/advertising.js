@@ -350,8 +350,8 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
       r = await query(`
         SELECT
           p.advertised_asin                                                       AS asin,
-          pr.sku                                                                  AS model_number,
-          COALESCE(pr.title, p.advertised_asin)                                  AS product_title,
+          MAX(pr.sku)                                                             AS model_number,
+          COALESCE(MAX(pr.title), p.advertised_asin)                             AS product_title,
           SUM(p.cost)                                                             AS spend,
           SUM(p.clicks)                                                           AS clicks,
           SUM(p.impressions)                                                      AS impressions,
@@ -369,7 +369,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         WHERE p.client_id = ?
           ${dateFilter("p.date", days, startDate, endDate)}
           AND p.advertised_asin != 'UNATTRIBUTED'
-        GROUP BY p.advertised_asin, pr.sku, pr.title
+        GROUP BY p.advertised_asin
         ORDER BY spend DESC
         LIMIT ?
       `, [clientId, limit]);
@@ -394,7 +394,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         WHERE ap.client_id = ?
           ${dateFilter("ap.report_date", days, startDate, endDate)}
           AND ap.advertised_asin != 'UNATTRIBUTED'
-        GROUP BY ap.advertised_asin, p.sku, p.title
+        GROUP BY ap.advertised_asin
         ORDER BY spend DESC
         LIMIT ?
       `, [clientId, limit]);
