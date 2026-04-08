@@ -761,7 +761,8 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const monthStart  = now.toISOString().substring(0, 7) + '-01';
 
-    const rows = await query(`
+    const ck = cacheKey(clientId, 'budget-pacing', monthStart, dayOfMonth);
+    const rows = await cachedQuery(ck, 5 * 60 * 1000, () => query(`
       SELECT
         c.campaign_id,
         c.campaign_name,
@@ -795,7 +796,7 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
       daysInMonth,                              // expected: days in month
       monthStart,                               // MTD start date
       clientId
-    ]);
+    ]));
 
     const campaigns = rows.map(r => {
       const mtdSpend       = Number(r.MTD_SPEND          || 0);
