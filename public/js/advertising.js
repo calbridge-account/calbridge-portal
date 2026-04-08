@@ -212,8 +212,12 @@ function setupControls() {
   el('asin-prev')?.addEventListener('click', () => { asinPage--; renderAsinPage(); });
   el('asin-next')?.addEventListener('click', () => { asinPage++; renderAsinPage(); });
 
-  // Keyword search
+  // Keyword search + adtype filter
   el('keyword-search')?.addEventListener('input', () => {
+    keywordPage = 0;
+    filterAndRenderKeywords();
+  });
+  el('keyword-adtype-filter')?.addEventListener('change', () => {
     keywordPage = 0;
     filterAndRenderKeywords();
   });
@@ -280,6 +284,7 @@ async function loadAll() {
     loadAdTypeComposition(),
     loadCampaigns(),
     loadAsins(),
+    loadTargetingRollup(),
     loadKeywords(),
     loadKeywordTypeChart()
   ]);
@@ -802,14 +807,63 @@ function renderAsinPage() {
   }).join('');
 }
 
-/* ─── Section 7: Keyword Targeting Table ────────────────────────────── */
-async function loadKeywords() {
-  el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Loading…</td></tr>';
+/* ─── Section 7: Targeting Type Rollup (SP + SB aggregate) ─────────── */
+async function loadTargetingRollup() {
+  const card = el('targeting-rollup-card');
+  if (activeChannel === 'dsp') { if (card) card.style.display = 'none'; return; }
+  if (card) card.style.display = '';
+  el('targeting-rollup-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">Loading…</td></tr>';
   try {
-    // Keep the keyword-efficiency API call (don't remove it per spec — topByRoas still used by backend)
-    await fetch(`/advertising/keyword-efficiency?${dateParams()}&limit=50`, { credentials: 'include' });
+    const res = await fetch(`/advertising/targeting-rollup?${dateParams()}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`TargetingRollup ${res.status}`);
+    const data = await res.json();
+    renderTargetingRollup(data);
+  } catch (err) {
+    console.error('loadTargetingRollup:', err);
+    el('targeting-rollup-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">Error loading targeting data.</td></tr>';
+  }
+}
 
-    // Load full keyword targeting data for the table
+function renderTargetingRollup({ byType = [], total = {} }) {
+  if (!byType.length) {
+    el('targeting-rollup-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">No targeting data for this period.</td></tr>';
+    return;
+  }
+  const totalSpend = total.spend || 0;
+  const typeBadge = mt => {
+    const styles = { AUTO:'background:#f0f4ff;color:#3b5bdb', BROAD:'background:#fff3e0;color:#e65100', PHRASE:'background:#f3e5f5;color:#6a1b9a', EXACT:'background:#e8f5e9;color:#1b5e20' };
+    return `<span style="${styles[mt]||'background:var(--gray-100);color:var(--gray-600)'};padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">${mt}</span>`;
+  };
+  const fmtPct  = v => v != null ? (v * 100).toFixed(1) + '%' : '—';
+  const fmtRoas = v => v != null ? v.toFixed(2) + 'x' : '—';
+  const rowHtml = (r, isTotal) => {
+    const acosCls = r.acos != null ? (r.acos < 0.20 ? 'cm-positive' : r.acos > 0.45 ? 'cm-negative' : 'cm-neutral') : '';
+    const spendPct = totalSpend > 0 ? ((r.spend / totalSpend) * 100).toFixed(1) + '%' : '—';
+    const barW = totalSpend > 0 ? Math.max(4, Math.round((r.spend / totalSpend) * 80)) : 0;
+    const spendCell = isTotal ? '—' : `<div style="display:flex;align-items:center;gap:6px"><div style="width:${barW}px;height:6px;background:var(--brand,#c81e1e);opacity:0.25;border-radius:3px"></div><span>${spendPct}</span></div>`;
+    const style = isTotal ? 'font-weight:700;border-top:2px solid var(--border);background:var(--gray-50,#f8f9fa)' : '';
+    const label = isTotal ? '<span style="font-size:12px;color:var(--gray-500)">TOTAL</span>' : typeBadge(r.matchType);
+    return `<tr style="${style}">
+      <td>${label}</td>
+      <td style="text-align:right"><strong>${fmt$(r.spend)}</strong></td>
+      <td style="text-align:right">${fmt$(r.sales)}</td>
+      <td style="text-align:right">${fmtRoas(r.roas)}</td>
+      <td style="text-align:right" class="${acosCls}">${fmtPct(r.acos)}</td>
+      <td style="text-align:right">${fmtN(r.orders)}</td>
+      <td style="text-align:right">${fmtN(r.clicks)}</td>
+      <td style="text-align:right">${fmtPct(r.ctr)}</td>
+      <td style="text-align:right">${fmtPct(r.cvr)}</td>
+      <td style="text-align:right">${fmt$(r.cpc)}</td>
+      <td style="text-align:right">${spendCell}</td>
+    </tr>`;
+  };
+  el('targeting-rollup-tbody').innerHTML = byType.map(r => rowHtml(r, false)).join('') + rowHtml(total, true);
+}
+
+/* ─── Section 8: Keyword Targeting Table (SP + SB) ──────────────────── */
+async function loadKeywords() {
+  el('keyword-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">Loading…</td></tr>';
+  try {
     const res = await fetch(`/advertising/keyword-targeting?${dateParams()}&limit=500`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Keywords ${res.status}`);
     keywordData = await res.json();
@@ -817,19 +871,19 @@ async function loadKeywords() {
     filterAndRenderKeywords();
   } catch (err) {
     console.error('loadKeywords:', err);
-    el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">Error loading keyword data.</td></tr>';
+    el('keyword-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">Error loading keyword data.</td></tr>';
   }
 }
 
 function filterAndRenderKeywords() {
-  const q = (el('keyword-search')?.value || '').toLowerCase().trim();
-  keywordFiltered = q
-    ? keywordData.filter(k =>
-        (k.keyword    || '').toLowerCase().includes(q) ||
-        (k.matchType  || '').toLowerCase().includes(q) ||
-        (k.campaignName || '').toLowerCase().includes(q)
-      )
-    : [...keywordData];
+  const q          = (el('keyword-search')?.value || '').toLowerCase().trim();
+  const typeFilter = (el('keyword-adtype-filter')?.value || '').toUpperCase();
+
+  keywordFiltered = keywordData.filter(k => {
+    if (typeFilter && (k.adType || '').toUpperCase() !== typeFilter) return false;
+    if (q && ![(k.keyword||''),(k.matchType||''),(k.adType||''),(k.campaignName||'')].some(s => s.toLowerCase().includes(q))) return false;
+    return true;
+  });
 
   keywordFiltered.sort((a, b) => {
     const av = keywordSortCol in a ? a[keywordSortCol] : null;
@@ -859,7 +913,7 @@ function renderKeywordPage() {
   el('keyword-next').disabled = keywordPage >= pages - 1;
 
   if (!slice.length) {
-    el('keyword-tbody').innerHTML = '<tr><td colspan="9" class="loading-cell">No keywords found.</td></tr>';
+    el('keyword-tbody').innerHTML = '<tr><td colspan="11" class="loading-cell">No keywords found.</td></tr>';
     return;
   }
 
@@ -867,25 +921,29 @@ function renderKeywordPage() {
     const acos    = k.acos != null ? (k.acos * 100).toFixed(1) + '%' : '—';
     const roas    = k.roas != null ? k.roas.toFixed(2) + 'x'         : '—';
     const cpc     = k.cpc  != null ? fmt$(k.cpc)                     : '—';
+    const cvr     = k.cvr  != null ? (k.cvr * 100).toFixed(1) + '%'  : '—';
     const acosCls = k.acos != null
       ? k.acos < 0.20 ? 'cm-positive' : k.acos > 0.45 ? 'cm-negative' : 'cm-neutral'
       : '';
-
     const matchBadge = k.matchType
       ? `<span style="background:var(--gray-100);color:var(--gray-600);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600">${escHtml(k.matchType)}</span>`
       : '<span style="color:var(--gray-400)">—</span>';
-
+    const adTypeBadge = k.adType === 'SB'
+      ? `<span style="background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">SB</span>`
+      : `<span style="background:#e8eaf6;color:#3b5bdb;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">SP</span>`;
     return `<tr>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
-          title="${escHtml(k.keyword)}">${escHtml(k.keyword)}</td>
+          title="${escHtml(k.keyword||'')}">${escHtml(k.keyword||'—')}</td>
+      <td>${adTypeBadge}</td>
       <td>${matchBadge}</td>
       <td><strong>${fmt$(k.spend)}</strong></td>
       <td>${fmt$(k.sales)}</td>
       <td>${roas}</td>
-      <td class="${acosCls}"><strong>${acos}</strong></td>
+      <td class="${acosCls}">${acos}</td>
       <td>${fmtN(k.orders)}</td>
       <td>${fmtN(k.clicks)}</td>
       <td>${cpc}</td>
+      <td>${cvr}</td>
     </tr>`;
   }).join('');
 }

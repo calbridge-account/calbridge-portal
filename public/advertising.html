@@ -205,7 +205,39 @@
         </div>
       </div>
 
-      <!-- SP Keyword Targeting Type Chart -->
+      <!-- Targeting Type Rollup (SP + SB aggregate) -->
+      <div class="table-card" style="padding:20px;margin-bottom:24px" id="targeting-rollup-card">
+        <div class="table-header-row" style="padding:0 0 16px;border-bottom:1px solid var(--border)">
+          <div>
+            <h3 style="margin:0 0 4px">Targeting Type Performance</h3>
+            <span style="font-size:12px;color:var(--gray-400)">SP + SB · rolled up by match type</span>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" id="targeting-rollup-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th style="text-align:right">Spend</th>
+                <th style="text-align:right">Sales</th>
+                <th style="text-align:right">ROAS</th>
+                <th style="text-align:right">ACoS</th>
+                <th style="text-align:right">Orders</th>
+                <th style="text-align:right">Clicks</th>
+                <th style="text-align:right">CTR</th>
+                <th style="text-align:right">CVR</th>
+                <th style="text-align:right">CPC</th>
+                <th style="text-align:right">Spend %</th>
+              </tr>
+            </thead>
+            <tbody id="targeting-rollup-tbody">
+              <tr><td colspan="11" class="loading-cell">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SP Spend & Sales by Targeting Type Chart (kept for visual overview) -->
       <div class="table-card" style="padding:20px;margin-bottom:24px" id="kw-type-card">
         <div class="table-header-row" style="padding:0 0 16px;border-bottom:none">
           <h3>SP Spend &amp; Sales by Targeting Type</h3>
@@ -214,17 +246,28 @@
         <canvas id="kw-type-chart" style="max-height:220px;min-height:160px;width:100%"></canvas>
       </div>
 
-      <!-- Keyword Targeting Table -->
+      <!-- Keyword Targeting Table (SP + SB) -->
       <div class="table-card" style="margin-bottom:24px">
         <div class="table-header-row">
-          <h3>Keyword Targeting</h3>
-          <input type="text" id="keyword-search" class="days-select" placeholder="Search keywords…" style="width:220px" />
+          <div>
+            <h3 style="margin:0 0 2px">Keyword Targeting</h3>
+            <span style="font-size:12px;color:var(--gray-400)">SP + SB · sorted by spend</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="keyword-adtype-filter" class="days-select">
+              <option value="">All Types</option>
+              <option value="SP">SP Only</option>
+              <option value="SB">SB Only</option>
+            </select>
+            <input type="text" id="keyword-search" class="days-select" placeholder="Search keywords…" style="width:200px" />
+          </div>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table" id="keyword-table">
             <thead>
               <tr>
                 <th class="sortable" data-col="keyword">Keyword <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="adType">Type <span class="sort-arrow"></span></th>
                 <th class="sortable" data-col="matchType">Match <span class="sort-arrow"></span></th>
                 <th class="sortable" data-col="spend">Spend <span class="sort-arrow"></span></th>
                 <th class="sortable" data-col="sales">Sales <span class="sort-arrow"></span></th>
@@ -233,10 +276,11 @@
                 <th class="sortable" data-col="orders">Orders <span class="sort-arrow"></span></th>
                 <th class="sortable" data-col="clicks">Clicks <span class="sort-arrow"></span></th>
                 <th class="sortable" data-col="cpc">CPC <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="cvr">CVR <span class="sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="keyword-tbody">
-              <tr><td colspan="9" class="loading-cell">Loading…</td></tr>
+              <tr><td colspan="11" class="loading-cell">Loading…</td></tr>
             </tbody>
           </table>
         </div>

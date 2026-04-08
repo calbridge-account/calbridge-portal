@@ -481,23 +481,25 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
 
 /**
  * GET /advertising/keyword-targeting?days=30&limit=200&adType=SP|SB|SD
- * Keyword-level performance from sp_targeting_keyword_report
+ * Keyword-level performance — SP from sp_targeting_keyword_report,
+ * SB from sb_keyword_report. Results unioned and sorted by spend desc.
  */
 router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
   try {
-    const days     = Number(req.query.days)  || 30;
+    const days      = Number(req.query.days)  || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const limit    = Number(req.query.limit) || 200;
-    const adType   = req.query.adType || null;
-    const clientId = req.session.clientId;
+    const limit     = Number(req.query.limit) || 500;
+    const adType    = req.query.adType || null;  // 'SP' | 'SB' | null (all)
+    const clientId  = req.session.clientId;
 
-    const adTypeFilter = adType ? `AND keyword_type = '${adType}'` : '';
-
-    const rows = await reqCache(req, () => query(`
+    // Build query — SP only, SB only, or both via UNION ALL
+    let sql, binds;
+    const spSql = `
       SELECT
-        keyword,
-        match_type,
+        'SP'                                                                      AS ad_type,
+        COALESCE(keyword, targeting)                                              AS keyword,
+        COALESCE(match_type, 'AUTO')                                              AS match_type,
         MAX(campaign_name)                                                        AS campaign_name,
         MAX(ad_group_name)                                                        AS ad_group_name,
         MAX(ad_keyword_status)                                                    AS keyword_status,
@@ -515,15 +517,54 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(clicks) > 0            THEN SUM(cost) / SUM(clicks)              ELSE NULL END AS cpc
       FROM sp_targeting_keyword_report
       WHERE client_id = ?
-        ${dateFilter("date", days, startDate, endDate)}
-        AND keyword IS NOT NULL
-        ${adTypeFilter}
-      GROUP BY keyword, match_type
-      ORDER BY SUM(cost) DESC
-      LIMIT ?
-    `, [clientId, limit]));
+        ${dateFilter('date', days, startDate, endDate)}
+        AND COALESCE(keyword, targeting) IS NOT NULL
+      GROUP BY COALESCE(keyword, targeting), COALESCE(match_type, 'AUTO')`;
 
-    res.json(rows.map(r => ({
+    const sbSql = `
+      SELECT
+        'SB'                                                                      AS ad_type,
+        COALESCE(keyword_text, targeting_text)                                    AS keyword,
+        COALESCE(match_type, 'N/A')                                               AS match_type,
+        MAX(campaign_name)                                                        AS campaign_name,
+        MAX(ad_group_name)                                                        AS ad_group_name,
+        MAX(ad_keyword_status)                                                    AS keyword_status,
+        MAX(keyword_bid)                                                          AS keyword_bid,
+        SUM(impressions)                                                          AS impressions,
+        SUM(clicks)                                                               AS clicks,
+        SUM(cost)                                                                 AS spend,
+        SUM(purchases)                                                            AS orders,
+        SUM(sales)                                                                AS sales,
+        SUM(units_sold)                                                           AS units_sold,
+        CASE WHEN SUM(sales) > 0        THEN SUM(cost) / SUM(sales)             ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0         THEN SUM(sales) / SUM(cost)             ELSE NULL END AS roas,
+        CASE WHEN SUM(impressions) > 0  THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
+        CASE WHEN SUM(clicks) > 0       THEN SUM(purchases) / SUM(clicks)       ELSE NULL END AS cvr,
+        CASE WHEN SUM(clicks) > 0       THEN SUM(cost) / SUM(clicks)            ELSE NULL END AS cpc
+      FROM sb_keyword_report
+      WHERE client_id = ?
+        ${dateFilter('report_date', days, startDate, endDate)}
+        AND COALESCE(keyword_text, targeting_text) IS NOT NULL
+      GROUP BY COALESCE(keyword_text, targeting_text), COALESCE(match_type, 'N/A')`;
+
+    if (adType === 'SP') {
+      sql = spSql; binds = [clientId];
+    } else if (adType === 'SB') {
+      sql = sbSql; binds = [clientId];
+    } else {
+      sql = `${spSql} UNION ALL ${sbSql}`; binds = [clientId, clientId];
+    }
+
+    const rows = await reqCache(req, () => query(sql, binds));
+
+    // Sort combined results by spend desc and limit
+    const sorted = rows
+      .filter(r => Number(r.SPEND || 0) > 0)
+      .sort((a, b) => Number(b.SPEND || 0) - Number(a.SPEND || 0))
+      .slice(0, limit);
+
+    res.json(sorted.map(r => ({
+      adType:        r.AD_TYPE,
       keyword:       r.KEYWORD,
       matchType:     r.MATCH_TYPE || null,
       campaignName:  r.CAMPAIGN_NAME || null,
@@ -542,6 +583,105 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       cvr:           r.CVR  != null ? Number(r.CVR)  : null,
       cpc:           r.CPC  != null ? Number(r.CPC)  : null
     })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/targeting-rollup?days=30
+ * Aggregate keyword performance rolled up by targeting type (Auto / Broad / Phrase / Exact)
+ * across SP + SB, with a total row. Also returns per-type top keywords.
+ */
+router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
+  try {
+    const days      = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
+    const clientId  = req.session.clientId;
+
+    // Normalize Amazon match_type values to 4 display buckets
+    // AUTO: TARGETING_EXPRESSION, TARGETING_EXPRESSION_PREDEFINED, null
+    // BROAD / PHRASE / EXACT: as-is
+    const [spRows, sbRows] = await Promise.all([
+      query(`
+        SELECT
+          COALESCE(match_type, 'TARGETING_EXPRESSION') AS raw_match_type,
+          SUM(impressions)      AS impressions,
+          SUM(clicks)           AS clicks,
+          SUM(cost)             AS spend,
+          SUM(purchases_30_d)   AS orders,
+          SUM(sales_30_d)       AS sales,
+          SUM(units_sold_clicks_30_d) AS units_sold
+        FROM sp_targeting_keyword_report
+        WHERE client_id = ?
+          ${dateFilter('date', days, startDate, endDate)}
+        GROUP BY COALESCE(match_type, 'TARGETING_EXPRESSION')
+      `, [clientId]),
+      query(`
+        SELECT
+          COALESCE(match_type, 'N/A') AS raw_match_type,
+          SUM(impressions)   AS impressions,
+          SUM(clicks)        AS clicks,
+          SUM(cost)          AS spend,
+          SUM(purchases)     AS orders,
+          SUM(sales)         AS sales,
+          SUM(units_sold)    AS units_sold
+        FROM sb_keyword_report
+        WHERE client_id = ?
+          ${dateFilter('report_date', days, startDate, endDate)}
+        GROUP BY COALESCE(match_type, 'N/A')
+      `, [clientId])
+    ]);
+
+    const normalizeMatchType = mt => {
+      if (!mt) return 'AUTO';
+      const u = mt.toUpperCase();
+      if (u === 'TARGETING_EXPRESSION' || u === 'TARGETING_EXPRESSION_PREDEFINED' || u === 'N/A') return 'AUTO';
+      if (u === 'BROAD')  return 'BROAD';
+      if (u === 'PHRASE') return 'PHRASE';
+      if (u === 'EXACT')  return 'EXACT';
+      return 'AUTO';
+    };
+
+    // Merge SP + SB into 4 buckets
+    const buckets = { AUTO: null, BROAD: null, PHRASE: null, EXACT: null };
+    for (const r of [...spRows, ...sbRows]) {
+      const mt = normalizeMatchType(r.RAW_MATCH_TYPE);
+      if (!buckets[mt]) buckets[mt] = { matchType: mt, impressions: 0, clicks: 0, spend: 0, orders: 0, sales: 0, unitsSold: 0 };
+      buckets[mt].impressions += Number(r.IMPRESSIONS || 0);
+      buckets[mt].clicks      += Number(r.CLICKS      || 0);
+      buckets[mt].spend       += Number(r.SPEND       || 0);
+      buckets[mt].orders      += Number(r.ORDERS      || 0);
+      buckets[mt].sales       += Number(r.SALES       || 0);
+      buckets[mt].unitsSold   += Number(r.UNITS_SOLD  || 0);
+    }
+
+    // Compute derived metrics per bucket
+    const byType = Object.values(buckets).filter(Boolean).map(b => ({
+      ...b,
+      acos: b.sales > 0 ? b.spend / b.sales : null,
+      roas: b.spend > 0 ? b.sales / b.spend : null,
+      ctr:  b.impressions > 0 ? b.clicks / b.impressions : null,
+      cvr:  b.clicks > 0 ? b.orders / b.clicks : null,
+      cpc:  b.clicks > 0 ? b.spend / b.clicks : null
+    })).sort((a, b) => b.spend - a.spend);
+
+    // Total row
+    const total = byType.reduce((acc, b) => ({
+      impressions: acc.impressions + b.impressions,
+      clicks:      acc.clicks      + b.clicks,
+      spend:       acc.spend       + b.spend,
+      orders:      acc.orders      + b.orders,
+      sales:       acc.sales       + b.sales,
+      unitsSold:   acc.unitsSold   + b.unitsSold
+    }), { impressions: 0, clicks: 0, spend: 0, orders: 0, sales: 0, unitsSold: 0 });
+
+    total.acos = total.sales > 0 ? total.spend / total.sales : null;
+    total.roas = total.spend > 0 ? total.sales / total.spend : null;
+    total.ctr  = total.impressions > 0 ? total.clicks / total.impressions : null;
+    total.cvr  = total.clicks > 0 ? total.orders / total.clicks : null;
+    total.cpc  = total.clicks > 0 ? total.spend / total.clicks : null;
+
+    res.json({ days, total, byType });
   } catch (err) { next(err); }
 });
 
