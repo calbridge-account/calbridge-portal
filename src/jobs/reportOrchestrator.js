@@ -251,7 +251,8 @@ async function pollReportStatus({ triggeredBy = 'cron' } = {}) {
   try {
     // Fetch all pending reports across all clients, oldest first
     const pending = await query(`
-      SELECT report_id, client_id, connection_type, profile_id, requested_at
+      SELECT report_id, client_id, connection_type, profile_id, requested_at,
+             COALESCE(owner_client_id, client_id) AS token_client_id
       FROM ads_report_queue
       WHERE status = 'pending'
         AND requested_at >= DATEADD('hour', -4, CURRENT_TIMESTAMP())
@@ -287,7 +288,8 @@ async function pollReportStatus({ triggeredBy = 'cron' } = {}) {
       const profileId     = rawProfileId?.includes('|') ? rawProfileId.split('|')[1] : rawProfileId;
 
       try {
-        const token = await getToken(clientId, connectionType);
+        const tokenClientId = row.TOKEN_CLIENT_ID || row.token_client_id || clientId;
+        const token = await getToken(tokenClientId, connectionType);
         const res   = await axios.get(
           `https://advertising-api.amazon.com/reporting/reports/${reportId}`,
           {
@@ -363,7 +365,8 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
 
   try {
     const ready = await query(`
-      SELECT report_id, client_id, profile_id, report_type, report_date, download_url
+      SELECT report_id, client_id, profile_id, report_type, report_date, download_url,
+             COALESCE(owner_client_id, client_id) AS token_client_id
       FROM ads_report_queue
       WHERE status = 'ready'
       ORDER BY requested_at ASC
@@ -397,7 +400,9 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
         let url = null;
         {
           const { getValidToken } = require('../services/amazonAuthService');
-          const token = await getValidToken(clientId, 'ads');
+          const tokenClientId = row.TOKEN_CLIENT_ID || row.token_client_id || clientId;
+          const connType = (row.CONNECTION_TYPE || row.connection_type || 'ads');
+          const token = await getValidToken(tokenClientId, connType);
           const pollRes = await axios.get(
             `https://advertising-api.amazon.com/reporting/reports/${reportId}`,
             {
