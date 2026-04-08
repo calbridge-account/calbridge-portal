@@ -10,9 +10,9 @@
  * Each migration file is split into individual statements and executed serially.
  * CREATE SCHEMA and CREATE TABLE IF NOT EXISTS are idempotent — safe to re-run.
  *
- * Note: snowflakeService connects using SNOWFLAKE_DATABASE=CALBRIDGE and
- * SNOWFLAKE_SCHEMA=SANDBOX as defaults, but all statements in the migration
- * use fully-qualified three-part names (CALBRIDGE.<SCHEMA>.<TABLE>), so the
+ * Note: snowflakeService connects using SNOWFLAKE_DATABASE=CALBRIDGE_PROD and
+ * SNOWFLAKE_SCHEMA=APP as defaults. All statements in migration SQL files use
+ * fully-qualified three-part names (CALBRIDGE_PROD.<SCHEMA>.<TABLE>), so the
  * default schema doesn't matter for table creation.
  */
 
@@ -174,40 +174,45 @@ async function verifyTables() {
   console.log('\n🔍 Verifying table creation...');
 
   const expectedTables = [
-    // RAW_AMAZON_ADS
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SP_CAMPAIGNS'],
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SP_AD_GROUPS'],
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SP_ADVERTISED_PRODUCTS'],
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SP_SEARCH_TERMS'],
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SB_CAMPAIGNS'],
-    ['CALBRIDGE', 'RAW_AMAZON_ADS', 'SD_CAMPAIGNS'],
-    // RAW_SP_API
-    ['CALBRIDGE', 'RAW_SP_API', 'LISTINGS'],
-    ['CALBRIDGE', 'RAW_SP_API', 'FBA_INVENTORY'],
-    ['CALBRIDGE', 'RAW_SP_API', 'SALES_TRAFFIC'],
-    // ANALYTICS
-    ['CALBRIDGE', 'ANALYTICS', 'ADS_PERFORMANCE'],
-    ['CALBRIDGE', 'ANALYTICS', 'RETAIL_PERFORMANCE'],
-    ['CALBRIDGE', 'ANALYTICS', 'INVENTORY_SNAPSHOT'],
-    // PIPELINE
-    ['CALBRIDGE', 'PIPELINE', 'FRESHNESS'],
-    ['CALBRIDGE', 'PIPELINE', 'QUALITY_LOG'],
-    ['CALBRIDGE', 'PIPELINE', 'JOB_RUNS'],
-    // CANONICAL (migration 002)
-    ['CALBRIDGE', 'CANONICAL', 'ACCOUNTS'],
-    ['CALBRIDGE', 'CANONICAL', 'CHANNELS'],
-    ['CALBRIDGE', 'CANONICAL', 'CAMPAIGNS'],
-    ['CALBRIDGE', 'CANONICAL', 'AD_GROUPS'],
-    ['CALBRIDGE', 'CANONICAL', 'KEYWORD_TARGETS'],
-    ['CALBRIDGE', 'CANONICAL', 'PRODUCTS'],
-    ['CALBRIDGE', 'CANONICAL', 'INVENTORY_SNAPSHOTS'],
-    ['CALBRIDGE', 'CANONICAL', 'CONTRIBUTION_MARGINS'],
-    ['CALBRIDGE', 'CANONICAL', 'OPPORTUNITY_SCORES'],
-    ['CALBRIDGE', 'CANONICAL', 'RECOMMENDATION_LOG'],
-    ['CALBRIDGE', 'CANONICAL', 'RECOMMENDATION_OUTCOMES'],
-    ['CALBRIDGE', 'CANONICAL', 'ACCOUNT_OVERRIDES'],
-    // METRICS schema (migration 003)
-    ['CALBRIDGE', 'METRICS', 'OPPORTUNITY_SCORES'],
+    // APP schema (core portal tables)
+    ['CALBRIDGE_PROD', 'APP', 'CLIENTS'],
+    ['CALBRIDGE_PROD', 'APP', 'BRANDS'],
+    ['CALBRIDGE_PROD', 'APP', 'AMAZON_CONNECTIONS'],
+    ['CALBRIDGE_PROD', 'APP', 'AD_PROFILES'],
+    ['CALBRIDGE_PROD', 'APP', 'AD_CAMPAIGNS'],
+    ['CALBRIDGE_PROD', 'APP', 'AD_PERFORMANCE'],
+    ['CALBRIDGE_PROD', 'APP', 'ADS_REPORT_QUEUE'],
+    ['CALBRIDGE_PROD', 'APP', 'INGESTION_LOG'],
+    ['CALBRIDGE_PROD', 'APP', 'CONTRIBUTION_MARGIN'],
+    ['CALBRIDGE_PROD', 'APP', 'PRODUCTS'],
+    ['CALBRIDGE_PROD', 'APP', 'DSP_ADVERTISER'],
+    ['CALBRIDGE_PROD', 'APP', 'SPEND_ADJUSTMENTS'],
+    // RAW schema (per-report-type ingestion tables)
+    ['CALBRIDGE_PROD', 'RAW', 'SP_CAMPAIGNS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SP_AD_GROUPS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SP_ADVERTISED_PRODUCT'],
+    ['CALBRIDGE_PROD', 'RAW', 'SP_SEARCH_TERM'],
+    ['CALBRIDGE_PROD', 'RAW', 'SP_TARGETING'],
+    ['CALBRIDGE_PROD', 'RAW', 'SB_CAMPAIGNS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SB_TARGETING'],
+    ['CALBRIDGE_PROD', 'RAW', 'SB_SEARCH_TERMS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SB_PLACEMENTS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SD_CAMPAIGNS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SD_AD_GROUPS'],
+    ['CALBRIDGE_PROD', 'RAW', 'SD_TARGETING'],
+    ['CALBRIDGE_PROD', 'RAW', 'SD_ADVERTISED_PRODUCT'],
+    ['CALBRIDGE_PROD', 'RAW', 'DSP_HIERARCHY'],
+    ['CALBRIDGE_PROD', 'RAW', 'DSP_AUDIENCE'],
+    ['CALBRIDGE_PROD', 'RAW', 'DSP_PRODUCT'],
+    ['CALBRIDGE_PROD', 'RAW', 'DSP_GEO'],
+    ['CALBRIDGE_PROD', 'RAW', 'AD_CAMPAIGN'],
+    // PIPELINE schema
+    ['CALBRIDGE_PROD', 'PIPELINE', 'JOB_RUNS'],
+    ['CALBRIDGE_PROD', 'PIPELINE', 'FRESHNESS'],
+    ['CALBRIDGE_PROD', 'PIPELINE', 'QUALITY_LOG'],
+    ['CALBRIDGE_PROD', 'PIPELINE', 'ANOMALY_LOG'],
+    // ANALYTICS schema
+    ['CALBRIDGE_PROD', 'ANALYTICS', 'KPI_DAILY'],
   ];
 
   let passed = 0;
