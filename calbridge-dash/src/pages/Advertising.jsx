@@ -331,7 +331,7 @@ export default function Advertising() {
 
           {/* Spend Mix pie — 1/3 width */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix by Ad Type</h3>
             {isLoading || pieData.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 {isLoading
@@ -339,14 +339,14 @@ export default function Advertising() {
                   : <span className="text-gray-400 text-sm">No spend data</span>}
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <ResponsiveContainer width="100%" height={220}>
+              <div className="flex-1">
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      outerRadius={90}
+                      outerRadius={70}
                       dataKey="value"
                       labelLine={false}
                       label={PieLabel}
@@ -361,6 +361,22 @@ export default function Advertising() {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="mt-3 space-y-1.5">
+                  {AD_TYPES.filter(t => t.key !== 'all').map(type => {
+                    const spend = byType[type.key]?.spend || 0;
+                    const pct = combined.totalSpend > 0 ? (spend / combined.totalSpend * 100).toFixed(1) : '0.0';
+                    if (spend === 0) return null;
+                    return (
+                      <div key={type.key} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: type.color }} />
+                          <span className="text-gray-600">{type.abbr}</span>
+                        </div>
+                        <span className="text-gray-500">{fmtCurrency(spend)} <span className="text-gray-400">({pct}%)</span></span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
