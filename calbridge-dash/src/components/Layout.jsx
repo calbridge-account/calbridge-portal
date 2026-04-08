@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DateRangePicker from './DateRangePicker';
@@ -38,6 +38,25 @@ const NAV = [
 // Flat list for page title lookups
 const ALL_NAV_ITEMS = NAV.flatMap(s => s.items);
 
+// ─── Nav config hook ─────────────────────────────────────────────────────────
+
+function useNavConfig() {
+  const [navConfig, setNavConfig] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/nav-config', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!cancelled && data?.config) setNavConfig(data.config);
+      })
+      .catch(() => {}); // silently fall back to all-visible
+    return () => { cancelled = true; };
+  }, []);
+
+  return navConfig;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInitials(name = '') {
@@ -61,7 +80,7 @@ function usePageTitle() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ collapsed, onToggle, hasRole, user }) {
+function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const location = useLocation();
   const clientName = user?.companyName || user?.clientName || user?.name || 'Client';
   const logoUrl = user?.logoUrl || null;
@@ -144,9 +163,37 @@ function Sidebar({ collapsed, onToggle, hasRole, user }) {
 
               {/* Items */}
               {visibleItems.map(item => {
+                const visibility = navConfig?.[item.path] ?? 'visible';
+                if (visibility === 'hidden') return null;
+
+                const isGrayed = visibility === 'grayed';
                 const isActive = item.path === '/'
                   ? location.pathname === '/'
                   : location.pathname.startsWith(item.path);
+
+                if (isGrayed) {
+                  return (
+                    <div
+                      key={item.path}
+                      title={collapsed ? `${item.label} (coming soon)` : 'Coming soon'}
+                      className={`
+                        flex items-center gap-2.5 py-2 text-sm font-medium
+                        border-l-2 border-transparent
+                        opacity-40 pointer-events-none cursor-not-allowed select-none
+                        ${collapsed ? 'px-0 justify-center' : 'pr-3 pl-2.5'}
+                        text-gray-600
+                      `}
+                    >
+                      <span className="text-base leading-none flex-shrink-0 ml-1">{item.emoji}</span>
+                      {!collapsed && (
+                        <span className="flex items-center gap-1">
+                          {item.label}
+                          <span className="text-xs">🔒</span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
 
                 return (
                   <NavLink
@@ -215,6 +262,7 @@ function TopBar() {
 export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
   const { hasRole, user } = useUser() || { hasRole: () => true, user: null };
+  const navConfig = useNavConfig();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -223,6 +271,7 @@ export default function Layout({ children }) {
         onToggle={() => setCollapsed(c => !c)}
         hasRole={hasRole}
         user={user}
+        navConfig={navConfig}
       />
 
       {/* Main area — offset by sidebar width */}

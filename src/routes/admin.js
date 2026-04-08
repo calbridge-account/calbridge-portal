@@ -387,4 +387,87 @@ router.delete('/spend-adjustments/:id', requireAdmin, async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
+// ============================================================
+// NAV CONFIG (per-client tab visibility)
+// ============================================================
+
+const NAV_PATHS = ['/', '/vendor', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
+const VALID_VISIBILITY = ['visible', 'grayed', 'hidden'];
+
+/**
+ * Ensure CLIENT_NAV_CONFIG table exists (called once at startup)
+ */
+async function ensureNavConfigTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG (
+        client_id   VARCHAR   NOT NULL,
+        nav_path    VARCHAR   NOT NULL,
+        visibility  VARCHAR   NOT NULL DEFAULT 'visible',
+        updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (client_id, nav_path)
+      )
+    `);
+    console.log('[NavConfig] Table ready');
+  } catch (err) {
+    console.warn('[NavConfig] Table ensure failed:', err.message);
+  }
+}
+
+ensureNavConfigTable();
+
+/**
+ * GET /admin/nav-config/:clientId
+ * Returns full nav config for a client (all 7 paths, defaulting to 'visible')
+ */
+router.get('/nav-config/:clientId', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId } = req.params;
+    const rows = await query(
+      `SELECT nav_path, visibility FROM CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG WHERE client_id = ?`,
+      [clientId]
+    );
+    // Build config with all nav paths, default 'visible'
+    const config = {};
+    NAV_PATHS.forEach(p => { config[p] = 'visible'; });
+    rows.forEach(r => { config[r.NAV_PATH] = r.VISIBILITY; });
+    res.json({ clientId, config });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PUT /admin/nav-config/:clientId
+ * Upsert nav config for a client
+ * Body: { config: { '/vendor': 'grayed', '/cogs': 'hidden', ... } }
+ */
+router.put('/nav-config/:clientId', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId } = req.params;
+    const { config } = req.body;
+    if (!config || typeof config !== 'object') {
+      return res.status(400).json({ error: 'config object required' });
+    }
+
+    const entries = Object.entries(config).filter(([path, vis]) =>
+      NAV_PATHS.includes(path) && VALID_VISIBILITY.includes(vis)
+    );
+
+    // Upsert each entry
+    for (const [navPath, visibility] of entries) {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG AS target
+        USING (SELECT ? AS client_id, ? AS nav_path) AS source
+          ON target.client_id = source.client_id AND target.nav_path = source.nav_path
+        WHEN MATCHED THEN UPDATE SET
+          visibility = ?,
+          updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (client_id, nav_path, visibility, updated_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP())
+      `, [clientId, navPath, visibility, clientId, navPath, visibility]);
+    }
+
+    res.json({ ok: true, updated: entries.length });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'logs')               loadLogs();
       if (tab.dataset.tab === 'admins')             loadAdminUsers();
       if (tab.dataset.tab === 'spend-adjustments')  loadAdjustments();
+      if (tab.dataset.tab === 'nav-visibility')     initNavVisibility();
     });
   });
 
@@ -372,6 +373,134 @@ window.deleteAdj = async function (id) {
     await loadAdjustments();
   } catch { alert('Failed to delete adjustment.'); }
 };
+
+// ── Nav Visibility ─────────────────────────────────────────────────────────────────
+
+const NAV_TABS = [
+  { path: '/',            label: 'Overview'           },
+  { path: '/vendor',      label: 'Vendor Performance' },
+  { path: '/forecasting', label: 'Forecasting'        },
+  { path: '/cogs',        label: 'COGS & Margins'     },
+  { path: '/advertising', label: 'Advertising'        },
+  { path: '/pacing',      label: 'Budget Pacing'      },
+  { path: '/account',     label: 'Account'            },
+];
+
+let nvInitialized = false;
+
+function initNavVisibility() {
+  if (!nvInitialized) {
+    nvInitialized = true;
+    // Populate client dropdown
+    const sel = document.getElementById('nv-client');
+    if (sel) {
+      allClients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.clientId;
+        opt.textContent = c.companyName || c.name || c.email;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', () => loadNavConfig(sel.value));
+    }
+    document.getElementById('nv-save-btn')?.addEventListener('click', saveNavConfig);
+  }
+}
+
+async function loadNavConfig(clientId) {
+  const wrap   = document.getElementById('nv-table-wrap');
+  const tbody  = document.getElementById('nv-table-body');
+  const title  = document.getElementById('nv-table-title');
+  const saveBtn = document.getElementById('nv-save-btn');
+  const result = document.getElementById('nv-result');
+  result.className = 'status-msg hidden';
+
+  if (!clientId) {
+    wrap.style.display = 'none';
+    saveBtn.disabled = true;
+    return;
+  }
+
+  tbody.innerHTML = '<tr><td colspan="3" class="loading-cell">Loading…</td></tr>';
+  wrap.style.display = 'block';
+
+  try {
+    const res  = await adminFetch(`/admin/nav-config/${clientId}`);
+    if (!res.ok) throw new Error('Failed to load');
+    const data = await res.json();
+    const cfg  = data.config || {};
+
+    const client = allClients.find(c => c.clientId === clientId);
+    title.textContent = `Nav Config — ${client?.companyName || client?.name || clientId}`;
+
+    tbody.innerHTML = NAV_TABS.map(tab => {
+      const vis = cfg[tab.path] || 'visible';
+      const rowStyle = vis !== 'visible' ? 'background:var(--warning-bg)' : '';
+      return `
+        <tr style="${rowStyle}">
+          <td><strong>${tab.label}</strong></td>
+          <td style="font-family:monospace;font-size:12px;color:var(--gray-400)">${tab.path}</td>
+          <td>
+            <select class="nv-vis-select" data-path="${tab.path}"
+              style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;min-width:160px">
+              <option value="visible"  ${vis === 'visible'  ? 'selected' : ''}>✅ Visible</option>
+              <option value="grayed"   ${vis === 'grayed'   ? 'selected' : ''}>🔴 Grayed Out (coming soon)</option>
+              <option value="hidden"   ${vis === 'hidden'   ? 'selected' : ''}>🚫 Hidden</option>
+            </select>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Highlight rows when select changes
+    tbody.querySelectorAll('.nv-vis-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const row = sel.closest('tr');
+        row.style.background = sel.value !== 'visible' ? 'var(--warning-bg)' : '';
+      });
+    });
+
+    saveBtn.disabled = false;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="loading-cell">Error: ${err.message}</td></tr>`;
+    saveBtn.disabled = true;
+  }
+}
+
+async function saveNavConfig() {
+  const clientId = document.getElementById('nv-client')?.value;
+  const result   = document.getElementById('nv-result');
+  const saveBtn  = document.getElementById('nv-save-btn');
+  if (!clientId) return;
+
+  const config = {};
+  document.querySelectorAll('.nv-vis-select').forEach(sel => {
+    config[sel.dataset.path] = sel.value;
+  });
+
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+  result.className = 'status-msg hidden';
+
+  try {
+    const res  = await adminFetch(`/admin/nav-config/${clientId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ config })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      result.className   = 'status-msg error';
+      result.textContent = data.error || 'Save failed.';
+    } else {
+      result.className   = 'status-msg success';
+      result.textContent = `✅ Nav config saved (${data.updated} entries updated).`;
+      setTimeout(() => result.classList.add('hidden'), 4000);
+    }
+  } catch {
+    result.className   = 'status-msg error';
+    result.textContent = 'Request failed.';
+  } finally {
+    saveBtn.disabled = false; saveBtn.textContent = 'Save Changes';
+  }
+}
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function showResult(el, msg, type) {

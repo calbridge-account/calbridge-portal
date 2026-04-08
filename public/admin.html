@@ -88,6 +88,7 @@
         <button class="admin-tab" data-tab="invite">✉️ Invite Client</button>
         <button class="admin-tab" data-tab="spend-adjustments">💰 Spend Adjustments</button>
         <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
+        <button class="admin-tab" data-tab="nav-visibility">🗂️ Nav Visibility</button>
         <button class="admin-tab" data-tab="admins" id="admins-tab" style="display:none">🔐 Admin Users</button>
       </div>
 
@@ -186,6 +187,38 @@
             </thead>
             <tbody id="adj-table-body">
               <tr><td colspan="8" class="loading-cell">Loading&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Nav Visibility Tab -->
+      <div id="tab-nav-visibility" class="admin-section">
+        <div class="invite-form">
+          <h3>🗂️ Per-Client Nav Visibility</h3>
+          <p class="settings-desc">Control which navigation tabs are visible, grayed out (shown but not clickable), or hidden for each client.</p>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px">
+            <select id="nv-client" style="flex:2;min-width:220px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px">
+              <option value="">Select client&hellip;</option>
+            </select>
+            <button class="btn-primary" id="nv-save-btn" style="width:auto;padding:9px 20px" disabled>Save Changes</button>
+          </div>
+          <div id="nv-result" class="status-msg hidden" style="margin-top:12px"></div>
+        </div>
+        <div class="table-card" id="nv-table-wrap" style="display:none">
+          <div class="table-header-row">
+            <h3 id="nv-table-title">Nav Config</h3>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tab</th>
+                <th>Path</th>
+                <th style="width:280px">Visibility</th>
+              </tr>
+            </thead>
+            <tbody id="nv-table-body">
+              <tr><td colspan="3" class="loading-cell">Select a client to configure</td></tr>
             </tbody>
           </table>
         </div>
