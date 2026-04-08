@@ -1975,8 +1975,8 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
     const MAX_RANGE = 31;
 
     // Build date windows (oldest to newest)
+    // Use today as end date — intra-day data is preliminary but gets overwritten on next run
     const endDateBase = new Date();
-    endDateBase.setDate(endDateBase.getDate() - 1); // yesterday
 
     const windows = [];
     let remaining = daysBack;
