@@ -11,6 +11,8 @@
  *   GET /vendor-analytics/forecasting        — all ASINs forecast table + top 20 bar data
  *   GET /vendor-analytics/forecast-shift     — how Amazon's forecast has changed over time (by generation date)
  *   GET /vendor-analytics/annual-projection  — YTD actuals + projected remaining weeks = full-year revenue
+ *   GET /vendor-analytics/inventory-detail   — ASIN-level inventory snapshot with weeks-of-cover
+ *   GET /vendor-analytics/po-summary         — ASIN-level purchase order summary
  */
 
 const express = require('express');
@@ -1293,6 +1295,136 @@ router.get('/annual-projection', async (req, res, next) => {
       },
       weeklyData: [...weeklyActualsOut, ...weeklyProjectedOut],
     });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/inventory-detail ─────────────────────────────────
+// Returns per-ASIN inventory snapshot (latest week) joined to products for title.
+// weeks_of_cover = sellable_units / avg_weekly_shipped (trailing 4 weeks)
+router.get('/inventory-detail', requireAuth, async (req, res, next) => {
+  try {
+    const CLIENT_ID = getClientId(req);
+
+    const rows = await query(`
+      WITH latest_snapshot AS (
+        SELECT
+          asin,
+          MAX(end_date) AS latest_date
+        FROM ${SCHEMA}.VENDOR_INVENTORY
+        WHERE client_id = ?
+        GROUP BY asin
+      ),
+      inv AS (
+        SELECT
+          vi.asin,
+          vi.end_date                        AS snapshot_date,
+          vi.sellable_on_hand_units,
+          vi.unsellable_on_hand_units,
+          vi.open_purchase_order_units,
+          vi.unfilled_customer_ordered_units,
+          vi.aged_90_plus_units,
+          vi.sell_through_rate,
+          vi.avg_vendor_lead_time_days
+        FROM ${SCHEMA}.VENDOR_INVENTORY vi
+        JOIN latest_snapshot ls
+          ON vi.asin = ls.asin
+          AND vi.end_date = ls.latest_date
+          AND vi.client_id = ?
+      ),
+      weekly_shipped AS (
+        SELECT
+          asin,
+          SUM(shipped_units) / NULLIF(COUNT(DISTINCT start_date), 0) AS avg_weekly_shipped
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ?
+          AND start_date >= DATEADD('week', -4, CURRENT_DATE)
+        GROUP BY asin
+      )
+      SELECT
+        inv.asin,
+        p.title,
+        inv.sellable_on_hand_units,
+        inv.unsellable_on_hand_units,
+        inv.open_purchase_order_units,
+        inv.unfilled_customer_ordered_units,
+        inv.aged_90_plus_units,
+        inv.sell_through_rate,
+        inv.avg_vendor_lead_time_days,
+        ws.avg_weekly_shipped,
+        CASE
+          WHEN COALESCE(ws.avg_weekly_shipped, 0) > 0
+          THEN inv.sellable_on_hand_units / ws.avg_weekly_shipped
+          ELSE NULL
+        END AS weeks_of_cover,
+        inv.snapshot_date
+      FROM inv
+      LEFT JOIN ${SCHEMA}.PRODUCTS p
+        ON p.asin = inv.asin AND p.client_id = ?
+      LEFT JOIN weekly_shipped ws
+        ON ws.asin = inv.asin
+      ORDER BY inv.sellable_on_hand_units DESC NULLS LAST
+    `, [CLIENT_ID, CLIENT_ID, CLIENT_ID, CLIENT_ID]);
+
+    const out = rows.map(r => ({
+      asin:              r.ASIN,
+      title:             r.TITLE || null,
+      sellableUnits:     n(r.SELLABLE_ON_HAND_UNITS),
+      unsellableUnits:   n(r.UNSELLABLE_ON_HAND_UNITS),
+      openPoUnits:       n(r.OPEN_PURCHASE_ORDER_UNITS),
+      unfillableUnits:   n(r.UNFILLED_CUSTOMER_ORDERED_UNITS),
+      aged90Units:       n(r.AGED_90_PLUS_UNITS),
+      sellThroughRate:   n(r.SELL_THROUGH_RATE),
+      avgLeadTimeDays:   n(r.AVG_VENDOR_LEAD_TIME_DAYS),
+      avgWeeklyShipped:  n(r.AVG_WEEKLY_SHIPPED),
+      weeksOfCover:      n(r.WEEKS_OF_COVER),
+      snapshotDate:      dateStr(r.SNAPSHOT_DATE),
+    }));
+
+    res.json(out);
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/po-summary ────────────────────────────────────────
+// Returns per-ASIN purchase order summary: totals, open units, last order date,
+// and avg lead time computed from PO data directly.
+router.get('/po-summary', requireAuth, async (req, res, next) => {
+  try {
+    const CLIENT_ID = getClientId(req);
+
+    const rows = await query(`
+      SELECT
+        po.asin,
+        p.title,
+        SUM(po.units_ordered)                                        AS total_units_ordered,
+        SUM(po.units_received)                                       AS total_units_received,
+        SUM(po.units_ordered) - SUM(po.units_received)               AS open_units,
+        MAX(po.order_date)                                           AS last_order_date,
+        AVG(
+          CASE
+            WHEN po.units_received > 0
+            THEN DATEDIFF('day', po.order_date, CURRENT_DATE)
+            ELSE NULL
+          END
+        )                                                            AS avg_lead_time_days
+      FROM ${SCHEMA}.VENDOR_PURCHASE_ORDERS po
+      LEFT JOIN ${SCHEMA}.PRODUCTS p
+        ON p.asin = po.asin AND p.client_id = ?
+      WHERE po.client_id = ?
+      GROUP BY po.asin, p.title
+      ORDER BY total_units_ordered DESC NULLS LAST
+    `, [CLIENT_ID, CLIENT_ID]);
+
+    const out = rows.map(r => ({
+      asin:              r.ASIN,
+      title:             r.TITLE || null,
+      totalUnitsOrdered: n(r.TOTAL_UNITS_ORDERED),
+      totalUnitsReceived: n(r.TOTAL_UNITS_RECEIVED),
+      openUnits:         n(r.OPEN_UNITS),
+      lastOrderDate:     dateStr(r.LAST_ORDER_DATE),
+      avgLeadTimeDays:   r.AVG_LEAD_TIME_DAYS != null ? Math.round(n(r.AVG_LEAD_TIME_DAYS)) : null,
+    }));
+
+    res.json(out);
   } catch (err) { next(err); }
 });
 

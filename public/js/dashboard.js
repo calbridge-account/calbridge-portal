@@ -207,30 +207,63 @@ async function loadPerformance() {
     // Top ASINs table
     const tbody = $('sales-top-asins-body');
     if (data.topAsins?.length) {
+      const hasShippedCol = data.topAsins.some(r => r.shippedRevenue != null && r.shippedRevenue > 0);
+      // Update header if shipped col available
+      const thead = tbody.closest('table')?.querySelector('thead tr');
+      if (thead && hasShippedCol) {
+        thead.innerHTML = '<th>Product</th><th>ASIN</th><th>Units</th><th>Ordered Revenue <span class="tooltip-icon" title="PO-based demand signal — leads shipped revenue by 1-2 weeks">ⓘ</span></th><th>Shipped Revenue <span class="tooltip-icon" title="Invoiced revenue — what hits your P&amp;L">ⓘ</span></th>';
+      }
       tbody.innerHTML = data.topAsins.map((r, i) => `
         <tr>
           <td><strong>#${i+1}</strong> ${r.productName !== r.asin ? `<span style="font-size:12px">${r.productName.substring(0,60)}</span>` : '—'}</td>
           <td style="font-size:11px;color:var(--gray-400)">${r.asin}</td>
           <td>${Number(r.units).toLocaleString()}</td>
-          <td><strong>${fmt$(r.revenue)}</strong></td>
+          <td><strong>${fmt$(r.orderedRevenue != null ? r.orderedRevenue : r.revenue)}</strong></td>
+          ${hasShippedCol ? `<td>${r.shippedRevenue != null && r.shippedRevenue > 0 ? fmt$(r.shippedRevenue) : '<span style="color:var(--gray-400);font-size:11px">—</span>'}</td>` : ''}
         </tr>
       `).join('');
     } else {
       tbody.innerHTML = '<tr><td colspan="4" class="loading-cell">No sales data yet</td></tr>';
     }
 
-    // Sales trend chart
+    // Sales trend chart — ordered vs shipped as separate lines
     if (data.dailyTrend?.length) {
-      const labels = data.dailyTrend.map(r => r.date);
-      const revs   = data.dailyTrend.map(r => r.revenue);
+      const labels   = data.dailyTrend.map(r => r.date);
+      const ordered  = data.dailyTrend.map(r => r.orderedRevenue != null ? r.orderedRevenue : r.revenue);
+      const shipped  = data.dailyTrend.map(r => r.shippedRevenue != null ? r.shippedRevenue : null);
+      const hasShipped = shipped.some(v => v != null && v > 0);
+      const datasets = [
+        {
+          label: 'Ordered Revenue',
+          data: ordered,
+          borderColor: '#1a56db',
+          backgroundColor: 'rgba(26,86,219,.08)',
+          tension: .4,
+          fill: true,
+          pointRadius: 2,
+        }
+      ];
+      if (hasShipped) {
+        datasets.push({
+          label: 'Shipped Revenue',
+          data: shipped,
+          borderColor: '#057a55',
+          backgroundColor: 'rgba(5,122,85,.06)',
+          tension: .4,
+          fill: false,
+          borderWidth: 2,
+          pointRadius: 2,
+        });
+      }
       if (salesTrendChart) salesTrendChart.destroy();
       salesTrendChart = new Chart($('sales-trend-chart'), {
         type: 'line',
-        data: {
-          labels,
-          datasets: [{ label: 'Daily Revenue', data: revs, borderColor: '#1a56db', backgroundColor: 'rgba(26,86,219,.08)', tension: .4, fill: true }]
-        },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + Number(v).toFixed(0) } } } }
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: hasShipped, position: 'top' } },
+          scales: { y: { ticks: { callback: v => '$' + Number(v).toFixed(0) } } }
+        }
       });
     }
 
@@ -280,8 +313,22 @@ async function loadOverview() {
     $('kpi-revenue').textContent     = hasSalesData ? fmt$(summary.totalRetailSales) : 'Pending';
     $('kpi-revenue').style.color     = hasSalesData ? '' : 'var(--gray-400)';
     $('kpi-revenue-sub').textContent = hasSalesData
-      ? `Seller ${fmt$(summary.sellerRevenue)} · Vendor ${fmt$(summary.vendorRevenue)}`
-      : 'Seller Central connection pending';
+      ? `Ordered ${fmt$(summary.orderedRevenue || 0)} · Shipped ${fmt$(summary.shippedRevenue || 0)}`
+      : 'Vendor connection pending';
+
+    // Ordered Revenue KPI (PO demand signal)
+    const ordRev = summary.orderedRevenue != null ? summary.orderedRevenue : (summary.sellerRevenue || 0);
+    $('kpi-ordered-revenue').textContent     = fmt$(ordRev);
+    $('kpi-ordered-revenue').style.color     = hasSalesData ? '' : 'var(--gray-400)';
+    $('kpi-ordered-revenue-sub').textContent = 'Leads shipped by 1-2 weeks';
+
+    // Shipped Revenue KPI (P&L / invoiced)
+    const shpRev = summary.shippedRevenue != null ? summary.shippedRevenue : (summary.vendorRevenue || 0);
+    $('kpi-shipped-revenue').textContent     = fmt$(shpRev);
+    $('kpi-shipped-revenue').style.color     = hasSalesData ? '' : 'var(--gray-400)';
+    $('kpi-shipped-revenue-sub').textContent = summary.shippedCogs
+      ? `COGS: ${fmt$(summary.shippedCogs)}`
+      : 'Invoiced / P&L';
     $('kpi-ad-sales').textContent    = fmt$(summary.totalAdSales);
     $('kpi-ad-sales-sub').textContent = `${(summary.totalAdOrders||0).toLocaleString()} orders`;
     $('kpi-spend').textContent       = fmt$(summary.totalAdSpend);

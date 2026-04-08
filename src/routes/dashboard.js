@@ -396,30 +396,38 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
-    const [topAsins, dailyTrend, channelSplit] = await Promise.all([
-      // Top 10 ASINs by revenue
+    const [topAsins, dailyOrdered, dailyShipped, channelSplit] = await Promise.all([
+      // Top 10 ASINs by ordered revenue (PO demand signal)
       query(`
         SELECT
-          s.asin,
-          MAX(p.title) AS product_name,
-          SUM(s.units_ordered)  AS units,
-          SUM(s.ordered_revenue + COALESCE(s.shipped_revenue, 0)) AS revenue,
-          COUNT(DISTINCT s.order_date) AS active_days
-        FROM vendor_purchase_orders s
-        LEFT JOIN products p ON s.client_id = p.client_id AND s.asin = p.asin
-        WHERE s.client_id = ?
-          ${dateFilter("s.order_date", days, startDate, endDate)}
-        GROUP BY s.asin
-        ORDER BY revenue DESC
+          po.asin,
+          MAX(p.title)                   AS product_name,
+          SUM(po.units_ordered)          AS units,
+          SUM(po.ordered_revenue)        AS ordered_revenue,
+          COALESCE(
+            (SELECT SUM(vs.shipped_revenue)
+             FROM vendor_sales vs
+             WHERE vs.client_id = po.client_id
+               AND vs.asin = po.asin
+               ${dateFilter("vs.start_date", days, startDate, endDate)}
+            ), 0
+          )                              AS shipped_revenue,
+          COUNT(DISTINCT po.order_date)  AS active_days
+        FROM vendor_purchase_orders po
+        LEFT JOIN products p ON po.client_id = p.client_id AND po.asin = p.asin
+        WHERE po.client_id = ?
+          ${dateFilter("po.order_date", days, startDate, endDate)}
+        GROUP BY po.asin
+        ORDER BY ordered_revenue DESC
         LIMIT 10
       `, [clientId]),
 
-      // Daily revenue trend
+      // Daily ordered revenue (PO demand)
       query(`
         SELECT
           order_date,
-          SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS daily_revenue,
-          SUM(units_ordered) AS daily_units
+          SUM(ordered_revenue) AS daily_ordered_revenue,
+          SUM(units_ordered)   AS daily_units
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
@@ -427,12 +435,26 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         ORDER BY order_date ASC
       `, [clientId]),
 
-      // Channel split: Seller vs Vendor
+      // Daily shipped revenue from vendor_sales (P&L signal)
+      query(`
+        SELECT
+          start_date,
+          SUM(shipped_revenue) AS daily_shipped_revenue,
+          SUM(shipped_cogs)    AS daily_shipped_cogs,
+          SUM(shipped_units)   AS daily_shipped_units
+        FROM vendor_sales
+        WHERE client_id = ?
+          ${dateFilter("start_date", days, startDate, endDate)}
+        GROUP BY start_date
+        ORDER BY start_date ASC
+      `, [clientId]),
+
+      // Channel split: Seller vs Vendor (ordered only for consistency)
       query(`
         SELECT
           connection_type,
-          SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS channel_revenue,
-          SUM(units_ordered) AS channel_units
+          SUM(ordered_revenue) AS channel_revenue,
+          SUM(units_ordered)   AS channel_units
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
@@ -440,21 +462,43 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
       `, [clientId])
     ]);
 
+    // Merge ordered + shipped into a unified daily trend keyed by date
+    const orderedByDate = {};
+    for (const r of dailyOrdered) {
+      const d = r.ORDER_DATE instanceof Date
+        ? r.ORDER_DATE.toISOString().substring(0, 10)
+        : String(r.ORDER_DATE).substring(0, 10);
+      orderedByDate[d] = { orderedRevenue: Number(r.DAILY_ORDERED_REVENUE || 0), units: Number(r.DAILY_UNITS || 0) };
+    }
+    const shippedByDate = {};
+    for (const r of dailyShipped) {
+      const d = r.START_DATE instanceof Date
+        ? r.START_DATE.toISOString().substring(0, 10)
+        : String(r.START_DATE).substring(0, 10);
+      shippedByDate[d] = { shippedRevenue: Number(r.DAILY_SHIPPED_REVENUE || 0), shippedCogs: Number(r.DAILY_SHIPPED_COGS || 0), shippedUnits: Number(r.DAILY_SHIPPED_UNITS || 0) };
+    }
+    const allDates = [...new Set([...Object.keys(orderedByDate), ...Object.keys(shippedByDate)])].sort();
+    const dailyTrend = allDates.map(date => ({
+      date,
+      orderedRevenue: (orderedByDate[date]?.orderedRevenue || 0),
+      shippedRevenue: (shippedByDate[date]?.shippedRevenue || 0),
+      // legacy field for existing chart code
+      revenue:        (orderedByDate[date]?.orderedRevenue || 0) + (shippedByDate[date]?.shippedRevenue || 0),
+      units:          (orderedByDate[date]?.units || 0),
+    }));
+
     res.json({
       topAsins: topAsins.map(r => ({
-        asin:        r.ASIN,
-        productName: r.PRODUCT_NAME || r.ASIN,
-        units:       Number(r.UNITS || 0),
-        revenue:     Number(r.REVENUE || 0),
-        activeDays:  Number(r.ACTIVE_DAYS || 0)
+        asin:           r.ASIN,
+        productName:    r.PRODUCT_NAME || r.ASIN,
+        units:          Number(r.UNITS || 0),
+        orderedRevenue: Number(r.ORDERED_REVENUE || 0),
+        shippedRevenue: Number(r.SHIPPED_REVENUE || 0),
+        // legacy — use ordered as primary signal
+        revenue:        Number(r.ORDERED_REVENUE || 0),
+        activeDays:     Number(r.ACTIVE_DAYS || 0)
       })),
-      dailyTrend: dailyTrend.map(r => ({
-        date:    r.ORDER_DATE instanceof Date
-          ? r.ORDER_DATE.toISOString().substring(0, 10)
-          : String(r.ORDER_DATE).substring(0, 10),
-        revenue: Number(r.DAILY_REVENUE || 0),
-        units:   Number(r.DAILY_UNITS   || 0)
-      })),
+      dailyTrend,
       channelSplit: channelSplit.map(r => ({
         channel: r.CONNECTION_TYPE,
         revenue: Number(r.CHANNEL_REVENUE || 0),

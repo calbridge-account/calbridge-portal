@@ -3,6 +3,8 @@ import {
   getOverview,
   getVendorMetrics,
   getVendorAsins,
+  getInventoryDetail,
+  getPoSummary,
   getAdvertising,
   getForecasting,
   getForecastShift,
@@ -170,6 +172,24 @@ export function useUpdateBudgetCampaigns() {
   return useMutation({
     mutationFn: ({ id, campaigns }) => updateBudgetCampaigns(id, campaigns),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
+  });
+}
+
+export function useInventoryDetail() {
+  return useQuery({
+    queryKey: ['inventory-detail'],
+    queryFn: getInventoryDetail,
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function usePoSummary() {
+  return useQuery({
+    queryKey: ['po-summary'],
+    queryFn: getPoSummary,
+    staleTime: STALE_TIME,
+    retry: 2,
   });
 }
 
