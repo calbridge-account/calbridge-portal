@@ -283,47 +283,87 @@ export default function Advertising() {
 
       {/* Chart + table for selected tab */}
       <div className="mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-          <h3 className="text-sm font-semibold text-gray-700 mb-1">
-            Weekly Spend vs Sales — {activeType?.label}
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">{activeType?.description}</p>
-          {isLoading ? (
-            <div className="h-64 bg-gray-100 rounded animate-pulse" />
-          ) : chartData.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                <YAxis
-                  yAxisId="left"
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                  tick={{ fontSize: 11 }}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
-                  tick={{ fontSize: 11 }}
-                />
-                <Tooltip
-                  formatter={(v, name) => {
-                    if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
-                    if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
-                    return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
-                  }}
-                  labelStyle={{ fontWeight: 600 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeType?.color || '#2563eb'} strokeWidth={2} dot={false} />
-                <Line yAxisId="left"  type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-                <Line yAxisId="right" type="monotone" dataKey="roas"  name="ROAS"  stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
-                <Line yAxisId="right" type="monotone" dataKey="cpc"   name="CPC"   stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
+        {/* Weekly trend + Spend Mix side by side */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+          {/* Weekly chart — 2/3 width */}
+          <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              Weekly Spend vs Sales — {activeType?.label}
+            </h3>
+            <p className="text-xs text-gray-400 mb-4">{activeType?.description}</p>
+            {isLoading ? (
+              <div className="h-64 bg-gray-100 rounded animate-pulse" />
+            ) : chartData.length === 0 ? (
+              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    formatter={(v, name) => {
+                      if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
+                      if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
+                      return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
+                    }}
+                    labelStyle={{ fontWeight: 600 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeType?.color || '#2563eb'} strokeWidth={2} dot={false} />
+                  <Line yAxisId="left"  type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                  <Line yAxisId="right" type="monotone" dataKey="roas"  name="ROAS"  stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                  <Line yAxisId="right" type="monotone" dataKey="cpc"   name="CPC"   stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Spend Mix pie — 1/3 width */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix</h3>
+            {isLoading || pieData.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center">
+                {isLoading
+                  ? <div className="h-40 w-40 bg-gray-100 rounded-full animate-pulse" />
+                  : <span className="text-gray-400 text-sm">No spend data</span>}
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={90}
+                      dataKey="value"
+                      labelLine={false}
+                      label={PieLabel}
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value, name) => [fmtCurrency(value), name]}
+                      labelFormatter={() => ''}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* DSP special note */}
@@ -348,70 +388,7 @@ export default function Advertising() {
         </div>
       </div>
 
-      {/* Spend breakdown bar + pie chart (visual share by type) */}
-      {!isLoading && combined.totalSpend > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix by Ad Type</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
-            {/* Left: proportional bar + legend */}
-            <div>
-              <div className="flex h-8 rounded-lg overflow-hidden w-full mb-3">
-                {AD_TYPES.filter(t => t.key !== 'all').map(type => {
-                  const typeData = byType[type.key];
-                  const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
-                  if (pct < 0.5) return null;
-                  return (
-                    <div
-                      key={type.key}
-                      style={{ width: `${pct}%`, backgroundColor: type.color }}
-                      className="flex items-center justify-center text-white text-xs font-bold transition-all"
-                      title={`${type.abbr}: ${pct.toFixed(1)}%`}
-                    >
-                      {pct > 8 ? `${type.abbr} ${pct.toFixed(0)}%` : ''}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex flex-wrap gap-4">
-                {AD_TYPES.filter(t => t.key !== 'all').map(type => {
-                  const typeData = byType[type.key];
-                  const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
-                  return (
-                    <div key={type.key} className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: type.color }} />
-                      <span className="text-xs text-gray-600">{type.abbr}: <strong>{fmtCurrency(typeData?.spend)}</strong> ({pct.toFixed(1)}%)</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            {/* Right: pie chart */}
-            <div className="flex justify-center">
-              <ResponsiveContainer width={240} height={200}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={85}
-                    dataKey="value"
-                    labelLine={false}
-                    label={PieLabel}
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value, name) => [fmtCurrency(value), name]}
-                    labelFormatter={() => ''}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }
