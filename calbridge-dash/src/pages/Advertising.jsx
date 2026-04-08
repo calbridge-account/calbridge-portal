@@ -249,12 +249,20 @@ export default function Advertising() {
 
       {isError && <ErrorState message={error?.message} />}
 
-      {/* Combined KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      {/* Combined KPI cards — row 1 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
         <MetricCard title="Total Spend" value={combined.totalSpend} format="currency" highlight loading={isLoading} />
         <MetricCard title="Total Sales (attributed)" value={combined.totalSales} format="currency" loading={isLoading} />
         <MetricCard title="Blended ACoS" value={combined.blendedAcos} format="percent" sub="Across all ad types" loading={isLoading} />
         <MetricCard title="Blended ROAS" value={combined.blendedRoas} format="roas" sub="Total sales / total spend" loading={isLoading} />
+      </div>
+
+      {/* Combined KPI cards — row 2 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <MetricCard title="Impressions" value={combined.totalImpressions} format="number" loading={isLoading} />
+        <MetricCard title="Clicks" value={combined.totalClicks} format="number" loading={isLoading} />
+        <MetricCard title="Orders" value={combined.totalOrders} format="number" loading={isLoading} />
+        <MetricCard title="Conversion Rate" value={combined.conversionRate} format="percent" sub="Orders / clicks" loading={isLoading} />
       </div>
 
       {/* Per-type summary strip */}

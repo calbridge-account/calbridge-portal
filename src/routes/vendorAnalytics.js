@@ -873,8 +873,11 @@ router.get('/advertising', async (req, res, next) => {
     const sd  = aggSummary(sdAgg[0],  'SD');
     const dsp = aggSummary(dspAgg[0], 'DSP');
 
-    const totalSpend = (sp.spend || 0) + (sb.spend || 0) + (sd.spend || 0) + (dsp.spend || 0);
-    const totalSales = (sp.sales || 0) + (sb.sales || 0) + (sd.sales || 0) + (dsp.sales || 0);
+    const totalSpend       = (sp.spend       || 0) + (sb.spend       || 0) + (sd.spend       || 0) + (dsp.spend       || 0);
+    const totalSales       = (sp.sales       || 0) + (sb.sales       || 0) + (sd.sales       || 0) + (dsp.sales       || 0);
+    const totalImpressions = (sp.impressions || 0) + (sb.impressions || 0) + (sd.impressions || 0) + (dsp.impressions || 0);
+    const totalClicks      = (sp.clicks      || 0) + (sb.clicks      || 0) + (sd.clicks      || 0) + (dsp.clicks      || 0);
+    const totalOrders      = (sp.purchases   || 0) + (sb.purchases   || 0) + (sd.purchases   || 0) + (dsp.purchases   || 0);
 
     // Merge weekly trends into a single timeline keyed by week
     function mergeWeekly(arr) {
@@ -917,8 +920,12 @@ router.get('/advertising', async (req, res, next) => {
       combined: {
         totalSpend,
         totalSales,
-        blendedAcos: totalSales > 0 ? totalSpend / totalSales : null,
-        blendedRoas: totalSpend > 0 ? totalSales / totalSpend : null,
+        blendedAcos:   totalSales > 0   ? totalSpend / totalSales : null,
+        blendedRoas:   totalSpend > 0   ? totalSales / totalSpend : null,
+        totalImpressions,
+        totalClicks,
+        totalOrders,
+        conversionRate: totalClicks > 0 ? totalOrders / totalClicks : null,
       },
       byType: { sp, sb, sd, dsp },
       weekly: {
