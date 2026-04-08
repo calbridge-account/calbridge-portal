@@ -186,6 +186,13 @@ router.get('/', async (req, res) => {
         created_at:      b.CREATED_AT   || b.created_at,
         updated_at:      b.UPDATED_AT   || b.updated_at,
         campaign_count:  campaignIds.length,
+        campaigns:       mappings
+          .filter(m => (m.BUDGET_ID || m.budget_id) === budgetId)
+          .map(m => ({
+            campaign_id:   m.CAMPAIGN_ID   || m.campaign_id,
+            campaign_name: m.CAMPAIGN_NAME || m.campaign_name,
+            ad_type:       m.AD_TYPE       || m.ad_type,
+          })),
         // pacing
         spent:           Math.round(spent * 100) / 100,
         remaining:       Math.round(remaining * 100) / 100,

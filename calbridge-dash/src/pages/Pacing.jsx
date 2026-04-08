@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import { useBudgets } from '../hooks/useAnalytics';
@@ -56,8 +57,27 @@ function MetricBlock({ label, value }) {
   );
 }
 
+const AD_TYPE_BADGE = {
+  SP:  { bg: 'bg-blue-100',   text: 'text-blue-800'   },
+  SB:  { bg: 'bg-green-100',  text: 'text-green-800'  },
+  SD:  { bg: 'bg-amber-100',  text: 'text-amber-800'  },
+  DSP: { bg: 'bg-purple-100', text: 'text-purple-800' },
+};
+
+function AdTypeBadge({ adType }) {
+  const key = (adType || '').toUpperCase();
+  const style = AD_TYPE_BADGE[key] || { bg: 'bg-gray-100', text: 'text-gray-600' };
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}`}>
+      {key || adType}
+    </span>
+  );
+}
+
 function BudgetCard({ budget }) {
   const pct = Math.round((budget.pct_used || 0) * 100);
+  const hasCampaigns = Array.isArray(budget.campaigns) && budget.campaigns.length > 0;
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
@@ -70,11 +90,21 @@ function BudgetCard({ budget }) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {budget.campaign_count > 0 && (
+          {hasCampaigns ? (
+            <button
+              onClick={() => setOpen(o => !o)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 cursor-pointer transition-colors"
+              aria-expanded={open}
+              aria-label={open ? 'Hide campaigns' : 'Show campaigns'}
+            >
+              {budget.campaign_count} campaign{budget.campaign_count !== 1 ? 's' : ''}
+              <span className="text-gray-400">{open ? '▲' : '▼'}</span>
+            </button>
+          ) : budget.campaign_count > 0 ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
               {budget.campaign_count} campaign{budget.campaign_count !== 1 ? 's' : ''}
             </span>
-          )}
+          ) : null}
           <StatusBadge status={budget.pace_status} />
         </div>
       </div>
@@ -103,6 +133,20 @@ function BudgetCard({ budget }) {
         <span>Projected total: <strong className="text-gray-700">{fmt$(budget.projected_total)}</strong></span>
         <span>Daily burn: <strong className="text-gray-700">{fmt$(budget.daily_burn_rate)}/day</strong></span>
       </div>
+
+      {/* Collapsible campaign list */}
+      {hasCampaigns && open && (
+        <div className="border-t border-gray-100 pt-3 space-y-1.5">
+          {budget.campaigns.map(c => (
+            <div key={c.campaign_id} className="flex items-center gap-2">
+              <AdTypeBadge adType={c.ad_type} />
+              <span className="text-xs text-gray-700 truncate" title={c.campaign_name}>
+                {c.campaign_name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
