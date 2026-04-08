@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
+  ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
-import { useAdvertising } from '../hooks/useAnalytics';
+import { useAdvertising, useAsinPerformance } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -136,50 +137,38 @@ function TypeSummaryCard({ type, data, loading }) {
   );
 }
 
-function CampaignTable({ campaigns, isDsp = false, loading }) {
+function AsinTable({ asins, loading }) {
   if (loading) return <SkeletonTable />;
-  if (!campaigns?.length) return <div className="text-gray-400 text-sm text-center py-8">No campaigns in this period</div>;
+  if (!asins?.length) return <div className="text-gray-400 text-sm text-center py-8">No ASIN data in this period</div>;
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200">
-            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{isDsp ? 'Order Name' : 'Campaign'}</th>
-            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
+            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product Title</th>
             <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Spend</th>
             <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sales</th>
             <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ACoS</th>
             <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ROAS</th>
             <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Clicks</th>
-            {isDsp && <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Viewable Imp.</th>}
-            {isDsp && <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">DPV</th>}
-            {!isDsp && <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Orders</th>}
+            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Orders</th>
           </tr>
         </thead>
         <tbody>
-          {campaigns.map((c, i) => {
-            const acosColor = c.acos == null ? '' : c.acos > 0.4 ? 'text-red-600' : c.acos < 0.2 ? 'text-green-700' : 'text-gray-900';
+          {asins.map((a, i) => {
+            const acosColor = a.acos == null ? '' : a.acos > 0.4 ? 'text-red-600' : a.acos < 0.2 ? 'text-green-700' : 'text-gray-900';
             return (
-              <tr key={c.campaignId} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                <td className="py-2.5 px-3 text-gray-800 max-w-xs truncate font-medium" title={c.campaignName}>{c.campaignName}</td>
-                <td className="py-2.5 px-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    c.status?.toLowerCase() === 'enabled' ? 'bg-green-50 text-green-700' :
-                    c.status?.toLowerCase() === 'paused' ? 'bg-yellow-50 text-yellow-700' :
-                    'bg-gray-100 text-gray-500'
-                  }`}>
-                    {c.status || 'ENABLED'}
-                  </span>
-                </td>
-                <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmtCurrency(c.spend)}</td>
-                <td className="py-2.5 px-3 text-right text-gray-700">{fmtCurrency(c.sales)}</td>
-                <td className={`py-2.5 px-3 text-right font-medium ${acosColor}`}>{fmtPct(c.acos)}</td>
-                <td className="py-2.5 px-3 text-right text-gray-700">{fmtX(c.roas)}</td>
-                <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(c.clicks)}</td>
-                {isDsp && <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(c.viewableImpressions)}</td>}
-                {isDsp && <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(c.detailPageViews)}</td>}
-                {!isDsp && <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(c.purchases)}</td>}
+              <tr key={a.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{a.asin}</td>
+                <td className="py-2.5 px-3 text-gray-800 max-w-xs truncate font-medium" title={a.productTitle}>{a.productTitle}</td>
+                <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmtCurrency(a.spend)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-700">{fmtCurrency(a.sales)}</td>
+                <td className={`py-2.5 px-3 text-right font-medium ${acosColor}`}>{fmtPct(a.acos)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-700">{fmtX(a.roas)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(a.clicks)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(a.purchases)}</td>
               </tr>
             );
           })}
@@ -189,16 +178,30 @@ function CampaignTable({ campaigns, isDsp = false, loading }) {
   );
 }
 
+// ─── Pie chart custom label ───────────────────────────────────────────────────
+const RADIAN = Math.PI / 180;
+function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) {
+  if (percent < 0.04) return null;
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Advertising() {
   const { range } = useDateRange();
   const [activeTab, setActiveTab] = useState('all');
   const { data, isLoading, isError, error } = useAdvertising(range);
+  const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeTab);
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
   const weekly   = data?.weekly   || {};
-  const campaigns = data?.campaigns || {};
 
   // Build a merged weekly series for "all" view
   const allWeeklyMerged = (() => {
@@ -206,9 +209,10 @@ export default function Advertising() {
     const map = {};
     for (const type of ['sp', 'sb', 'sd', 'dsp']) {
       for (const row of (weekly[type] || [])) {
-        if (!map[row.weekStart]) map[row.weekStart] = { week: row.week, weekStart: row.weekStart, spend: 0, sales: 0 };
-        map[row.weekStart].spend += row.spend || 0;
-        map[row.weekStart].sales += row.sales || 0;
+        if (!map[row.weekStart]) map[row.weekStart] = { week: row.week, weekStart: row.weekStart, spend: 0, sales: 0, clicks: 0 };
+        map[row.weekStart].spend  += row.spend  || 0;
+        map[row.weekStart].sales  += row.sales  || 0;
+        map[row.weekStart].clicks += row.clicks || 0;
       }
     }
     return Object.values(map).sort((a, b) => a.weekStart?.localeCompare(b.weekStart));
@@ -216,11 +220,23 @@ export default function Advertising() {
 
   const activeType = AD_TYPES.find(t => t.key === activeTab);
 
-  // Get weekly data for selected tab
-  const chartData = activeTab === 'all' ? allWeeklyMerged : (weekly[activeTab] || []);
-  const tableCampaigns = activeTab === 'all'
-    ? [...(campaigns.sp || []), ...(campaigns.sb || []), ...(campaigns.sd || []), ...(campaigns.dsp || [])].sort((a, b) => (b.spend || 0) - (a.spend || 0)).slice(0, 20)
-    : (campaigns[activeTab] || []);
+  // Get weekly data for selected tab — enrich with roas/cpc if missing
+  const enrichWeekly = (rows) => rows.map(r => ({
+    ...r,
+    roas: r.roas != null ? r.roas : (r.spend > 0 ? r.sales / r.spend : null),
+    cpc:  r.cpc  != null ? r.cpc  : (r.clicks > 0 ? r.spend / r.clicks : null),
+  }));
+  const chartData = enrichWeekly(activeTab === 'all' ? allWeeklyMerged : (weekly[activeTab] || []));
+
+  // ASIN table data — sorted by spend desc
+  const tableAsins = (asinData?.asins || []).sort((a, b) => (b.spend || 0) - (a.spend || 0));
+
+  // Pie chart data for spend mix
+  const pieData = AD_TYPES.filter(t => t.key !== 'all').map(type => ({
+    name: type.abbr || type.label,
+    value: byType[type.key]?.spend || 0,
+    color: type.color,
+  })).filter(d => d.value > 0);
 
   return (
     <div>
@@ -277,25 +293,35 @@ export default function Advertising() {
           ) : chartData.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="week" tick={{ fontSize: 11 }} />
                 <YAxis
+                  yAxisId="left"
                   tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                   tick={{ fontSize: 11 }}
                 />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
+                  tick={{ fontSize: 11 }}
+                />
                 <Tooltip
-                  formatter={(v, name) => [
-                    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v),
-                    name,
-                  ]}
+                  formatter={(v, name) => {
+                    if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
+                    if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
+                    return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
+                  }}
                   labelStyle={{ fontWeight: 600 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="spend" name="Spend" stroke={activeType?.color || '#2563eb'} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-              </LineChart>
+                <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeType?.color || '#2563eb'} strokeWidth={2} dot={false} />
+                <Line yAxisId="left"  type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                <Line yAxisId="right" type="monotone" dataKey="roas"  name="ROAS"  stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                <Line yAxisId="right" type="monotone" dataKey="cpc"   name="CPC"   stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+              </ComposedChart>
             </ResponsiveContainer>
           )}
         </div>
@@ -303,58 +329,86 @@ export default function Advertising() {
         {/* DSP special note */}
         {activeTab === 'dsp' && (
           <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-4 text-sm text-purple-800">
-            <strong>DSP Attribution:</strong> DSP uses view-based attribution (not click-based). "Sales" reflects total attributed sales including view-through.
-            Viewable Impressions and Detail Page Views are key engagement metrics for DSP campaigns.
+            <strong>DSP Attribution:</strong> DSP uses view-based attribution (not click-based). “Sales” reflects total attributed sales including view-through.
+            Note: ASIN-level data is sourced from SP reports; DSP ASIN data may be limited.
           </div>
         )}
 
-        {/* Campaign / Order table */}
+        {/* ASIN performance table */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">
-            {activeTab === 'dsp' ? 'DSP Orders' : activeTab === 'all' ? 'Top 20 Campaigns (All Types)' : `${activeType?.label} Campaigns`}
+            Ad Performance by ASIN
             {' '}
-            <span className="text-xs font-normal text-gray-400">by spend</span>
+            <span className="text-xs font-normal text-gray-400">sorted by spend — {activeTab === 'all' ? 'all ad types' : activeType?.label}</span>
           </h3>
-          <CampaignTable
-            campaigns={tableCampaigns}
-            isDsp={activeTab === 'dsp'}
-            loading={isLoading}
+          <AsinTable
+            asins={tableAsins}
+            loading={asinLoading}
           />
         </div>
       </div>
 
-      {/* Spend breakdown bar (visual share by type) */}
+      {/* Spend breakdown bar + pie chart (visual share by type) */}
       {!isLoading && combined.totalSpend > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix by Ad Type</h3>
-          <div className="flex h-8 rounded-lg overflow-hidden w-full mb-3">
-            {AD_TYPES.filter(t => t.key !== 'all').map(type => {
-              const typeData = byType[type.key];
-              const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
-              if (pct < 0.5) return null;
-              return (
-                <div
-                  key={type.key}
-                  style={{ width: `${pct}%`, backgroundColor: type.color }}
-                  className="flex items-center justify-center text-white text-xs font-bold transition-all"
-                  title={`${type.abbr}: ${pct.toFixed(1)}%`}
-                >
-                  {pct > 8 ? `${type.abbr} ${pct.toFixed(0)}%` : ''}
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap gap-4">
-            {AD_TYPES.filter(t => t.key !== 'all').map(type => {
-              const typeData = byType[type.key];
-              const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
-              return (
-                <div key={type.key} className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: type.color }} />
-                  <span className="text-xs text-gray-600">{type.abbr}: <strong>{fmtCurrency(typeData?.spend)}</strong> ({pct.toFixed(1)}%)</span>
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
+            {/* Left: proportional bar + legend */}
+            <div>
+              <div className="flex h-8 rounded-lg overflow-hidden w-full mb-3">
+                {AD_TYPES.filter(t => t.key !== 'all').map(type => {
+                  const typeData = byType[type.key];
+                  const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
+                  if (pct < 0.5) return null;
+                  return (
+                    <div
+                      key={type.key}
+                      style={{ width: `${pct}%`, backgroundColor: type.color }}
+                      className="flex items-center justify-center text-white text-xs font-bold transition-all"
+                      title={`${type.abbr}: ${pct.toFixed(1)}%`}
+                    >
+                      {pct > 8 ? `${type.abbr} ${pct.toFixed(0)}%` : ''}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-4">
+                {AD_TYPES.filter(t => t.key !== 'all').map(type => {
+                  const typeData = byType[type.key];
+                  const pct = combined.totalSpend > 0 ? ((typeData?.spend || 0) / combined.totalSpend) * 100 : 0;
+                  return (
+                    <div key={type.key} className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: type.color }} />
+                      <span className="text-xs text-gray-600">{type.abbr}: <strong>{fmtCurrency(typeData?.spend)}</strong> ({pct.toFixed(1)}%)</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {/* Right: pie chart */}
+            <div className="flex justify-center">
+              <ResponsiveContainer width={240} height={200}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={85}
+                    dataKey="value"
+                    labelLine={false}
+                    label={PieLabel}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value, name) => [fmtCurrency(value), name]}
+                    labelFormatter={() => ''}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       )}

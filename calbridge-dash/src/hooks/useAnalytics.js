@@ -17,6 +17,7 @@ import {
   updateBudget,
   deleteBudget,
   updateBudgetCampaigns,
+  getAsinPerformance,
 } from '../api/client';
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
@@ -169,5 +170,14 @@ export function useUpdateBudgetCampaigns() {
   return useMutation({
     mutationFn: ({ id, campaigns }) => updateBudgetCampaigns(id, campaigns),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['budgets'] }),
+  });
+}
+
+export function useAsinPerformance(range, adType) {
+  return useQuery({
+    queryKey: ['asin-performance', rangeKey(range), adType || 'all'],
+    queryFn: () => getAsinPerformance(range, adType),
+    staleTime: STALE_TIME,
+    retry: 2,
   });
 }

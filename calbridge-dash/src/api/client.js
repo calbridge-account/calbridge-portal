@@ -84,3 +84,22 @@ export const createBudget            = (body) => budgetJSON('', { method: 'POST'
 export const updateBudget            = (id, body) => budgetJSON(`/${id}`, { method: 'PUT', body: JSON.stringify(body) });
 export const deleteBudget            = (id) => budgetJSON(`/${id}`, { method: 'DELETE' });
 export const updateBudgetCampaigns   = (id, campaigns) => budgetJSON(`/${id}/campaigns`, { method: 'PUT', body: JSON.stringify({ campaigns }) });
+
+// Advertising ASIN performance — uses /advertising base (proxied separately)
+async function advJSON(path, options = {}) {
+  const res = await fetch(`/advertising${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export const getAsinPerformance = (range, adType) => {
+  const params = rangeParams(range).replace('?', '?') + (adType && adType !== 'all' ? `&adType=${adType.toUpperCase()}` : '');
+  return advJSON(`/asin-performance${params}`);
+};
