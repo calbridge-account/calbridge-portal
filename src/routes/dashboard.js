@@ -770,14 +770,14 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
         c.status,
         c.budget                                    AS daily_budget,
         c.budget_type,
-        COALESCE(SUM(r.cost), 0)                    AS mtd_spend,
+        COALESCE(SUM(r.adjusted_spend), 0)          AS mtd_spend,
         COUNT(DISTINCT r.date)                      AS days_with_data,
         -- Monthly budget = daily_budget * days in month
         c.budget * ?                                AS monthly_budget,
         -- Expected MTD spend = monthly_budget * (days elapsed / days in month)
         (c.budget * ?) * (? / ?)                    AS expected_mtd_spend
       FROM ad_campaigns c
-      LEFT JOIN sp_campaign_report r
+      LEFT JOIN adjusted_campaign_performance r
         ON c.client_id    = r.client_id
         AND c.campaign_id = r.campaign_id
         AND r.date >= ?
