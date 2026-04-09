@@ -41,8 +41,10 @@ const { runJob } = require('./ingestionRunner');
 async function calculateContributionMargin(clientId, daysBack = 30) {
   return runJob(clientId, 'all', 'contribution_margin', async () => {
 
-    // Determine connection types for this client
-    // We need to know if this client has seller, vendor, or both accounts
+    // Determine connection types for this client.
+    // Primary source: amazon_connections table (new arch).
+    // Fallback: clients.connections JSON blob (legacy — stores tokens keyed by connection type).
+    // A connected type = key exists AND is not null/false in the JSON.
     let connectionTypes = [];
     try {
       const connRows = await query(
@@ -51,8 +53,24 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
       );
       connectionTypes = connRows.map(r => String(r.CONNECTION_TYPE).toLowerCase());
     } catch {
-      // Fallback: assume seller (safe default)
-      connectionTypes = ['seller'];
+      connectionTypes = [];
+    }
+
+    // Fallback to clients.connections JSON when amazon_connections has no rows
+    if (!connectionTypes.length) {
+      try {
+        const clientRows = await query(
+          `SELECT connections FROM clients WHERE client_id = ?`,
+          [clientId]
+        );
+        const blob = clientRows[0]?.CONNECTIONS || {};
+        // A connection type is active if it has a non-null entry in the JSON
+        connectionTypes = Object.entries(blob)
+          .filter(([, v]) => v != null && v !== false)
+          .map(([k]) => k.toLowerCase());
+      } catch {
+        connectionTypes = ['seller']; // last-resort safe default
+      }
     }
 
     const isVendor = connectionTypes.includes('vendor');
