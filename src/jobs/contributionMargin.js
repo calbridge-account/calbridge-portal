@@ -79,20 +79,21 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
           GROUP BY s.client_id, s.asin, s.order_date
         ),
         asin_ad_spend AS (
-          -- Direct ASIN-level ad spend from advertised_asin column.
-          -- Only rows with a real ASIN — UNATTRIBUTED excluded from per-ASIN.
+          -- ASIN-level ad spend from sp_advertised_product_report.
+          -- ad_performance was a legacy table that no longer exists in prod.
+          -- sp_advertised_product_report uses 'cost' (not 'spend') and 'date' (not 'report_date').
           SELECT
             client_id,
-            report_date              AS calc_date,
+            date                         AS calc_date,
             UPPER(TRIM(advertised_asin)) AS asin,
-            SUM(spend)               AS asin_spend
-          FROM ad_performance
+            SUM(cost)                    AS asin_spend
+          FROM sp_advertised_product_report
           WHERE client_id = ?
-            AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+            AND date >= DATEADD(day, -?, CURRENT_DATE)
             AND advertised_asin IS NOT NULL
             AND advertised_asin != 'UNATTRIBUTED'
             AND TRIM(advertised_asin) != ''
-          GROUP BY client_id, report_date, UPPER(TRIM(advertised_asin))
+          GROUP BY client_id, date, UPPER(TRIM(advertised_asin))
         ),
         product_costs AS (
           SELECT
@@ -149,18 +150,20 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
           GROUP BY s.client_id, s.asin, s.start_date
         ),
         asin_ad_spend AS (
+          -- ASIN-level ad spend from sp_advertised_product_report (vendor accounts also run SP ads).
+          -- ad_performance was a legacy table that no longer exists in prod.
           SELECT
             client_id,
-            report_date              AS calc_date,
+            date                         AS calc_date,
             UPPER(TRIM(advertised_asin)) AS asin,
-            SUM(spend)               AS asin_spend
-          FROM ad_performance
+            SUM(cost)                    AS asin_spend
+          FROM sp_advertised_product_report
           WHERE client_id = ?
-            AND report_date >= DATEADD(day, -?, CURRENT_DATE)
+            AND date >= DATEADD(day, -?, CURRENT_DATE)
             AND advertised_asin IS NOT NULL
             AND advertised_asin != 'UNATTRIBUTED'
             AND TRIM(advertised_asin) != ''
-          GROUP BY client_id, report_date, UPPER(TRIM(advertised_asin))
+          GROUP BY client_id, date, UPPER(TRIM(advertised_asin))
         ),
         product_costs AS (
           SELECT
