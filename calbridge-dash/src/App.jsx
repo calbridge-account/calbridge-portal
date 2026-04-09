@@ -5,6 +5,7 @@ import { UserProvider } from './context/UserContext';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import VendorPerformance from './pages/VendorPerformance';
+import Inventory from './pages/Inventory';
 import Advertising from './pages/Advertising';
 import Forecasting from './pages/Forecasting';
 import Account from './pages/Account';
@@ -30,6 +31,7 @@ export default function App() {
           <Routes>
             <Route path="/"            element={<Overview />} />
             <Route path="/vendor"      element={<VendorPerformance />} />
+            <Route path="/inventory"   element={<Inventory />} />
             <Route path="/advertising" element={<Advertising />} />
             <Route path="/forecasting" element={<Forecasting />} />
             <Route path="/account"     element={<Account />} />

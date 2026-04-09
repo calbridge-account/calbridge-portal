@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell, LineChart, Line,
 } from 'recharts';
-import { useForecasting, useForecastShift } from '../hooks/useAnalytics';
+import { useForecasting, useForecastShift, useOverview } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -12,6 +12,7 @@ function fmt(n, style = 'number') {
   if (n == null || isNaN(n)) return '—';
   if (style === 'number') return new Intl.NumberFormat('en-US').format(Math.round(n));
   if (style === 'weeks') return `${Number(n).toFixed(1)}w`;
+  if (style === 'currency') return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
   return n;
 }
 
@@ -35,10 +36,19 @@ export default function Forecasting() {
   const [weeks, setWeeks] = useState(4);
   const [search, setSearch] = useState('');
   const { data, isLoading, isError, error } = useForecasting(range);
+  const { data: overviewData } = useOverview(range);
 
   const allAsins = data?.all || [];
   const top20    = data?.top20Bar || [];
   const total    = data?.totalAsins || 0;
+
+  // Build avg selling price map: asin → shipped_revenue / shipped_units
+  const avgPriceMap = {};
+  for (const row of (overviewData?.topAsins || [])) {
+    if (row.asin && row.shipped_units > 0) {
+      avgPriceMap[row.asin] = row.shipped_revenue / row.shipped_units;
+    }
+  }
 
   const filtered = allAsins.filter(r => {
     if (!search.trim()) return true;
@@ -75,12 +85,23 @@ export default function Forecasting() {
 
       {/* Summary stats */}
       {!isLoading && allAsins.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           {[
             {
               label: 'Total Forecasted Units',
               value: fmt(allAsins.reduce((s, r) => s + (r.meanForecast || 0), 0)),
               sub: `Mean across ${total} ASINs`,
+            },
+            {
+              label: 'Est. Forecast Revenue',
+              value: fmt(
+                allAsins.reduce((s, r) => {
+                  const price = avgPriceMap[r.asin];
+                  return s + (price != null ? (r.meanForecast || 0) * price : 0);
+                }, 0),
+                'currency'
+              ),
+              sub: 'Mean units × avg selling price',
             },
             {
               label: 'P90 Total (high confidence)',
@@ -193,7 +214,7 @@ export default function Forecasting() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
-                  {['ASIN', 'Model #', 'Mean Forecast', 'P70', 'P80', 'P90', 'On Hand', 'Coverage (weeks)'].map(h => (
+                  {['ASIN', 'Model #', 'Mean Forecast', 'P70', 'P80', 'P90', 'On Hand', 'Coverage (weeks)', 'Est. Forecast Revenue'].map(h => (
                     <th key={h} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -222,12 +243,18 @@ export default function Forecasting() {
                     <td className={`py-2.5 px-3 text-right ${coverageColor(row.coverageWeeks)}`}>
                       {row.coverageWeeks != null ? fmt(row.coverageWeeks, 'weeks') : '—'}
                     </td>
+                    <td className="py-2.5 px-3 text-right text-gray-700">
+                      {avgPriceMap[row.asin] != null
+                        ? fmt((row.meanForecast || 0) * avgPriceMap[row.asin], 'currency')
+                        : <span className="text-gray-300">—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <div className="text-xs text-gray-400 mt-3 flex items-center gap-4">
               <span>{filtered.length} ASINs shown</span>
+              <span>Revenue estimate based on recent avg selling price</span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-red-500" /> Inventory below forecast
               </span>
@@ -285,7 +312,7 @@ function ForecastShiftSection() {
             📈 Forecast Revision History
           </h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            How Amazon’s demand forecast for the next 4 weeks has shifted over time, by forecast generation date.
+            How Amazon's demand forecast for the next 4 weeks has shifted over time, by forecast generation date.
           </p>
         </div>
         <select
@@ -344,7 +371,7 @@ function ForecastShiftSection() {
             </LineChart>
           </ResponsiveContainer>
           <p className="text-xs text-gray-400 mt-2">
-            Each point = Amazon’s forecast for the next 4 weeks, as generated on that date.
+            Each point = Amazon's forecast for the next 4 weeks, as generated on that date.
             A rising line means Amazon is increasing its demand expectation.
           </p>
         </>

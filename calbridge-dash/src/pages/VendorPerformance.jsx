@@ -1,116 +1,24 @@
-import { useState } from 'react';
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { useVendorMetrics, useVendorAsins, useInventoryDetail, usePoSummary } from '../hooks/useAnalytics';
+import { useVendorMetrics, useOverview } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
 function fmt(n, style = 'number') {
   if (n == null || isNaN(n)) return '—';
-  if (style === 'percent') return `${(n * 100).toFixed(1)}%`;
-  if (style === 'days') return `${Number(n).toFixed(1)} days`;
   if (style === 'currency') return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
   if (style === 'number') return new Intl.NumberFormat('en-US').format(Math.round(n));
   return n;
 }
 
-function weeksOfCoverColor(weeks) {
-  if (weeks == null) return 'text-gray-400';
-  if (weeks >= 8) return 'text-green-700 font-semibold';
-  if (weeks >= 4) return 'text-yellow-600 font-semibold';
-  return 'text-red-600 font-semibold';
-}
-
-function weeksOfCoverBg(weeks) {
-  if (weeks == null) return '';
-  if (weeks >= 8) return 'bg-green-50';
-  if (weeks >= 4) return 'bg-yellow-50';
-  return 'bg-red-50';
-}
-
-function SortableHeader({ label, sortKey, sort, setSort, tooltip }) {
-  const isActive = sort.key === sortKey;
-  const dir = isActive ? sort.dir : null;
-  function toggle() {
-    if (isActive) {
-      setSort({ key: sortKey, dir: dir === 'asc' ? 'desc' : 'asc' });
-    } else {
-      setSort({ key: sortKey, dir: 'desc' });
-    }
-  }
-  return (
-    <th
-      className="text-left py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:text-gray-700"
-      onClick={toggle}
-    >
-      <span className="flex items-center gap-1">
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
-        <span className="ml-1 opacity-50">{isActive ? (dir === 'asc' ? '↑' : '↓') : '↕'}</span>
-      </span>
-    </th>
-  );
-}
-
-function healthBadge(v, thresholdHigh = 0.9, thresholdLow = 0.7) {
-  if (v == null) return null;
-  const pct = v * 100;
-  const color = pct >= thresholdHigh * 100
-    ? 'bg-green-50 text-green-700'
-    : pct >= thresholdLow * 100
-    ? 'bg-yellow-50 text-yellow-700'
-    : 'bg-red-50 text-red-600';
-  return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${color}`}>
-      {pct.toFixed(1)}%
-    </span>
-  );
-}
-
-function InfoTooltip({ text }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span className="relative inline-block ml-1">
-      <span
-        onMouseEnter={() => setShow(true)}
-        onMouseLeave={() => setShow(false)}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold cursor-help"
-        style={{ background: '#e5e7eb', color: '#6b7280', fontSize: '10px' }}
-      >
-        ?
-      </span>
-      {show && (
-        <span
-          className="absolute bottom-6 left-1/2 z-50 w-64 rounded-lg shadow-lg text-xs text-left p-3 leading-relaxed"
-          style={{ transform: 'translateX(-50%)', background: '#1e3a1a', color: '#fff' }}
-        >
-          {text}
-          <span
-            className="absolute top-full left-1/2 w-0 h-0"
-            style={{
-              transform: 'translateX(-50%)',
-              borderLeft: '6px solid transparent',
-              borderRight: '6px solid transparent',
-              borderTop: '6px solid #1e3a1a',
-            }}
-          />
-        </span>
-      )}
-    </span>
-  );
-}
-
-function MetricCard({ title, value, format, note, definition, loading }) {
+function MetricCard({ title, value, format, note, loading }) {
   if (loading) return <SkeletonCard />;
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <div className="flex items-center text-sm font-medium text-gray-500 mb-2">
-        {title}
-        {definition && <InfoTooltip text={definition} />}
-      </div>
+      <div className="text-sm font-medium text-gray-500 mb-2">{title}</div>
       <div className="text-2xl font-bold text-gray-900 mb-1">{fmt(value, format)}</div>
       {note && <div className="text-xs text-gray-400">{note}</div>}
     </div>
@@ -119,44 +27,30 @@ function MetricCard({ title, value, format, note, definition, loading }) {
 
 export default function VendorPerformance() {
   const { range } = useDateRange();
-  const { data, isLoading, isError, error } = useVendorMetrics(range);
-  const { data: asinData, isLoading: asinLoading } = useVendorAsins(range);
-  const { data: invDetailData, isLoading: invDetailLoading } = useInventoryDetail();
-  const { data: poSummaryData, isLoading: poSummaryLoading } = usePoSummary();
+  const { data: vmData, isLoading: vmLoading, isError, error } = useVendorMetrics(range);
+  const { data: overviewData, isLoading: overviewLoading } = useOverview(range);
 
-  // Inventory Health tab state
-  const [invTab, setInvTab] = useState('inventory'); // 'inventory' | 'po'
-  const [invSort, setInvSort] = useState({ key: 'sellableUnits', dir: 'desc' });
-  const [poSort, setPoSort] = useState({ key: 'totalUnitsOrdered', dir: 'desc' });
+  const weeklyUnits = vmData?.weeklyUnits || [];
+  const topAsins = overviewData?.topAsins || [];
 
-  const m = data?.metrics || {};
-  const weeklyInv = data?.weeklyInventoryTrend || [];
-  const weeklyUnits = data?.weeklyUnits || [];
-  const asins = asinData?.asins || [];
+  // Build a weekly revenue trend from topAsins if overview provides time-series;
+  // otherwise we simply skip the revenue chart — topAsins is a flat ranking list.
+  const weeklyRevenue = overviewData?.weeklyRevenue || [];
 
-  const invDetail = Array.isArray(invDetailData) ? invDetailData : [];
-  const poSummary = Array.isArray(poSummaryData) ? poSummaryData : [];
+  // Aggregate KPIs from topAsins
+  const totalShippedRevenue = topAsins.reduce((s, r) => s + (r.shipped_revenue || 0), 0);
+  const totalShippedUnits   = topAsins.reduce((s, r) => s + (r.shipped_units   || 0), 0);
+  const totalShippedCogs    = topAsins.reduce((s, r) => s + (r.shipped_cogs    || 0), 0);
+  // ordered revenue not in topAsins — use weeklyUnits sum as proxy if available
+  const totalOrderedUnits   = weeklyUnits.reduce((s, r) => s + (r.orderedUnits || 0), 0);
 
-  // Sort helpers
-  function sortedRows(rows, { key, dir }) {
-    return [...rows].sort((a, b) => {
-      const va = a[key] ?? (dir === 'asc' ? Infinity : -Infinity);
-      const vb = b[key] ?? (dir === 'asc' ? Infinity : -Infinity);
-      if (typeof va === 'string') return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-      return dir === 'asc' ? va - vb : vb - va;
-    });
-  }
-
-  const sortedInv = sortedRows(invDetail, invSort);
-  const sortedPo  = sortedRows(poSummary, poSort);
+  const isLoading = vmLoading || overviewLoading;
 
   return (
     <div>
       <PageHeader
-        title="Vendor Performance"
-        subtitle="Inventory health, fill rates, and fulfillment metrics"
-        
-        
+        title="Sales"
+        subtitle="Ordered & shipped revenue, units, and COGS"
       />
 
       {isError && <ErrorState message={error?.message} />}
@@ -164,98 +58,43 @@ export default function VendorPerformance() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
-          title="Sell-Through Rate"
-          value={m.avgSellThrough}
-          format="percent"
-          note="Avg across all ASINs"
-          definition="Units shipped to customers divided by the sum of units on hand at the start of the period plus units received. A rate of 1.0 (100%) means all available inventory sold through. Higher is generally better — low sell-through may indicate overstocking or weak demand."
+          title="Ordered Units (period)"
+          value={totalOrderedUnits}
+          format="number"
+          note="Sum of weekly ordered units"
           loading={isLoading}
         />
         <MetricCard
-          title="Vendor Confirmation Rate"
-          value={m.avgConfRate}
-          format="percent"
-          note="Weeks with active POs only"
-          definition="Units you confirmed to ship ÷ units Amazon requested in POs. Averaged only over weeks with active POs (excludes zero-PO weeks to avoid artificially low averages). Target: >95%."
+          title="Shipped Revenue"
+          value={totalShippedRevenue}
+          format="currency"
+          note="Top ASINs, selected period"
           loading={isLoading}
         />
         <MetricCard
-          title="Receive Fill Rate"
-          value={m.avgFillRate}
-          format="percent"
-          note="Received vs confirmed units"
-          definition="Units actually received at Amazon FCs ÷ units confirmed on POs. Can be 0 for recent POs not yet received — this is normal and does not indicate a problem. Distinct from Confirmation Rate."
+          title="Shipped Units"
+          value={totalShippedUnits}
+          format="number"
+          note="Top ASINs, selected period"
           loading={isLoading}
         />
         <MetricCard
-          title="Avg Lead Time"
-          value={m.avgLeadTime}
-          format="days"
-          note="Vendor warehouse to Amazon FC"
-          definition="The average number of days between Amazon submitting a purchase order and your inventory being received at their fulfillment center. Shorter lead times allow Amazon to place replenishment orders later and reduce the risk of stockouts."
+          title="Shipped COGS"
+          value={totalShippedCogs}
+          format="currency"
+          note="Cost of goods shipped"
           loading={isLoading}
         />
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="text-sm text-gray-500 mb-1">Sellable On Hand</div>
-          <div className="text-xl font-bold text-gray-900">{fmt(m.totalSellable)}</div>
-          <div className="text-xs text-gray-400 mt-1">Units in Amazon FCs, sellable condition</div>
-        </div>
-        <div className="bg-white rounded-xl border border-orange-100 p-5">
-          <div className="text-sm text-gray-500 mb-1">Aged 90+ Days</div>
-          <div className="text-xl font-bold text-orange-600">{fmt(m.totalAged90)}</div>
-          <div className="text-xs text-gray-400 mt-1">At risk of long-term storage fees</div>
-        </div>
-        <div className="bg-white rounded-xl border border-red-100 p-5">
-          <div className="text-sm text-gray-500 mb-1">OOS / Unfilled Orders</div>
-          <div className="text-xl font-bold text-red-600">{fmt(m.totalOos)}</div>
-          <div className="text-xs text-gray-400 mt-1">Unfilled customer order units</div>
-        </div>
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        {/* Sell-Through Rate Trend */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">
-            Weekly Rate Trends (selected period)
-          </h3>
-          {isLoading ? (
-            <div className="h-64 bg-gray-100 rounded animate-pulse" />
-          ) : weeklyInv.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={weeklyInv} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                <YAxis
-                  tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
-                  domain={[0, 1]}
-                  tick={{ fontSize: 11 }}
-                />
-                <Tooltip
-                  formatter={(v, name) => [`${(v * 100).toFixed(1)}%`, name]}
-                  labelStyle={{ fontWeight: 600 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="sellThrough" name="Sell-Through" stroke="#2563eb" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="confRate" name="Confirmation Rate" stroke="#10b981" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="fillRate" name="Fill Rate" stroke="#f59e0b" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Ordered vs Shipped Units */}
+        {/* Ordered vs Shipped Units bar chart */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">
             Ordered vs Shipped Units by Week
           </h3>
-          {isLoading ? (
+          {vmLoading ? (
             <div className="h-64 bg-gray-100 rounded animate-pulse" />
           ) : weeklyUnits.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data</div>
@@ -273,251 +112,67 @@ export default function VendorPerformance() {
             </ResponsiveContainer>
           )}
         </div>
-      </div>
 
-      {/* ── Inventory Health Section ─────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-800">Inventory Health</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setInvTab('inventory')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                invTab === 'inventory'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-              }`}
-            >
-              Inventory Detail
-            </button>
-            <button
-              onClick={() => setInvTab('po')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                invTab === 'po'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-              }`}
-            >
-              Purchase Orders
-            </button>
-          </div>
+        {/* Weekly Revenue trend (if available) */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">
+            Weekly Revenue Trend
+          </h3>
+          {overviewLoading ? (
+            <div className="h-64 bg-gray-100 rounded animate-pulse" />
+          ) : weeklyRevenue.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No weekly revenue data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={weeklyRevenue} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                <YAxis
+                  tickFormatter={(v) => new Intl.NumberFormat('en-US', { notation: 'compact', style: 'currency', currency: 'USD' }).format(v)}
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip formatter={(v) => [fmt(v, 'currency'), 'Revenue']} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="revenue" name="Shipped Revenue" stroke="#2563eb" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
-
-        {/* ── Inventory Detail Table ── */}
-        {invTab === 'inventory' && (
-          invDetailLoading ? (
-            <SkeletonTable />
-          ) : sortedInv.length === 0 ? (
-            <div className="text-gray-400 text-sm text-center py-8">No inventory data available</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <SortableHeader label="ASIN"        sortKey="asin"           sort={invSort} setSort={setInvSort} />
-                    <SortableHeader label="Title"       sortKey="title"          sort={invSort} setSort={setInvSort} />
-                    <SortableHeader label="On Hand"     sortKey="sellableUnits"   sort={invSort} setSort={setInvSort} tooltip="Sellable units currently in Amazon fulfillment centers." />
-                    <SortableHeader label="Open POs"    sortKey="openPoUnits"     sort={invSort} setSort={setInvSort} tooltip="Units on open purchase orders — ordered by Amazon but not yet received." />
-                    <SortableHeader label="Weeks Cover" sortKey="weeksOfCover"    sort={invSort} setSort={setInvSort} tooltip="Sellable on-hand ÷ avg weekly shipped units (trailing 4 weeks). Green ≥8w, Yellow 4–8w, Red <4w." />
-                    <SortableHeader label="Unfilled"    sortKey="unfillableUnits" sort={invSort} setSort={setInvSort} tooltip="Customer orders that could not be fulfilled (out-of-stock units)." />
-                    <SortableHeader label="Aged 90+"    sortKey="aged90Units"     sort={invSort} setSort={setInvSort} tooltip="Units in Amazon FCs for 90+ days — at risk of long-term storage fees." />
-                    <SortableHeader label="Lead Time"   sortKey="avgLeadTimeDays" sort={invSort} setSort={setInvSort} tooltip="Avg days from Amazon PO submission to receipt at FC." />
-                    <th className="text-left py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide whitespace-nowrap">Snapshot</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedInv.map((row, i) => (
-                    <tr
-                      key={row.asin}
-                      className={`border-b border-gray-50 hover:bg-gray-50 ${
-                        i % 2 === 0 ? '' : 'bg-gray-50/40'
-                      } ${weeksOfCoverBg(row.weeksOfCover)}`}
-                    >
-                      <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{row.asin}</td>
-                      <td className="py-2.5 px-3 text-gray-700 max-w-xs">
-                        {row.title
-                          ? <span className="text-xs truncate block max-w-xs" title={row.title}>{row.title}</span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-medium text-gray-900">
-                        {row.sellableUnits != null ? fmt(row.sellableUnits) : '—'}
-                        {row.unsellableUnits > 0 && (
-                          <span className="ml-1 text-orange-500 text-xs" title={`${fmt(row.unsellableUnits)} unsellable`}>
-                            +{fmt(row.unsellableUnits)}⚠
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className={row.openPoUnits > 0 ? 'text-blue-700 font-medium' : 'text-gray-400'}>
-                          {row.openPoUnits != null ? fmt(row.openPoUnits) : '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className={weeksOfCoverColor(row.weeksOfCover)}>
-                          {row.weeksOfCover != null ? `${row.weeksOfCover.toFixed(1)}w` : '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className={row.unfillableUnits > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>
-                          {row.unfillableUnits != null ? fmt(row.unfillableUnits) : '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <span className={row.aged90Units > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>
-                          {row.aged90Units != null ? fmt(row.aged90Units) : '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-gray-600">
-                        {row.avgLeadTimeDays != null ? `${Number(row.avgLeadTimeDays).toFixed(1)}d` : '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-gray-400 text-xs">{row.snapshotDate || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
-
-        {/* ── Purchase Order Summary Table ── */}
-        {invTab === 'po' && (
-          poSummaryLoading ? (
-            <SkeletonTable />
-          ) : sortedPo.length === 0 ? (
-            <div className="text-gray-400 text-sm text-center py-8">No purchase order data available</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <SortableHeader label="ASIN"             sortKey="asin"               sort={poSort} setSort={setPoSort} />
-                    <SortableHeader label="Title"            sortKey="title"              sort={poSort} setSort={setPoSort} />
-                    <SortableHeader label="Units Ordered"    sortKey="totalUnitsOrdered"  sort={poSort} setSort={setPoSort} tooltip="Total units ordered by Amazon across all POs." />
-                    <SortableHeader label="Units Received"   sortKey="totalUnitsReceived" sort={poSort} setSort={setPoSort} tooltip="Units confirmed received at Amazon FCs." />
-                    <SortableHeader label="Open Units"       sortKey="openUnits"          sort={poSort} setSort={setPoSort} tooltip="Units ordered but not yet received (ordered minus received)." />
-                    <SortableHeader label="Last Order"       sortKey="lastOrderDate"      sort={poSort} setSort={setPoSort} tooltip="Date of most recent Amazon PO for this ASIN." />
-                    <SortableHeader label="Avg Lead Time"    sortKey="avgLeadTimeDays"    sort={poSort} setSort={setPoSort} tooltip="Avg days from PO date to receipt, based on received POs." />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedPo.map((row, i) => {
-                    const receiveRate = row.totalUnitsOrdered > 0
-                      ? row.totalUnitsReceived / row.totalUnitsOrdered
-                      : null;
-                    return (
-                      <tr
-                        key={row.asin}
-                        className={`border-b border-gray-50 hover:bg-gray-50 ${
-                          i % 2 === 0 ? '' : 'bg-gray-50/40'
-                        }`}
-                      >
-                        <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{row.asin}</td>
-                        <td className="py-2.5 px-3 text-gray-700 max-w-xs">
-                          {row.title
-                            ? <span className="text-xs truncate block max-w-xs" title={row.title}>{row.title}</span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-medium text-gray-900">
-                          {row.totalUnitsOrdered != null ? fmt(row.totalUnitsOrdered) : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <span className="text-gray-700">{row.totalUnitsReceived != null ? fmt(row.totalUnitsReceived) : '—'}</span>
-                          {receiveRate != null && (
-                            <span className={`ml-1 text-xs ${
-                              receiveRate >= 0.95 ? 'text-green-600' :
-                              receiveRate >= 0.80 ? 'text-yellow-600' : 'text-red-500'
-                            }`}>
-                              ({(receiveRate * 100).toFixed(0)}%)
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <span className={row.openUnits > 0 ? 'text-blue-700 font-medium' : 'text-gray-400'}>
-                            {row.openUnits != null ? fmt(row.openUnits) : '—'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-gray-600 text-xs">{row.lastOrderDate || '—'}</td>
-                        <td className="py-2.5 px-3 text-right text-gray-600">
-                          {row.avgLeadTimeDays != null ? `${row.avgLeadTimeDays}d` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
       </div>
 
-      {/* ASIN Inventory Health Table */}
+      {/* Top 10 ASINs by shipped revenue */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">
-          ASIN-Level Inventory Health
+          Top ASINs by Shipped Revenue
         </h3>
-        {asinLoading ? (
+        {overviewLoading ? (
           <SkeletonTable />
-        ) : asins.length === 0 ? (
-          <div className="text-gray-400 text-sm text-center py-8">No inventory data</div>
+        ) : topAsins.length === 0 ? (
+          <div className="text-gray-400 text-sm text-center py-8">No ASIN data</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
-                  {[
-                    { h: 'ASIN', def: null },
-                    { h: 'Model / Product', def: null },
-                    { h: 'On Hand', def: 'Units currently in Amazon FCs in sellable condition.' },
-                    { h: 'Open PO Units', def: 'Units on open / confirmed purchase orders from Amazon. These are ordered but not yet received at the FC. Comes from the Vendor Inventory report.' },
-                    { h: 'Aged 90+', def: 'Sellable units that have been in Amazon\'s fulfillment centers for 90+ days. At risk of long-term storage fees.' },
-                    { h: 'Unhealthy', def: 'Excess inventory units beyond what Amazon\'s demand forecast suggests is needed. Amazon flags these as overstocked.' },
-                    { h: 'OOS Units', def: 'Customer orders that could not be fulfilled due to out-of-stock inventory (unfilled customer ordered units).' },
-                    { h: 'Sell-Through', def: 'Units shipped ÷ (opening inventory + received). Higher = inventory moving faster.' },
-                    { h: 'Conf Rate', def: 'Vendor Confirmation Rate: units you confirmed to ship ÷ units Amazon ordered in POs. Only averaged over weeks with active POs. Target >95%.' },
-                    { h: 'Fill Rate', def: 'Units received by Amazon ÷ units you confirmed on POs. Measures shipping reliability. May be low for recent POs not yet received — that is normal.' },
-                    { h: 'Lead Time', def: 'Avg days from PO submission to receipt at Amazon FC.' },
-                    { h: 'Proceeds after Ads', def: 'Shipped COGS minus total ad spend for this ASIN in the selected period. Red = ad spend exceeds COGS (negative margin signal).' },
-                  ].map(({ h, def }) => (
-                    <th key={h} className="text-left py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide whitespace-nowrap">
-                      {h}{def && <InfoTooltip text={def} />}
-                    </th>
-                  ))}
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">ASIN</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Title</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Shipped Revenue</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Shipped Units</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-500 text-xs uppercase tracking-wide">Shipped COGS</th>
                 </tr>
               </thead>
               <tbody>
-                {asins.map((row, i) => (
-                  <tr key={row.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                {topAsins.slice(0, 10).map((row, i) => (
+                  <tr key={row.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                     <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{row.asin}</td>
-                    <td className="py-2.5 px-3 text-gray-700 max-w-sm" title={[row.model, row.title].filter(Boolean).join(' — ')}>
-                      {row.model && <span className="font-medium text-gray-900">{row.model}</span>}
-                      {row.model && row.title && <span className="text-gray-400 mx-1">—</span>}
-                      {row.title && <span className="text-gray-500 text-xs truncate block max-w-xs">{row.title}</span>}
-                      {!row.model && !row.title && '—'}
+                    <td className="py-2.5 px-3 text-gray-700 max-w-xs">
+                      {row.title
+                        ? <span className="text-xs truncate block max-w-xs" title={row.title}>{row.title}</span>
+                        : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-medium">{fmt(row.sellableOnHand)}</td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className={row.openPoUnits > 0 ? 'text-blue-700 font-medium' : 'text-gray-400'}>{fmt(row.openPoUnits ?? 0)}</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className={row.aged90Plus > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>{fmt(row.aged90Plus)}</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className={row.unhealthy > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>{fmt(row.unhealthy)}</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className={row.oosUnits > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>{fmt(row.oosUnits)}</span>
-                    </td>
-                    <td className="py-2.5 px-3">{healthBadge(row.sellThrough)}</td>
-                    <td className="py-2.5 px-3">{healthBadge(row.confRate)}</td>
-                    <td className="py-2.5 px-3">{healthBadge(row.fillRate)}</td>
-                    <td className="py-2.5 px-3 text-gray-600">{row.leadTime != null ? `${Number(row.leadTime).toFixed(1)}d` : '—'}</td>
-                    <td className="py-2.5 px-3 text-right">
-                      {row.proceedsAfterAds != null ? (
-                        <span className={row.proceedsAfterAds < 0 ? 'text-red-600 font-semibold' : 'text-gray-900'}>
-                          {fmt(row.proceedsAfterAds, 'currency')}
-                        </span>
-                      ) : <span className="text-gray-300">—</span>}
-                    </td>
+                    <td className="py-2.5 px-3 text-right font-semibold text-gray-900">{fmt(row.shipped_revenue, 'currency')}</td>
+                    <td className="py-2.5 px-3 text-right text-gray-700">{fmt(row.shipped_units)}</td>
+                    <td className="py-2.5 px-3 text-right text-gray-600">{fmt(row.shipped_cogs, 'currency')}</td>
                   </tr>
                 ))}
               </tbody>
