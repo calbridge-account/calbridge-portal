@@ -1,16 +1,18 @@
 /**
- * Manager Account Routes — Phase 3B
+ * Manager Account Routes — Phase 3B + 3E
  *
- * Provides API endpoints for the manager/advertiser/user account model.
- * These routes are additive — they do not modify existing routes or tables.
+ * Provides API endpoints for the manager/advertiser/user account model,
+ * plus agency-level routes added in Phase 3E.
  *
- * All routes are mounted at /manager (see src/app.js).
+ * Routes mounted at:
+ *   /manager  — manager-scoped endpoints (see src/app.js)
+ *   /agency   — agency-scoped endpoints (see src/app.js)
  *
  * Session model (current): req.session.clientId
- * Session model (target):  req.session.userId / managerId / advertiserId / role
+ * Session model (target):  req.session.userId / agencyId / managerId / advertiserId / role
  *
- * For backward compatibility, clientId is resolved to managerId/advertiserId
- * via client_migration_map. If no mapping exists, clientId is used as both.
+ * For backward compatibility, clientId is resolved to agencyId/managerId/advertiserId
+ * via client_migration_map. If no mapping exists, clientId is used as both manager and advertiser.
  */
 
 const express = require('express');
@@ -42,6 +44,31 @@ async function resolveManagerContext(clientId) {
   }
   // Backward compat: clientId acts as both manager and advertiser
   return { managerId: clientId, advertiserId: clientId };
+}
+
+// ─── Helper: Resolve agency context from session clientId ─────────────────────
+
+/**
+ * Looks up agency_id, manager_id, and advertiser_id from client_migration_map.
+ * Falls back to null agencyId if no mapping found.
+ *
+ * @param {string} clientId - from req.session.clientId
+ * @returns {{ agencyId: string|null, managerId: string, advertiserId: string }}
+ */
+async function resolveAgencyContext(clientId) {
+  const map = await query(
+    'SELECT agency_id, manager_id, advertiser_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
+    [clientId]
+  );
+  if (map.length) {
+    return {
+      agencyId:     map[0].AGENCY_ID    || null,
+      managerId:    map[0].MANAGER_ID,
+      advertiserId: map[0].ADVERTISER_ID,
+    };
+  }
+  // Backward compat: no agency mapping — clientId acts as manager and advertiser
+  return { agencyId: null, managerId: clientId, advertiserId: clientId };
 }
 
 // ─── Apply requireAuth to all routes in this router ──────────────────────────
@@ -647,4 +674,213 @@ router.delete('/users/:userId', async (req, res) => {
   }
 });
 
+// ============================================================================
+// AGENCY ROUTES — Phase 3E
+// Mounted at /agency in src/app.js
+// ============================================================================
+
+// Export a separate agency router so app.js can mount it at /agency
+const agencyRouter = express.Router();
+agencyRouter.use(requireAuth);
+
+// ─── GET /agency/me ──────────────────────────────────────────────────
+// Returns the current agency + all its manager accounts.
+
+agencyRouter.get('/me', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+
+    if (!agencyId) {
+      return res.status(404).json({ error: 'No agency associated with this account' });
+    }
+
+    const agencyRows = await query(
+      `SELECT agency_id, name, stripe_customer_id, stripe_subscription_id,
+              subscription_plan, subscription_status, created_at
+       FROM CALBRIDGE_PROD.APP.agency_accounts
+       WHERE agency_id = ?`,
+      [agencyId]
+    );
+
+    if (!agencyRows.length) {
+      return res.status(404).json({ error: 'Agency account not found' });
+    }
+
+    const managerRows = await query(
+      `SELECT manager_id, name, subscription_plan, subscription_status, created_at
+       FROM CALBRIDGE_PROD.APP.manager_accounts
+       WHERE agency_id = ?
+       ORDER BY name`,
+      [agencyId]
+    );
+
+    return res.json({
+      agency:   agencyRows[0],
+      managers: managerRows,
+    });
+  } catch (err) {
+    console.error('[GET /agency/me]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── GET /agency/managers ───────────────────────────────────────────
+// Lists all manager accounts under the current agency.
+
+agencyRouter.get('/managers', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+
+    if (!agencyId) {
+      return res.status(404).json({ error: 'No agency associated with this account' });
+    }
+
+    const rows = await query(
+      `SELECT manager_id, name, stripe_customer_id, stripe_subscription_id,
+              subscription_plan, subscription_status, agency_id, created_at
+       FROM CALBRIDGE_PROD.APP.manager_accounts
+       WHERE agency_id = ?
+       ORDER BY name`,
+      [agencyId]
+    );
+
+    return res.json(rows);
+  } catch (err) {
+    console.error('[GET /agency/managers]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── POST /agency/managers ───────────────────────────────────────────
+// Creates a new manager account under the current agency.
+// Agency admin only.
+
+agencyRouter.post('/managers', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+
+    if (!agencyId) {
+      return res.status(403).json({ error: 'No agency associated with this account' });
+    }
+
+    // Verify caller is agency_admin (session role check)
+    // Note: Full RBAC will be wired in Phase 3F; for now trust session.role if set
+    const sessionRole = req.session.role;
+    if (sessionRole && sessionRole !== 'agency_admin') {
+      return res.status(403).json({ error: 'agency_admin role required' });
+    }
+
+    const { name, subscription_plan, subscription_status } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const managerId = crypto.randomUUID();
+
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
+         (manager_id, name, agency_id, subscription_plan, subscription_status,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+      [
+        managerId,
+        name.trim(),
+        agencyId,
+        subscription_plan  || null,
+        subscription_status || null,
+      ]
+    );
+
+    return res.status(201).json({ managerId, name: name.trim(), agencyId });
+  } catch (err) {
+    console.error('[POST /agency/managers]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── GET /agency/users ───────────────────────────────────────────────
+// Lists all agency-level users (those with agency_id set).
+
+agencyRouter.get('/users', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+
+    if (!agencyId) {
+      return res.status(404).json({ error: 'No agency associated with this account' });
+    }
+
+    const rows = await query(
+      `SELECT user_id, email, name, role, agency_id, is_active, created_at
+       FROM CALBRIDGE_PROD.APP.users
+       WHERE agency_id = ?
+       ORDER BY email`,
+      [agencyId]
+    );
+
+    return res.json(rows);
+  } catch (err) {
+    console.error('[GET /agency/users]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── POST /agency/users/invite ────────────────────────────────────────
+// Invite an agency-level user (creates or updates user row with agency_id).
+
+agencyRouter.post('/users/invite', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+
+    if (!agencyId) {
+      return res.status(403).json({ error: 'No agency associated with this account' });
+    }
+
+    const { email, name, role = 'agency_staff' } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    const validRoles = ['agency_admin', 'agency_staff'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
+    }
+
+    const normalEmail = email.trim().toLowerCase();
+
+    // Find or create the user
+    const existingUser = await query(
+      'SELECT user_id FROM CALBRIDGE_PROD.APP.users WHERE email = ?',
+      [normalEmail]
+    );
+
+    let userId;
+    if (existingUser.length) {
+      userId = existingUser[0].USER_ID;
+      // Update role and agency_id on existing row
+      await query(
+        `UPDATE CALBRIDGE_PROD.APP.users
+         SET role = ?, agency_id = ?
+         WHERE user_id = ?`,
+        [role, agencyId, userId]
+      );
+    } else {
+      userId = crypto.randomUUID();
+      await query(
+        `INSERT INTO CALBRIDGE_PROD.APP.users
+           (user_id, client_id, email, name, role, agency_id, is_active, invited_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+        [userId, userId, normalEmail, (name || '').trim() || null, role, agencyId]
+      );
+    }
+
+    return res.status(201).json({ userId, email: normalEmail, agencyId, role });
+  } catch (err) {
+    console.error('[POST /agency/users/invite]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
+module.exports.agencyRouter = agencyRouter;

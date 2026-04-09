@@ -29,6 +29,7 @@ const budgetRoutes         = require('./routes/budgets');
 const navConfigRoutes      = require('./routes/navConfig');
 const managerRoutes        = require('./routes/managerAccounts');
 const managerAccountRoutes = require('./routes/managerAccounts');
+const { agencyRouter }     = require('./routes/managerAccounts');
 
 const app = express();
 
@@ -161,6 +162,7 @@ app.use('/budgets', budgetRoutes);
 app.use('/', navConfigRoutes);
 app.use('/manager', managerRoutes);
 app.use('/manager', managerAccountRoutes);
+app.use('/agency', agencyRouter);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>

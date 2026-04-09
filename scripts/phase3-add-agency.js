@@ -29,14 +29,15 @@ const { v4: uuidv4 } = require('uuid');
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // Pre-existing IDs (from prior phases)
-const CYBERPOWER_CLIENT_ID  = '7d88ea17-002b-4a02-97fc-bcab1292d57e';
-const CYBERPOWER_MANAGER_ID = '0e5b83c9-5321-4317-abf5-dc9a79e5e733';
-const ACER_CLIENT_ID        = '929cea98-38a6-49ab-bffc-1d38b1f3cc60';
+const CYBERPOWER_CLIENT_ID      = '7d88ea17-002b-4a02-97fc-bcab1292d57e';
+const CYBERPOWER_MANAGER_ID     = '0e5b83c9-5321-4317-abf5-dc9a79e5e733'; // Phase 3A canonical manager
+const CYBERPOWER_ADVERTISER_ID  = '17944db3-d963-48ab-9744-b012546c26f1'; // Phase 3A canonical advertiser
+const ACER_CLIENT_ID            = '929cea98-38a6-49ab-bffc-1d38b1f3cc60';
 
 // Stable IDs for Calbridge agency — deterministic so re-runs stay consistent.
 // Generated once and hardcoded here for idempotency across runs.
-// Must be exactly 36 chars (UUID format: 8-4-4-4-12).
-const CALBRIDGE_AGENCY_ID = 'ca1br1dg-e000-4000-a000-000ca1bridge0';
+// Proper UUID v4 format (8-4-4-4-12 = 36 chars).
+const CALBRIDGE_AGENCY_ID = '99bd1b49-c7b4-4fa9-b58f-7825944f524e';
 
 const ABE_EMAIL = 'abe@teamcalbridge.com';
 
@@ -218,14 +219,14 @@ async function step4_linkCyberPower() {
   );
   console.log(`  Updated CyberPower manager_accounts.agency_id ✅`);
 
-  // Update client_migration_map.agency_id for CyberPower
-  const mapResult = await query(
+  // Update client_migration_map: set agency_id AND ensure correct Phase 3A manager/advertiser IDs
+  await query(
     `UPDATE CALBRIDGE_PROD.APP.client_migration_map
-     SET agency_id = ?
-     WHERE client_id = ? AND (agency_id IS NULL OR agency_id != ?)`,
-    [CALBRIDGE_AGENCY_ID, CYBERPOWER_CLIENT_ID, CALBRIDGE_AGENCY_ID]
+     SET agency_id = ?, manager_id = ?, advertiser_id = ?
+     WHERE client_id = ?`,
+    [CALBRIDGE_AGENCY_ID, CYBERPOWER_MANAGER_ID, CYBERPOWER_ADVERTISER_ID, CYBERPOWER_CLIENT_ID]
   );
-  console.log(`  Updated CyberPower client_migration_map.agency_id ✅`);
+  console.log(`  Updated CyberPower client_migration_map (agency_id + canonical Phase 3A IDs) ✅`);
 }
 
 // ─── Step 5: Update Acer client_migration_map agency_id ──────────────────────
