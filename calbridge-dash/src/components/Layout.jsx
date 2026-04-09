@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DateRangePicker from './DateRangePicker';
+import AdvertiserSelector from './AdvertiserSelector';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
 
@@ -251,6 +252,9 @@ function TopBar() {
       <h1 className="text-base font-semibold text-gray-800 flex-1 truncate">
         {pageTitle}
       </h1>
+      <div className="flex-shrink-0">
+        <AdvertiserSelector />
+      </div>
       <div className="flex-shrink-0">
         <DateRangePicker />
       </div>

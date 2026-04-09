@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateRangeProvider } from './context/DateRangeContext';
 import { UserProvider } from './context/UserContext';
+import { AdvertiserProvider } from './context/AdvertiserContext';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import VendorPerformance from './pages/VendorPerformance';
@@ -26,6 +27,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <DateRangeProvider>
       <UserProvider>
+      <AdvertiserProvider>
       <BrowserRouter basename="/analytics">
         <Layout>
           <Routes>
@@ -40,6 +42,7 @@ export default function App() {
           </Routes>
         </Layout>
       </BrowserRouter>
+      </AdvertiserProvider>
       </UserProvider>
       </DateRangeProvider>
     </QueryClientProvider>
