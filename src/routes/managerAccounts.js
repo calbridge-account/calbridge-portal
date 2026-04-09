@@ -74,6 +74,150 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// ─── GET /manager/advertisers/list ──────────────────────────────────────────
+// Agency-aware advertiser list for the nav selector.
+//
+// - agency admin (agencyId set in client_migration_map): returns ALL advertiser_accounts
+//   across ALL manager_accounts linked to that agency_id, grouped by manager.
+// - manager user (managerId only): returns advertiser_accounts for that manager only.
+// - fallback: if new tables have no data, returns the current client as a single entry.
+//
+// Response shape:
+//   [{ advertiserId, advertiserName, managerName, managerId, marketplace, isActive, isCurrent }]
+
+router.get('/advertisers/list', async (req, res) => {
+  try {
+    const clientId = req.session.clientId;
+
+    // If client explicitly switched advertiser, store it in session for isCurrent logic
+    const requestedAdvertiserId = req.query.advertiserId || null;
+    if (requestedAdvertiserId) {
+      req.session.activeAdvertiserId = requestedAdvertiserId;
+    }
+
+    // Resolve agency/manager context from migration map
+    let agencyId     = null;
+    let managerId    = null;
+    let advertiserId = null;
+
+    // activeAdvertiserId: use explicit session switch > migration map default
+    const activeAdvertiserId = req.session.activeAdvertiserId || null;
+
+    try {
+      const mapRows = await query(
+        `SELECT manager_id, advertiser_id, agency_id
+         FROM CALBRIDGE_PROD.APP.client_migration_map
+         WHERE client_id = ?`,
+        [clientId]
+      );
+      if (mapRows.length) {
+        agencyId     = mapRows[0].AGENCY_ID    || null;
+        managerId    = mapRows[0].MANAGER_ID   || null;
+        advertiserId = mapRows[0].ADVERTISER_ID || null;
+      }
+    } catch (mapErr) {
+      console.warn('[GET /manager/advertisers/list] Migration map query failed:', mapErr.message);
+    }
+
+    // ── Agency-level user: return all advertisers under all managers in agency ──
+    if (agencyId) {
+      let rows = [];
+      try {
+        rows = await query(
+          `SELECT aa.advertiser_id, aa.name AS advertiser_name, aa.marketplace,
+                  aa.is_active, ma.manager_id, ma.name AS manager_name
+           FROM CALBRIDGE_PROD.APP.advertiser_accounts aa
+           JOIN CALBRIDGE_PROD.APP.manager_accounts ma
+             ON aa.manager_id = ma.manager_id
+           WHERE ma.agency_id = ?
+           ORDER BY ma.name, aa.name`,
+          [agencyId]
+        );
+      } catch (queryErr) {
+        console.warn('[GET /manager/advertisers/list] Agency query failed:', queryErr.message);
+      }
+
+      if (rows.length) {
+        const effectiveId = activeAdvertiserId || advertiserId;
+        const result = rows.map(r => ({
+          advertiserId:   r.ADVERTISER_ID,
+          advertiserName: r.ADVERTISER_NAME,
+          managerName:    r.MANAGER_NAME,
+          managerId:      r.MANAGER_ID,
+          marketplace:    r.MARKETPLACE || 'US',
+          isActive:       r.IS_ACTIVE !== false,
+          isCurrent:      r.ADVERTISER_ID === effectiveId,
+        }));
+        // Ensure at least one isCurrent is set
+        if (!result.some(a => a.isCurrent) && result.length > 0) {
+          result[0].isCurrent = true;
+        }
+        return res.json(result);
+      }
+      // Fall through to fallback if no rows
+    }
+
+    // ── Manager-level user: return all advertisers for this manager only ────────
+    if (managerId) {
+      let rows = [];
+      try {
+        rows = await query(
+          `SELECT aa.advertiser_id, aa.name AS advertiser_name, aa.marketplace,
+                  aa.is_active, ma.manager_id, ma.name AS manager_name
+           FROM CALBRIDGE_PROD.APP.advertiser_accounts aa
+           JOIN CALBRIDGE_PROD.APP.manager_accounts ma
+             ON aa.manager_id = ma.manager_id
+           WHERE aa.manager_id = ?
+           ORDER BY aa.name`,
+          [managerId]
+        );
+      } catch (queryErr) {
+        console.warn('[GET /manager/advertisers/list] Manager query failed:', queryErr.message);
+      }
+
+      if (rows.length) {
+        const effectiveId = activeAdvertiserId || advertiserId;
+        const result = rows.map(r => ({
+          advertiserId:   r.ADVERTISER_ID,
+          advertiserName: r.ADVERTISER_NAME,
+          managerName:    r.MANAGER_NAME,
+          managerId:      r.MANAGER_ID,
+          marketplace:    r.MARKETPLACE || 'US',
+          isActive:       r.IS_ACTIVE !== false,
+          isCurrent:      r.ADVERTISER_ID === effectiveId,
+        }));
+        if (!result.some(a => a.isCurrent) && result.length > 0) {
+          result[0].isCurrent = true;
+        }
+        return res.json(result);
+      }
+    }
+
+    // ── Fallback: return the current client as a single-entry list ─────────────
+    const fallback = await query(
+      'SELECT client_id, name, marketplace FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+      [clientId]
+    );
+    if (fallback.length) {
+      return res.json([{
+        advertiserId:   fallback[0].CLIENT_ID,
+        advertiserName: fallback[0].NAME,
+        managerName:    fallback[0].NAME,
+        managerId:      fallback[0].CLIENT_ID,
+        marketplace:    fallback[0].MARKETPLACE || 'US',
+        isActive:       true,
+        isCurrent:      true,
+      }]);
+    }
+
+    // Nothing found at all
+    return res.json([]);
+  } catch (err) {
+    console.error('[GET /manager/advertisers/list]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ─── GET /manager/advertisers ─────────────────────────────────────────────────
 // Lists all advertiser accounts belonging to this manager.
 
