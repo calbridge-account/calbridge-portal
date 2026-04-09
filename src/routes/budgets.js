@@ -48,6 +48,7 @@ router.get('/campaigns/available', async (req, res) => {
       `SELECT
          campaign_id,
          campaign_name,
+         status,
          CASE campaign_type
            WHEN 'sponsoredProducts' THEN 'SP'
            WHEN 'sponsoredBrands'   THEN 'SB'
@@ -57,13 +58,16 @@ router.get('/campaigns/available', async (req, res) => {
          END AS ad_type
        FROM ${SCHEMA}.AD_CAMPAIGNS
        WHERE client_id = ?
-       ORDER BY campaign_name ASC`,
+       ORDER BY
+         CASE status WHEN 'enabled' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+         campaign_name ASC`,
       [clientId]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
       campaign_name: r.CAMPAIGN_NAME || r.campaign_name,
       ad_type:       r.AD_TYPE       || r.ad_type,
+      status:        (r.STATUS       || r.status || '').toLowerCase(),
     })));
   } catch (err) {
     console.error('[Budgets] available campaigns error:', err.message);

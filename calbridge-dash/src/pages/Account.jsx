@@ -212,15 +212,23 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
   const [selected, setSelected] = useState(new Set(assigned));
   const [search, setSearch]     = useState('');
   const [saving, setSaving]     = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return allCampaigns;
+    let list = allCampaigns;
+    // Hide archived unless toggled — but always show already-assigned campaigns
+    if (!showArchived) {
+      list = list.filter(c => c.status !== 'archived' || assigned.has(c.campaign_id));
+    }
+    if (!search.trim()) return list;
     const terms = search.trim().toLowerCase().split(/\s+/);
-    return allCampaigns.filter(c => {
+    return list.filter(c => {
       const name = (c.campaign_name || '').toLowerCase();
       return terms.every(t => name.includes(t));
     });
-  }, [allCampaigns, search]);
+  }, [allCampaigns, search, showArchived, assigned]);
+
+  const archivedCount = useMemo(() => allCampaigns.filter(c => c.status === 'archived').length, [allCampaigns]);
 
   function toggle(cid) {
     setSelected(prev => {
@@ -271,14 +279,20 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
           />
           <div className="flex items-center justify-between mt-1.5">
-            <p className="text-xs text-gray-400">{selected.size} selected{search ? ` · ${filtered.length} shown` : ` of ${allCampaigns.length}`}</p>
+            <p className="text-xs text-gray-400">{selected.size} selected · {filtered.length} shown</p>
             <div className="flex gap-3">
+              {archivedCount > 0 && (
+                <button type="button" onClick={() => setShowArchived(v => !v)}
+                  className="text-xs text-gray-400 hover:text-gray-600 hover:underline">
+                  {showArchived ? `Hide archived` : `+${archivedCount} archived`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelected(new Set(filtered.map(c => c.campaign_id)))}
                 className="text-xs text-brand hover:underline font-medium"
               >
-                Select all {search ? `${filtered.length} results` : 'campaigns'}
+                Select all {filtered.length}
               </button>
               {selected.size > 0 && (
                 <button
