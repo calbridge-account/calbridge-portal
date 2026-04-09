@@ -21,7 +21,9 @@ const { requireAuth } = require('../middleware/requireAuth');
 const SCHEMA = 'CALBRIDGE_PROD.APP';
 
 function getClientId(req) {
-  return req.session?.clientId || '7d88ea17-002b-4a02-97fc-bcab1292d57e';
+  const id = req.session?.clientId;
+  if (!id) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+  return id;
 }
 
 /** Format a number as currency string */
@@ -425,14 +427,21 @@ router.put('/:budgetId/campaigns', async (req, res) => {
       [budgetId, clientId]
     );
 
-    // Insert new mappings
+    // Batch insert all campaign mappings in one query using VALUES list
+    // (avoids N sequential Snowflake round-trips which caused gateway timeouts)
     if (campaigns.length > 0) {
-      for (const c of campaigns) {
+      const BATCH = 50;
+      for (let i = 0; i < campaigns.length; i += BATCH) {
+        const batch = campaigns.slice(i, i + BATCH);
+        const placeholders = batch.map(() => '(?,?,?,?,?)').join(',');
+        const binds = batch.flatMap(c => [
+          budgetId, clientId, c.campaign_id, c.campaign_name || null, c.ad_type || null
+        ]);
         await query(
           `INSERT INTO ${SCHEMA}.BUDGET_CAMPAIGN_MAP
              (budget_id, client_id, campaign_id, campaign_name, ad_type)
-           VALUES (?, ?, ?, ?, ?)`,
-          [budgetId, clientId, c.campaign_id, c.campaign_name || null, c.ad_type || null]
+           VALUES ${placeholders}`,
+          binds
         );
       }
     }
