@@ -86,10 +86,10 @@ const JOB_HANDLERS = {
   refresh_queue_status:      () => refreshQueueStatus(),
   sync_job_metadata:         () => syncJobMetadata(),
 
-  // ── Every 6 hours — DSP ingestion ────────────────────────────────────────
-  // DSP uses a separate report API (DSP reporting endpoint, not v3 Ads API)
-  // and requires advertiser-level auth — cannot be batched with SA reports.
-  // Runs every 6h; each run fetches up to 95 days to ensure full backfill.
+  // ── Hourly — DSP ingestion ──────────────────────────────────────────────
+  // DSP uses the same /reporting/reports endpoint as SP/SB/SD and shares
+  // ads_report_queue. Runs hourly to match intra-day refresh cadence.
+  // The rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads.
   ingest_dsp:                () => ingestDspAllClients({ triggeredBy: 'cron' }),
 
   // ── Every 6 hours — Vendor retail ingestion ───────────────────────────────
@@ -300,10 +300,13 @@ const CRON_SCHEDULE = [
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
   },
 
-  // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ────────
+  // ── Hourly — DSP (separate API, advertiser-scoped auth) ───────────────
+  // Increased from every 6h to every 1h to match SP/SB/SD intra-day refresh cadence.
+  // DSP uses the same /reporting/reports endpoint and ads_report_queue flow;
+  // the rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads.
   {
     jobId: 'ingest_dsp',
-    expr:  '0 */6 * * *',  // 00:00, 06:00, 12:00, 18:00 UTC
+    expr:  '0 * * * *',   // every hour at :00
   },
 
   // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)

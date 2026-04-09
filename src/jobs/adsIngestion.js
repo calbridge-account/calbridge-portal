@@ -2471,13 +2471,16 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
     windows.reverse();
 
     // Rolling refresh: reset today's window (most recent) back to pending so
-    // every 6-hour run re-fetches fresh same-day data from Amazon.
+    // every hourly run re-fetches fresh same-day data from Amazon.
+    // Only resets entries completed >1 hour ago to avoid re-downloading data
+    // that was just written in the current cycle.
     const latestWindow = windows[windows.length - 1];
     const latestRangeKey = latestWindow.startDate.replace(/-/g,'') + '_' + latestWindow.endDate.replace(/-/g,'');
     try {
       const reset = await query(
         `UPDATE ads_report_queue SET status='pending', completed_at=NULL, error_message=NULL
-         WHERE report_date=? AND report_type='dspCampaign' AND status='completed'`,
+         WHERE report_date=? AND report_type='dspCampaign' AND status='completed'
+           AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))`,
         [latestRangeKey]
       );
       const n = reset?.[0]?.['number of rows updated'] || 0;
