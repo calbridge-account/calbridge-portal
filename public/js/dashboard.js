@@ -1055,26 +1055,44 @@ async function loadBudgetPacing() {
       $('pacing-under').style.color = '#f59e0b';
     }
 
+    // Show DSP/unbudgeted note if any spend falls outside budgeted campaigns
+    if (data.summary.noBudgetSpend > 0) {
+      const note = $('pacing-nobudget-note');
+      if (note) {
+        note.textContent = `ⓘ ${fmt$(data.summary.noBudgetSpend)} in DSP/unbudgeted spend is included in MTD total but excluded from pacing ratio.`;
+        note.style.display = 'block';
+      }
+    }
+
     const tbody = $('pacing-body');
     if (!data.campaigns?.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No campaigns with budgets found. Campaign budget data comes from the ads sync.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No campaign spend found for this month.</td></tr>';
       return;
     }
 
     tbody.innerHTML = data.campaigns.map(c => {
       const statusIcon = c.pacingStatus === 'over_pacing'  ? '🔴'
-                       : c.pacingStatus === 'under_pacing' ? '🟡' : '🟢';
+                       : c.pacingStatus === 'under_pacing' ? '🟡'
+                       : c.pacingStatus === 'no_budget'    ? '⚪'
+                       : '🟢';
       const pacingPct = c.pacingRatio != null ? (c.pacingRatio * 100).toFixed(0) + '%' : '—';
-      const cls = c.pacingStatus === 'over_pacing' ? 'cm-negative' : c.pacingStatus === 'under_pacing' ? '' : 'cm-positive';
+      const cls = c.pacingStatus === 'over_pacing' ? 'cm-negative'
+                : c.pacingStatus === 'under_pacing' ? ''
+                : c.pacingStatus === 'no_budget'    ? 'text-muted'
+                : 'cm-positive';
+      const budgetDisplay    = c.dailyBudget  ? fmt$(c.dailyBudget)  : '<span style="color:var(--gray-400)">—</span>';
+      const moBudgetDisplay  = c.monthlyBudget ? fmt$(c.monthlyBudget) : '<span style="color:var(--gray-400)">—</span>';
+      const expectedDisplay  = c.expectedMtdSpend ? fmt$(c.expectedMtdSpend) : '<span style="color:var(--gray-400)">—</span>';
+      const statusLabel      = c.pacingStatus === 'no_budget' ? 'no budget' : c.pacingStatus.replace(/_/g, ' ');
       return `<tr>
         <td style="font-size:12px">${c.campaignName || c.campaignId}</td>
         <td><span style="font-size:11px;color:var(--gray-400)">${c.campaignType || c.connectionType || '—'}</span></td>
-        <td>${fmt$(c.dailyBudget)}</td>
-        <td>${fmt$(c.monthlyBudget)}</td>
+        <td>${budgetDisplay}</td>
+        <td>${moBudgetDisplay}</td>
         <td><strong>${fmt$(c.mtdSpend)}</strong></td>
-        <td>${fmt$(c.expectedMtdSpend)}</td>
+        <td>${expectedDisplay}</td>
         <td class="${cls}"><strong>${pacingPct}</strong> of expected</td>
-        <td>${statusIcon} ${c.pacingStatus.replace('_', ' ')}</td>
+        <td>${statusIcon} ${statusLabel}</td>
       </tr>`;
     }).join('');
   } catch (err) { console.error('Pacing load error:', err); }

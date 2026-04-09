@@ -763,39 +763,44 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
 
     const ck = cacheKey(clientId, 'budget-pacing', monthStart, dayOfMonth);
     const rows = await cachedQuery(ck, 5 * 60 * 1000, () => query(`
+      -- Start from adjusted_campaign_performance so ALL spend is captured,
+      -- including DSP and campaigns with no budget set in ad_campaigns.
+      -- ad_campaigns is joined only for budget/status metadata.
       SELECT
-        c.campaign_id,
-        c.campaign_name,
-        c.campaign_type,
-        c.connection_type,
-        c.status,
-        c.budget                                    AS daily_budget,
+        r.campaign_id,
+        COALESCE(c.campaign_name, MAX(r.campaign_name))  AS campaign_name,
+        COALESCE(c.campaign_type, r.ad_type)             AS campaign_type,
+        r.ad_type                                        AS connection_type,
+        COALESCE(c.status, 'UNKNOWN')                    AS status,
+        c.budget                                         AS daily_budget,
         c.budget_type,
-        COALESCE(SUM(r.adjusted_spend), 0)          AS mtd_spend,
-        COUNT(DISTINCT r.date)                      AS days_with_data,
-        -- Monthly budget = daily_budget * days in month
-        c.budget * ?                                AS monthly_budget,
+        COALESCE(SUM(r.adjusted_spend), 0)               AS mtd_spend,
+        COUNT(DISTINCT r.date)                           AS days_with_data,
+        -- Monthly budget = daily_budget * days in month (NULL for DSP / no-budget campaigns)
+        CASE WHEN c.budget IS NOT NULL AND c.budget > 0
+          THEN c.budget * ?
+          ELSE NULL END                                  AS monthly_budget,
         -- Expected MTD spend = monthly_budget * (days elapsed / days in month)
-        (c.budget * ?) * (? / ?)                    AS expected_mtd_spend
-      FROM ad_campaigns c
-      LEFT JOIN adjusted_campaign_performance r
-        ON c.client_id    = r.client_id
-        AND c.campaign_id = r.campaign_id
+        CASE WHEN c.budget IS NOT NULL AND c.budget > 0
+          THEN (c.budget * ?) * (? / ?)
+          ELSE NULL END                                  AS expected_mtd_spend
+      FROM adjusted_campaign_performance r
+      LEFT JOIN ad_campaigns c
+        ON  c.client_id    = r.client_id
+        AND c.campaign_id  = r.campaign_id
+      WHERE r.client_id = ?
         AND r.date >= ?
-      WHERE c.client_id = ?
-        AND c.budget IS NOT NULL
-        AND c.budget > 0
       GROUP BY
-        c.campaign_id, c.campaign_name, c.campaign_type,
-        c.connection_type, c.status, c.budget, c.budget_type
+        r.campaign_id, r.ad_type,
+        c.campaign_name, c.campaign_type, c.status, c.budget, c.budget_type
       ORDER BY mtd_spend DESC
     `, [
       daysInMonth,                              // monthly_budget multiplier
       daysInMonth,                              // expected: monthly_budget
       dayOfMonth,                               // expected: days elapsed
       daysInMonth,                              // expected: days in month
-      monthStart,                               // MTD start date
-      clientId
+      clientId,                                 // WHERE r.client_id
+      monthStart,                               // WHERE r.date >=
     ]));
 
     const campaigns = rows.map(r => {
@@ -806,9 +811,12 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
       const monthlyPacingRatio = monthlyBudget > 0 ? mtdSpend / monthlyBudget : null;
 
       let pacingStatus = 'on_track';
-      if (pacingRatio !== null) {
-        if (pacingRatio > 1.1)  pacingStatus = 'over_pacing';
-        else if (pacingRatio < 0.7) pacingStatus = 'under_pacing';
+      if (pacingRatio === null) {
+        pacingStatus = 'no_budget';  // DSP or campaigns with no daily budget set
+      } else if (pacingRatio > 1.1) {
+        pacingStatus = 'over_pacing';
+      } else if (pacingRatio < 0.7) {
+        pacingStatus = 'under_pacing';
       }
 
       return {
@@ -834,8 +842,11 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
     const overPacing   = campaigns.filter(c => c.pacingStatus === 'over_pacing');
     const underPacing  = campaigns.filter(c => c.pacingStatus === 'under_pacing');
     const onTrack      = campaigns.filter(c => c.pacingStatus === 'on_track');
-    const totalMtdSpend     = campaigns.reduce((s, c) => s + c.mtdSpend, 0);
-    const totalMonthlyBudget = campaigns.reduce((s, c) => s + c.monthlyBudget, 0);
+    const noBudget     = campaigns.filter(c => c.pacingStatus === 'no_budget');
+    // totalMtdSpend includes ALL campaigns (same universe as the performance tab)
+    const totalMtdSpend      = campaigns.reduce((s, c) => s + c.mtdSpend, 0);
+    // totalMonthlyBudget only sums campaigns that have a budget set
+    const totalMonthlyBudget = campaigns.reduce((s, c) => s + (c.monthlyBudget || 0), 0);
 
     res.json({
       dayOfMonth,
@@ -843,13 +854,20 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
       monthStart,
       campaigns,
       summary: {
-        total: campaigns.length,
+        total:       campaigns.length,
         overPacing:  overPacing.length,
         underPacing: underPacing.length,
         onTrack:     onTrack.length,
+        noBudget:    noBudget.length,
         totalMtdSpend,
+        // noBudgetSpend = DSP + unbudgeted spend (shown in perf tab but not counted in pacing ratio)
+        noBudgetSpend: noBudget.reduce((s, c) => s + c.mtdSpend, 0),
         totalMonthlyBudget,
-        overallPacingRatio: totalMonthlyBudget > 0 ? totalMtdSpend / (totalMonthlyBudget * dayOfMonth / daysInMonth) : null
+        // overallPacingRatio only considers campaigns with budgets set
+        overallPacingRatio: totalMonthlyBudget > 0
+          ? campaigns.filter(c => c.monthlyBudget).reduce((s, c) => s + c.mtdSpend, 0)
+            / (totalMonthlyBudget * dayOfMonth / daysInMonth)
+          : null
       }
     });
   } catch (err) { next(err); }
