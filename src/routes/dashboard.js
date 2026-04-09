@@ -601,8 +601,10 @@ router.post('/sync', requireAuth, async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // GET /dashboard/tacos?days=30
-// TACOS = Total Ad Spend / Total Ordered Revenue
+// TACOS = Total Ad Spend / Total Retail Revenue
 // Unlike ACOS (which uses only ad-attributed revenue), TACOS uses ALL revenue.
+// Revenue source: shipped revenue from VENDOR_SALES (P&L); falls back to
+// ordered revenue from vendor_purchase_orders only when shipped data is absent.
 // This is the truest measure of advertising efficiency for the whole business.
 // ---------------------------------------------------------------------------
 router.get('/tacos', requireAuth, async (req, res, next) => {
@@ -612,9 +614,22 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
-    const [salesRow, adsRow] = await Promise.all([
+    // Revenue source of truth for TACOS:
+    // - Vendor accounts: prefer VENDOR_SALES.shipped_revenue (actual invoiced P&L signal)
+    // - Fall back to vendor_purchase_orders.ordered_revenue only when shipped is zero
+    // - Do NOT add them — they are different pipeline stages for the same product
+    const [vsRow, poRow, adsRow] = await Promise.all([
+      // Shipped revenue from VENDOR_SALES (authoritative for vendor accounts)
       query(`
-        SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue
+        SELECT COALESCE(SUM(shipped_revenue), 0) AS shipped_revenue
+        FROM vendor_sales
+        WHERE client_id = ?
+          ${dateFilter("start_date", days, startDate, endDate)}
+      `, [clientId]),
+
+      // PO ordered revenue from vendor_purchase_orders (fallback / demand signal)
+      query(`
+        SELECT COALESCE(SUM(ordered_revenue), 0) AS ordered_revenue
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
@@ -626,7 +641,10 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
       `, [clientId])
     ]);
 
-    const totalRevenue = Number(salesRow[0]?.TOTAL_REVENUE || 0);
+    const shippedRevenue = Number(vsRow[0]?.SHIPPED_REVENUE  || 0);
+    const orderedRevenue = Number(poRow[0]?.ORDERED_REVENUE  || 0);
+    // Same logic as /summary: prefer shipped (P&L), fall back to ordered (demand)
+    const totalRevenue = shippedRevenue > 0 ? shippedRevenue : orderedRevenue;
     const totalSpend   = Number(adsRow[0]?.TOTAL_SPEND     || 0);
     const tacos        = computeMetric('tacos', { totalAdSpend: totalSpend, totalRetailSales: totalRevenue });
 
@@ -679,26 +697,44 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = req.session.clientId;
 
-    const dailyRows = await query(`
+    // Revenue source of truth for forecast:
+    // - Primary: vendor_sales.shipped_revenue (authoritative P&L signal) grouped by start_date
+    // - Fallback: vendor_purchase_orders.ordered_revenue (PO demand) grouped by order_date
+    // - Do NOT add shipped + ordered — they represent the same product at different pipeline stages
+    let dailyRows = await query(`
       SELECT
-        order_date,
-        SUM(ordered_revenue + COALESCE(shipped_revenue, 0)) AS daily_revenue
-      FROM vendor_purchase_orders
+        start_date AS period_date,
+        SUM(shipped_revenue) AS daily_revenue
+      FROM vendor_sales
       WHERE client_id = ?
-        ${dateFilter("order_date", days, startDate, endDate)}
-      GROUP BY order_date
-      ORDER BY order_date ASC
+        ${dateFilter("start_date", days, startDate, endDate)}
+      GROUP BY start_date
+      ORDER BY start_date ASC
     `, [clientId]);
+
+    // Fall back to PO ordered revenue if VENDOR_SALES has no data
+    if (!dailyRows.length) {
+      dailyRows = await query(`
+        SELECT
+          order_date AS period_date,
+          SUM(ordered_revenue) AS daily_revenue
+        FROM vendor_purchase_orders
+        WHERE client_id = ?
+          ${dateFilter("order_date", days, startDate, endDate)}
+        GROUP BY order_date
+        ORDER BY order_date ASC
+      `, [clientId]);
+    }
 
     if (!dailyRows.length) {
       return res.json({ available: false, reason: 'No sales data', days });
     }
 
-    // Parse daily data
+    // Parse period data (weekly for VENDOR_SALES, daily for PO fallback)
     const data = dailyRows.map(r => ({
-      date:    r.ORDER_DATE instanceof Date
-        ? r.ORDER_DATE.toISOString().substring(0, 10)
-        : String(r.ORDER_DATE?.value || r.ORDER_DATE).substring(0, 10),
+      date:    r.PERIOD_DATE instanceof Date
+        ? r.PERIOD_DATE.toISOString().substring(0, 10)
+        : String(r.PERIOD_DATE?.value || r.PERIOD_DATE).substring(0, 10),
       revenue: Number(r.DAILY_REVENUE || 0)
     }));
 
