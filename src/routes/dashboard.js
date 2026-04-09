@@ -7,6 +7,7 @@ const { syncClient } = require('../jobs/scheduler');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, invalidateClient, DEFAULT_TTL_MS } = require('../services/queryCache');
+const { resolveClientId } = require('../services/advertiserResolver');
 const { getPlanLimits } = require('../middleware/planGate');
 const { compute: computeMetric } = require('../config/metrics');
 const { responseCache } = require('../middleware/responseCache');
@@ -94,7 +95,7 @@ async function resolveBrand(clientId, requestedBrandId) {
 // Summary: connection status + ingestion health + brand context
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
     const plan = req.session?.clientPlan || 'starter';
     const planLimits = getPlanLimits(plan);
 
@@ -129,7 +130,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     // Resolve brand context — attach to response so frontend can show brand name/switcher
     // NOTE: noBrands does NOT block data — sales/ads queries are client-scoped only.
@@ -284,8 +285,8 @@ router.get('/performance', requireAuth, async (req, res, next) => {
   try {
     const { days = 30, limit = 10 } = req.query;
     const [topPerformers, bottomPerformers] = await Promise.all([
-      getTopPerformers(req.session.clientId, { days: Number(days), limit: Number(limit), order: 'DESC' }),
-      getTopPerformers(req.session.clientId, { days: Number(days), limit: Number(limit), order: 'ASC' })
+      getTopPerformers(await resolveClientId(req), { days: Number(days), limit: Number(limit), order: 'DESC' }),
+      getTopPerformers(await resolveClientId(req), { days: Number(days), limit: Number(limit), order: 'ASC' })
     ]);
 
     // Enrich rows with CM labels and profitability flags
@@ -334,7 +335,7 @@ router.get('/performance', requireAuth, async (req, res, next) => {
 router.get('/asin/:asin', requireAuth, async (req, res, next) => {
   try {
     const { days = 90 } = req.query;
-    const rows = await getAsinTrend(req.session.clientId, req.params.asin, Number(days));
+    const rows = await getAsinTrend(await resolveClientId(req), req.params.asin, Number(days));
 
     const trend = rows.map(r => ({
       calcDate:    r.CALC_DATE?.value
@@ -585,15 +586,16 @@ router.get('/inventory-summary', requireAuth, async (req, res, next) => {
 // Manually trigger a sync for the logged-in client
 router.post('/sync', requireAuth, async (req, res, next) => {
   try {
-    const connections = await getConnectionStatus(req.session.clientId);
+    const clientId = await resolveClientId(req);
+    const connections = await getConnectionStatus(clientId);
     // Invalidate all cached responses for this client so the next page load
     // fetches fresh data after the sync completes.
-    invalidateClient(req.session.clientId);
+    invalidateClient(clientId);
     // Fire sync in background — don't await
-    syncClient(req.session.clientId, connections).catch(err =>
-      console.error(`[Manual sync] Client ${req.session.clientId}:`, err.message)
+    syncClient(clientId, connections).catch(err =>
+      console.error(`[Manual sync] Client ${clientId}:`, err.message)
     );
-    res.json({ message: 'Sync started', clientId: req.session.clientId });
+    res.json({ message: 'Sync started', clientId });
   } catch (err) {
     next(err);
   }
