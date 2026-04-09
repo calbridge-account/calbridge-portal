@@ -6,7 +6,7 @@ const { query } = require('./snowflakeService');
  * Auth service — Snowflake-backed client accounts
  */
 
-async function signup({ email, password, name }) {
+async function signup({ email, password, name, companyName }) {
   email = email.toLowerCase().trim();
   // Check existing
   const existing = await query(
@@ -23,6 +23,56 @@ async function signup({ email, password, name }) {
     INSERT INTO clients (client_id, email, name, password_hash, status, created_at)
     VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
   `, [id, email, name, hash]);
+
+  // ── Phase 3F: Create 4-tier account hierarchy entries ──────────────────────
+  // This is purely additive — existing client row is preserved above.
+  try {
+    const orgName = (companyName || name).trim();
+
+    // 1. Create manager_account
+    const managerId = uuidv4();
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
+        (manager_id, name, agency_id, subscription_plan, created_at)
+      VALUES (?, ?, NULL, 'starter', CURRENT_TIMESTAMP)
+    `, [managerId, orgName]);
+
+    // 2. Create user row
+    const userId = uuidv4();
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.users
+        (user_id, client_id, email, name, role, is_active, created_at)
+      VALUES (?, ?, ?, ?, 'manager_owner', TRUE, CURRENT_TIMESTAMP)
+    `, [userId, id, email, name]);
+
+    // 3. Create first advertiser_account
+    const advertiserId = uuidv4();
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.advertiser_accounts
+        (advertiser_id, manager_id, name, marketplace, is_active, created_at)
+      VALUES (?, ?, ?, 'US', TRUE, CURRENT_TIMESTAMP)
+    `, [advertiserId, managerId, `${orgName} · US`]);
+
+    // 4. Create user_advertiser_access row
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.user_advertiser_access
+        (user_id, advertiser_id, role)
+      VALUES (?, ?, 'manager_owner')
+    `, [userId, advertiserId]);
+
+    // 5. Insert into client_migration_map
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.client_migration_map
+        (client_id, manager_id, advertiser_id, agency_id)
+      VALUES (?, ?, ?, NULL)
+    `, [id, managerId, advertiserId]);
+
+    console.log(`[Auth] Phase 3 hierarchy created for ${email}: manager=${managerId}, advertiser=${advertiserId}, user=${userId}`);
+  } catch (phase3Err) {
+    // Non-fatal — existing client row was already created successfully
+    console.error('[Auth] Phase 3 hierarchy creation failed (non-fatal):', phase3Err.message);
+  }
+  // ── End Phase 3F ───────────────────────────────────────────────────────────
 
   // Notify Abe
   await sendApprovalEmail({ id, email, name }).catch(err =>

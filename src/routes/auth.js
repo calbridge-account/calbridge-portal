@@ -9,11 +9,12 @@ const { query } = require('../services/snowflakeService');
 // POST /auth/signup
 router.post('/signup', async (req, res, next) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, companyName } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'name, email and password are required' });
     }
-    const client = await authService.signup({ email, password, name });
+    // Pass companyName through to authService for Phase 3 hierarchy creation
+    const client = await authService.signup({ email, password, name, companyName });
     req.session.clientId = client.id;
     res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name } });
   } catch (err) {
@@ -28,6 +29,22 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     const client = await authService.login({ email, password });
     req.session.clientId = client.id;
+
+    // Phase 3F: Enrich session with new account model (non-fatal if map not found)
+    try {
+      const map = await query(
+        'SELECT agency_id, manager_id, advertiser_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
+        [client.id]
+      );
+      if (map.length) {
+        req.session.agencyId     = map[0].AGENCY_ID     || null;
+        req.session.managerId    = map[0].MANAGER_ID    || null;
+        req.session.advertiserId = map[0].ADVERTISER_ID || null;
+      }
+    } catch (e) {
+      // Non-fatal — old sessions still work via clientId
+      console.warn('[Auth] Phase 3 session enrichment failed (non-fatal):', e.message);
+    }
 
     // Determine role: check if this user is a team member on a parent account
     // authService.login returns effectiveId (parent's clientId for linked accounts)
