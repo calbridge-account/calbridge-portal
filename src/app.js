@@ -27,6 +27,8 @@ const cogsAnalyticsRoutes  = require('./routes/cogsAnalytics');
 const streamRoutes         = require('./routes/stream');
 const budgetRoutes         = require('./routes/budgets');
 const navConfigRoutes      = require('./routes/navConfig');
+const managerRoutes        = require('./routes/managerAccounts');
+const managerAccountRoutes = require('./routes/managerAccounts');
 
 const app = express();
 
@@ -157,6 +159,8 @@ app.use('/cogs-analytics', cogsAnalyticsRoutes);
 app.use('/admin', streamRoutes);
 app.use('/budgets', budgetRoutes);
 app.use('/', navConfigRoutes);
+app.use('/manager', managerRoutes);
+app.use('/manager', managerAccountRoutes);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>
