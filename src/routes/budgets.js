@@ -145,14 +145,23 @@ router.get('/', async (req, res) => {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
+    // Helper: Snowflake date columns return objects with .toJSON() not plain strings.
+    // new Date(snowflakeObj) produces 'Invalid Date' — must use .toJSON() first.
+    function parseSnowflakeDate(val) {
+      if (!val) return null;
+      const s = typeof val === 'object' && val.toJSON ? val.toJSON() : String(val);
+      const d = new Date(s);
+      d.setUTCHours(0, 0, 0, 0);
+      return d;
+    }
+
     const result = budgets.map(b => {
       const budgetId    = b.BUDGET_ID    || b.budget_id;
       const totalAmount = n(b.TOTAL_AMOUNT ?? b.total_amount);
-      const periodStart = new Date(b.PERIOD_START || b.period_start);
-      const periodEnd   = new Date(b.PERIOD_END   || b.period_end);
+      const periodStart = parseSnowflakeDate(b.PERIOD_START || b.period_start);
+      const periodEnd   = parseSnowflakeDate(b.PERIOD_END   || b.period_end);
 
-      periodStart.setUTCHours(0, 0, 0, 0);
-      periodEnd.setUTCHours(0, 0, 0, 0);
+      if (!periodStart || !periodEnd) return null; // skip malformed budgets
 
       const campaignIds = mappingsByBudget[budgetId] || [];
 
@@ -217,7 +226,7 @@ router.get('/', async (req, res) => {
       };
     });
 
-    res.json(result);
+    res.json(result.filter(Boolean));
   } catch (err) {
     console.error('[Budgets] GET / error:', err.message);
     res.status(500).json({ error: err.message });
@@ -245,10 +254,13 @@ router.get('/:budgetId', async (req, res) => {
 
     const b = budgets[0];
     const totalAmount = n(b.TOTAL_AMOUNT ?? b.total_amount);
-    const periodStart = new Date(b.PERIOD_START || b.period_start);
-    const periodEnd   = new Date(b.PERIOD_END   || b.period_end);
-    periodStart.setUTCHours(0, 0, 0, 0);
-    periodEnd.setUTCHours(0, 0, 0, 0);
+    const parseSnowflakeDate = (val) => {
+      if (!val) return null;
+      const s = typeof val === 'object' && val.toJSON ? val.toJSON() : String(val);
+      const d = new Date(s); d.setUTCHours(0,0,0,0); return d;
+    };
+    const periodStart = parseSnowflakeDate(b.PERIOD_START || b.period_start);
+    const periodEnd   = parseSnowflakeDate(b.PERIOD_END   || b.period_end);
 
     // Fetch campaign assignments
     const mappings = await query(
