@@ -10,7 +10,7 @@ snowflake.configure({ logLevel: 'ERROR' });
 // Prevents the single-connection hang that occurs under concurrent load.
 
 const MAX_POOL_SIZE  = 8;
-const QUERY_TIMEOUT  = 30000; // 30s per query
+const QUERY_TIMEOUT  = 60000; // 60s per query (was 30s — queue UPDATE was timing out under load)
 const CONNECT_TIMEOUT = 15000; // 15s to establish connection
 
 const pool = [];       // { conn, inUse, createdAt }
