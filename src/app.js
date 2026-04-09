@@ -63,6 +63,16 @@ app.use(session({
 }));
 
 // Serve static frontend
+// HTML files: no-cache so browsers always re-check after deploys.
+// JS/CSS/images: rely on ?v=<githash> query string for cache busting.
+app.use((req, res, next) => {
+  if (req.path.endsWith('.html') || req.path === '/') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Auth check endpoint for the React dashboard
