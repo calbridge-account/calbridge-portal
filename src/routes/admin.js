@@ -114,14 +114,20 @@ router.post('/users/:adminId/change-password', requireAdmin, async (req, res, ne
 
 /**
  * GET /admin/clients
- * List all clients with status
+ * List all clients with status, cross-referenced with manager accounts
  */
 router.get('/clients', requireAdmin, async (req, res, next) => {
   try {
     const rows = await query(`
-      SELECT client_id, email, name, company_name, status, created_at, approved_at, last_login_at, linked_client_id
-      FROM clients
-      ORDER BY created_at DESC
+      SELECT
+        c.client_id, c.email, c.name, c.company_name, c.status,
+        c.created_at, c.approved_at, c.last_login_at, c.linked_client_id,
+        map.manager_id,
+        m.name AS manager_name
+      FROM clients c
+      LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.client_id = c.client_id
+      LEFT JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = map.manager_id
+      ORDER BY c.created_at DESC
     `);
     res.json(rows.map(r => ({
       id:            r.CLIENT_ID,
@@ -133,7 +139,9 @@ router.get('/clients', requireAdmin, async (req, res, next) => {
       createdAt:     r.CREATED_AT,
       approvedAt:    r.APPROVED_AT,
       lastLoginAt:   r.LAST_LOGIN_AT || null,
-      linkedClientId: r.LINKED_CLIENT_ID || null
+      linkedClientId: r.LINKED_CLIENT_ID || null,
+      managerId:     r.MANAGER_ID || null,
+      managerName:   r.MANAGER_NAME || null,
     })));
   } catch (err) { next(err); }
 });
@@ -467,6 +475,224 @@ router.put('/nav-config/:clientId', requireAdmin, async (req, res, next) => {
     }
 
     res.json({ ok: true, updated: entries.length });
+  } catch (err) { next(err); }
+});
+
+// ============================================================
+// AGENCY / MANAGER / ADVERTISER HIERARCHY (Phase 3J)
+// ============================================================
+
+/**
+ * GET /admin/agency
+ * Calbridge agency overview — agency row + manager + advertiser counts
+ */
+router.get('/agency', requireAdmin, async (req, res, next) => {
+  try {
+    const [agencyRows, managerCount, advertiserCount] = await Promise.all([
+      query(`SELECT * FROM CALBRIDGE_PROD.APP.agency_accounts LIMIT 10`, []),
+      query(`SELECT COUNT(*) AS cnt FROM CALBRIDGE_PROD.APP.manager_accounts`, []),
+      query(`SELECT COUNT(*) AS cnt FROM CALBRIDGE_PROD.APP.advertiser_accounts`, []),
+    ]);
+    res.json({
+      agencies: agencyRows.map(r => ({
+        agencyId:           r.AGENCY_ID,
+        name:               r.NAME,
+        subscriptionPlan:   r.SUBSCRIPTION_PLAN,
+        subscriptionStatus: r.SUBSCRIPTION_STATUS,
+        createdAt:          r.CREATED_AT,
+      })),
+      managerCount:    Number(managerCount[0]?.CNT || 0),
+      advertiserCount: Number(advertiserCount[0]?.CNT || 0),
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /admin/managers
+ * List all manager accounts with client mapping and advertiser count
+ */
+router.get('/managers', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT
+        m.manager_id, m.name, m.subscription_plan, m.subscription_status, m.agency_id,
+        map.client_id,
+        c.email AS client_email, c.status AS client_status,
+        COUNT(DISTINCT a.advertiser_id) AS advertiser_count
+      FROM CALBRIDGE_PROD.APP.manager_accounts m
+      LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
+      LEFT JOIN clients c ON c.client_id = map.client_id
+      LEFT JOIN CALBRIDGE_PROD.APP.advertiser_accounts a ON a.manager_id = m.manager_id
+      GROUP BY m.manager_id, m.name, m.subscription_plan, m.subscription_status, m.agency_id,
+               map.client_id, c.email, c.status
+      ORDER BY m.name
+    `, []);
+    res.json(rows.map(r => ({
+      managerId:          r.MANAGER_ID,
+      name:               r.NAME,
+      subscriptionPlan:   r.SUBSCRIPTION_PLAN,
+      subscriptionStatus: r.SUBSCRIPTION_STATUS,
+      agencyId:           r.AGENCY_ID,
+      clientId:           r.CLIENT_ID,
+      clientEmail:        r.CLIENT_EMAIL,
+      clientStatus:       r.CLIENT_STATUS,
+      advertiserCount:    Number(r.ADVERTISER_COUNT || 0),
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /admin/managers/:managerId
+ * Manager detail — their advertiser accounts and users
+ */
+router.get('/managers/:managerId', requireAdmin, async (req, res, next) => {
+  try {
+    const { managerId } = req.params;
+    const [managerRows, advertisers, users] = await Promise.all([
+      query(`
+        SELECT m.*, map.client_id, c.email AS client_email, c.status AS client_status
+        FROM CALBRIDGE_PROD.APP.manager_accounts m
+        LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
+        LEFT JOIN clients c ON c.client_id = map.client_id
+        WHERE m.manager_id = ?
+      `, [managerId]),
+      query(`
+        SELECT advertiser_id, name, marketplace, ads_profile_id, sp_seller_id,
+               sp_vendor_id, dsp_advertiser_id, is_active, created_at
+        FROM CALBRIDGE_PROD.APP.advertiser_accounts
+        WHERE manager_id = ?
+        ORDER BY name
+      `, [managerId]),
+      query(`
+        SELECT u.user_id, u.email, u.name, uaa.role
+        FROM CALBRIDGE_PROD.APP.users u
+        JOIN CALBRIDGE_PROD.APP.user_advertiser_access uaa ON uaa.user_id = u.user_id
+        JOIN CALBRIDGE_PROD.APP.advertiser_accounts a ON a.advertiser_id = uaa.advertiser_id
+        WHERE a.manager_id = ?
+        GROUP BY u.user_id, u.email, u.name, uaa.role
+        ORDER BY u.name
+      `, [managerId]),
+    ]);
+
+    if (!managerRows.length) return res.status(404).json({ error: 'Manager not found' });
+    const m = managerRows[0];
+    res.json({
+      managerId:          m.MANAGER_ID,
+      name:               m.NAME,
+      subscriptionPlan:   m.SUBSCRIPTION_PLAN,
+      subscriptionStatus: m.SUBSCRIPTION_STATUS,
+      agencyId:           m.AGENCY_ID,
+      clientId:           m.CLIENT_ID,
+      clientEmail:        m.CLIENT_EMAIL,
+      clientStatus:       m.CLIENT_STATUS,
+      advertisers: advertisers.map(a => ({
+        advertiserId:    a.ADVERTISER_ID,
+        name:            a.NAME,
+        marketplace:     a.MARKETPLACE,
+        adsProfileId:    a.ADS_PROFILE_ID,
+        spSellerId:      a.SP_SELLER_ID,
+        spVendorId:      a.SP_VENDOR_ID,
+        dspAdvertiserId: a.DSP_ADVERTISER_ID,
+        isActive:        a.IS_ACTIVE,
+        createdAt:       a.CREATED_AT,
+      })),
+      users: users.map(u => ({
+        userId: u.USER_ID,
+        email:  u.EMAIL,
+        name:   u.NAME,
+        role:   u.ROLE,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/managers/:managerId/plan
+ * Update subscription plan for a manager
+ */
+router.post('/managers/:managerId/plan', requireAdmin, async (req, res, next) => {
+  try {
+    const { managerId } = req.params;
+    const { plan, status } = req.body;
+    if (!plan) return res.status(400).json({ error: 'plan is required' });
+    const validPlans   = ['starter', 'growth', 'pro', 'enterprise', 'agency'];
+    const validStatuses = ['active', 'trialing', 'past_due', 'canceled', 'paused'];
+    if (!validPlans.includes(plan)) return res.status(400).json({ error: `plan must be one of: ${validPlans.join(', ')}` });
+    if (status && !validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+
+    await query(`
+      UPDATE CALBRIDGE_PROD.APP.manager_accounts
+      SET subscription_plan = ?
+          ${status ? ', subscription_status = ?' : ''}
+      WHERE manager_id = ?
+    `, status ? [plan, status, managerId] : [plan, managerId]);
+
+    res.json({ ok: true, managerId, plan, status });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /admin/advertisers
+ * List all advertiser accounts across all managers
+ */
+router.get('/advertisers', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT
+        a.advertiser_id, a.name, a.marketplace,
+        a.ads_profile_id, a.sp_seller_id, a.sp_vendor_id, a.dsp_advertiser_id,
+        a.is_active, a.created_at,
+        a.manager_id, m.name AS manager_name
+      FROM CALBRIDGE_PROD.APP.advertiser_accounts a
+      LEFT JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = a.manager_id
+      ORDER BY m.name, a.name
+    `, []);
+    res.json(rows.map(r => ({
+      advertiserId:    r.ADVERTISER_ID,
+      name:            r.NAME,
+      marketplace:     r.MARKETPLACE,
+      adsProfileId:    r.ADS_PROFILE_ID,
+      spSellerId:      r.SP_SELLER_ID,
+      spVendorId:      r.SP_VENDOR_ID,
+      dspAdvertiserId: r.DSP_ADVERTISER_ID,
+      isActive:        r.IS_ACTIVE,
+      createdAt:       r.CREATED_AT,
+      managerId:       r.MANAGER_ID,
+      managerName:     r.MANAGER_NAME,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * PUT /admin/advertisers/:advertiserId
+ * Update advertiser account fields (name, profile IDs, marketplace, active)
+ */
+router.put('/advertisers/:advertiserId', requireAdmin, async (req, res, next) => {
+  try {
+    const { advertiserId } = req.params;
+    const { name, marketplace, adsProfileId, spSellerId, spVendorId, dspAdvertiserId, isActive } = req.body;
+
+    // Build dynamic SET clause only for provided fields
+    const sets   = [];
+    const params = [];
+    if (name            !== undefined) { sets.push('name = ?');              params.push(name); }
+    if (marketplace     !== undefined) { sets.push('marketplace = ?');       params.push(marketplace); }
+    if (adsProfileId    !== undefined) { sets.push('ads_profile_id = ?');    params.push(adsProfileId); }
+    if (spSellerId      !== undefined) { sets.push('sp_seller_id = ?');      params.push(spSellerId); }
+    if (spVendorId      !== undefined) { sets.push('sp_vendor_id = ?');      params.push(spVendorId); }
+    if (dspAdvertiserId !== undefined) { sets.push('dsp_advertiser_id = ?'); params.push(dspAdvertiserId); }
+    if (isActive        !== undefined) { sets.push('is_active = ?');         params.push(Boolean(isActive)); }
+
+    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+    params.push(advertiserId);
+
+    await query(`
+      UPDATE CALBRIDGE_PROD.APP.advertiser_accounts
+      SET ${sets.join(', ')}
+      WHERE advertiser_id = ?
+    `, params);
+
+    res.json({ ok: true, advertiserId });
   } catch (err) { next(err); }
 });
 

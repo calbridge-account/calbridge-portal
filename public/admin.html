@@ -85,6 +85,7 @@
       <!-- Tabs -->
       <div class="admin-tabs">
         <button class="admin-tab active" data-tab="clients">👥 Clients</button>
+        <button class="admin-tab" data-tab="account-structure">🏢 Account Structure</button>
         <button class="admin-tab" data-tab="invite">✉️ Invite Client</button>
         <button class="admin-tab" data-tab="spend-adjustments">💰 Spend Adjustments</button>
         <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
@@ -111,6 +112,7 @@
                 <th>Name</th>
                 <th>Email</th>
                 <th>Company</th>
+                <th>Manager Account</th>
                 <th>Status</th>
                 <th>Health</th>
                 <th>Last Login</th>
@@ -119,9 +121,66 @@
               </tr>
             </thead>
             <tbody id="clients-table-body">
-              <tr><td colspan="7" class="loading-cell">Loading...</td></tr>
+              <tr><td colspan="9" class="loading-cell">Loading...</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Account Structure Tab -->
+      <div id="tab-account-structure" class="admin-section">
+        <div class="table-card" style="margin-bottom:20px">
+          <div class="table-header-row">
+            <h3>🏢 Agency Overview</h3>
+          </div>
+          <div id="agency-overview" style="padding:14px 0;font-size:13px;color:var(--gray-600)">Loading...</div>
+        </div>
+        <div class="table-card">
+          <div class="table-header-row">
+            <h3>Manager Accounts</h3>
+            <button class="btn-secondary" id="refresh-managers-btn" style="width:auto;padding:6px 14px;font-size:13px">↻ Refresh</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Manager Name</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Client Email</th>
+                <th>Advertisers</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="managers-table-body">
+              <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Update Plan Modal (inline) -->
+        <div id="update-plan-form" style="display:none;margin-top:20px" class="invite-form">
+          <h3>✏️ Update Subscription Plan</h3>
+          <div class="invite-row" style="flex-wrap:wrap;gap:10px">
+            <input type="text" id="plan-manager-id" readonly style="flex:0 0 auto;width:auto;min-width:260px;font-family:monospace;font-size:12px;color:var(--gray-400);padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius)" />
+            <select id="plan-select" style="flex:1;min-width:160px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px">
+              <option value="starter">Starter</option>
+              <option value="growth">Growth</option>
+              <option value="pro">Pro</option>
+              <option value="enterprise">Enterprise</option>
+              <option value="agency">Agency</option>
+            </select>
+            <select id="status-select" style="flex:1;min-width:140px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px">
+              <option value="">— keep status —</option>
+              <option value="active">Active</option>
+              <option value="trialing">Trialing</option>
+              <option value="past_due">Past Due</option>
+              <option value="canceled">Canceled</option>
+              <option value="paused">Paused</option>
+            </select>
+            <button class="btn-primary" id="save-plan-btn" style="width:auto;padding:9px 18px">Save Plan</button>
+            <button class="btn-secondary" id="cancel-plan-btn" style="width:auto;padding:9px 14px">Cancel</button>
+          </div>
+          <div id="plan-result" class="status-msg hidden" style="margin-top:10px"></div>
         </div>
       </div>
 
@@ -268,7 +327,7 @@
         </div>
       </div>
 
-  <script src="/js/admin.js?v=eca50a0"></script>
-  <script src="/js/nav.js?v=eca50a0"></script>
+  <script src="/js/admin.js?v=139962e"></script>
+  <script src="/js/nav.js?v=139962e"></script>
 </body>
 </html>

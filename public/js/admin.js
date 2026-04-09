@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'admins')             loadAdminUsers();
       if (tab.dataset.tab === 'spend-adjustments')  loadAdjustments();
       if (tab.dataset.tab === 'nav-visibility')     initNavVisibility();
+      if (tab.dataset.tab === 'account-structure')  loadAccountStructure();
     });
   });
 
@@ -138,11 +139,12 @@ function renderClients(search) {
     ? allClients.filter(c =>
         c.name?.toLowerCase().includes(search) ||
         c.email?.toLowerCase().includes(search) ||
-        c.companyName?.toLowerCase().includes(search))
+        c.companyName?.toLowerCase().includes(search) ||
+        c.managerName?.toLowerCase().includes(search))
     : allClients;
 
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No clients found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">No clients found</td></tr>';
     return;
   }
 
@@ -151,6 +153,10 @@ function renderClients(search) {
       <td><strong>${c.name || '—'}</strong></td>
       <td>${c.email}</td>
       <td>${c.companyName || '—'}</td>
+      <td>${c.managerName
+        ? `<span style="font-size:12px;background:var(--brand-light);color:var(--brand);padding:2px 8px;border-radius:20px;font-weight:600">${c.managerName}</span>`
+        : '<span style="color:var(--gray-300);font-size:12px">— not mapped</span>'}
+      </td>
       <td><span class="status-pill pill-${c.status || 'active'}">${c.status || 'active'}</span></td>
       <td>—</td>
       <td>${c.lastLoginAt ? new Date(c.lastLoginAt).toLocaleString() : '—'}</td>
@@ -499,6 +505,150 @@ async function saveNavConfig() {
     result.textContent = 'Request failed.';
   } finally {
     saveBtn.disabled = false; saveBtn.textContent = 'Save Changes';
+  }
+}
+
+// ── Account Structure ─────────────────────────────────────────────────────────
+let allManagers = [];
+
+async function loadAccountStructure() {
+  const tbody   = document.getElementById('managers-table-body');
+  const overview = document.getElementById('agency-overview');
+  if (!tbody) return;
+
+  tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">Loading…</td></tr>';
+  if (overview) overview.textContent = 'Loading…';
+
+  // Load agency overview and managers in parallel
+  try {
+    const [agencyRes, managersRes] = await Promise.all([
+      adminFetch('/admin/agency'),
+      adminFetch('/admin/managers'),
+    ]);
+
+    if (agencyRes.ok && overview) {
+      const ag = await agencyRes.json();
+      if (ag.agencies && ag.agencies.length) {
+        const a = ag.agencies[0];
+        overview.innerHTML = `
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            <div class="kpi-card" style="min-width:160px">
+              <div class="kpi-label">Agency</div>
+              <div class="kpi-value" style="font-size:18px">${a.name || 'Calbridge'}</div>
+            </div>
+            <div class="kpi-card" style="min-width:120px">
+              <div class="kpi-label">Managers</div>
+              <div class="kpi-value" style="font-size:18px">${ag.managerCount}</div>
+            </div>
+            <div class="kpi-card" style="min-width:120px">
+              <div class="kpi-label">Advertisers</div>
+              <div class="kpi-value" style="font-size:18px">${ag.advertiserCount}</div>
+            </div>
+            <div class="kpi-card" style="min-width:140px">
+              <div class="kpi-label">Plan</div>
+              <div class="kpi-value" style="font-size:18px">${a.subscriptionPlan || '—'}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        overview.textContent = 'No agency record found.';
+      }
+    }
+
+    if (!managersRes.ok) throw new Error('Failed to load managers');
+    allManagers = await managersRes.json();
+    renderManagersTable();
+
+    // Wire refresh button
+    document.getElementById('refresh-managers-btn')?.addEventListener('click', loadAccountStructure);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="loading-cell">Error: ${err.message}</td></tr>`;
+  }
+}
+
+function renderManagersTable() {
+  const tbody = document.getElementById('managers-table-body');
+  if (!tbody) return;
+  if (!allManagers.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No manager accounts found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = allManagers.map(m => {
+    const planBadge = m.subscriptionPlan
+      ? `<span class="status-pill" style="background:var(--brand-light);color:var(--brand)">${m.subscriptionPlan}</span>`
+      : '<span style="color:var(--gray-300);font-size:12px">—</span>';
+    const statusBadge = m.subscriptionStatus
+      ? `<span class="status-pill pill-${m.subscriptionStatus === 'active' ? 'active' : m.subscriptionStatus === 'trialing' ? 'invited' : 'pending'}">${m.subscriptionStatus}</span>`
+      : '<span style="color:var(--gray-300);font-size:12px">—</span>';
+    return `
+      <tr>
+        <td><strong>${m.name || '—'}</strong>
+          <div style="font-size:11px;font-family:monospace;color:var(--gray-400);margin-top:2px">${m.managerId}</div>
+        </td>
+        <td>${planBadge}</td>
+        <td>${statusBadge}</td>
+        <td style="font-size:13px">${m.clientEmail || '<span style="color:var(--gray-300)">— no mapping</span>'}</td>
+        <td style="text-align:center">${m.advertiserCount}</td>
+        <td>
+          <button class="action-btn btn-approve" onclick="showUpdatePlan('${m.managerId}','${m.name}','${m.subscriptionPlan || ''}','${m.subscriptionStatus || ''}')">✏️ Plan</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.showUpdatePlan = function(managerId, managerName, currentPlan, currentStatus) {
+  const form   = document.getElementById('update-plan-form');
+  const idInput = document.getElementById('plan-manager-id');
+  const planSel = document.getElementById('plan-select');
+  const statusSel = document.getElementById('status-select');
+  const result  = document.getElementById('plan-result');
+
+  idInput.value   = `${managerName} (${managerId})`;
+  idInput.dataset.managerId = managerId;
+  if (currentPlan)   planSel.value   = currentPlan;
+  if (currentStatus) statusSel.value = currentStatus;
+  result.className = 'status-msg hidden';
+  form.style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  document.getElementById('cancel-plan-btn').onclick = () => { form.style.display = 'none'; };
+  document.getElementById('save-plan-btn').onclick   = savePlan;
+};
+
+async function savePlan() {
+  const form      = document.getElementById('update-plan-form');
+  const idInput   = document.getElementById('plan-manager-id');
+  const managerId = idInput.dataset.managerId;
+  const plan      = document.getElementById('plan-select').value;
+  const status    = document.getElementById('status-select').value;
+  const result    = document.getElementById('plan-result');
+  const btn       = document.getElementById('save-plan-btn');
+
+  if (!managerId || !plan) return;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  result.className = 'status-msg hidden';
+
+  try {
+    const body = { plan };
+    if (status) body.status = status;
+    const res  = await adminFetch(`/admin/managers/${managerId}/plan`, { method: 'POST', body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) {
+      result.className   = 'status-msg error';
+      result.textContent = data.error || 'Save failed.';
+    } else {
+      result.className   = 'status-msg success';
+      result.textContent = '\u2705 Plan updated.';
+      setTimeout(() => { form.style.display = 'none'; }, 2000);
+      await loadAccountStructure();
+    }
+  } catch {
+    result.className   = 'status-msg error';
+    result.textContent = 'Request failed.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Plan';
   }
 }
 

@@ -59,6 +59,59 @@ const PLANS = {
   }
 };
 
+// ─── Phase 3I: Manager context helpers ───────────────────────────────────────
+
+/**
+ * Look up manager_id for a given clientId via client_migration_map.
+ * Returns null if no mapping exists (legacy client — use clients table directly).
+ *
+ * @param {string} clientId
+ * @returns {Promise<string|null>} managerId or null
+ */
+async function getManagerId(clientId) {
+  try {
+    const rows = await query(
+      'SELECT manager_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
+      [clientId]
+    );
+    return rows[0]?.MANAGER_ID || rows[0]?.manager_id || null;
+  } catch (err) {
+    console.warn('[Billing] getManagerId lookup failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Read billing status from manager_accounts.
+ * Returns null if not found or if the manager row has no billing data.
+ *
+ * @param {string} managerId
+ * @returns {Promise<object|null>}
+ */
+async function getManagerBillingStatus(managerId) {
+  try {
+    const rows = await query(
+      `SELECT subscription_plan, subscription_status, trial_ends_at, subscription_ends_at,
+              stripe_customer_id, stripe_subscription_id
+       FROM CALBRIDGE_PROD.APP.manager_accounts
+       WHERE manager_id = ?`,
+      [managerId]
+    );
+    if (!rows.length) return null;
+    const r = rows[0];
+    // Only return manager data if it has meaningful billing content
+    if (!r.SUBSCRIPTION_PLAN && !r.STRIPE_CUSTOMER_ID && !r.STRIPE_SUBSCRIPTION_ID) {
+      return null;
+    }
+    return r;
+  } catch (err) {
+    console.warn('[Billing] getManagerBillingStatus failed:', err.message);
+    return null;
+  }
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
 /**
  * GET /billing/plans
  * Return plan definitions (public — no auth required)
@@ -69,15 +122,38 @@ router.get('/plans', (req, res) => {
 
 /**
  * GET /billing/status
- * Return current subscription status for logged-in client
+ * Return current subscription status for logged-in client.
+ *
+ * Phase 3I: Reads from manager_accounts first (via client_migration_map),
+ * falls back to clients table for legacy clients with no manager mapping.
  */
 router.get('/status', requireAuth, async (req, res, next) => {
   try {
+    const clientId = req.session.clientId;
+
+    // ── Phase 3I: Try manager_accounts first ──────────────────────────────
+    const managerId = await getManagerId(clientId);
+    if (managerId) {
+      const mgr = await getManagerBillingStatus(managerId);
+      if (mgr) {
+        return res.json({
+          plan:               mgr.SUBSCRIPTION_PLAN    || null,
+          status:             mgr.SUBSCRIPTION_STATUS  || 'none',
+          trialEndsAt:        mgr.TRIAL_ENDS_AT        || null,
+          subscriptionEndsAt: mgr.SUBSCRIPTION_ENDS_AT || null,
+          hasCustomer:        !!mgr.STRIPE_CUSTOMER_ID,
+          hasSubscription:    !!mgr.STRIPE_SUBSCRIPTION_ID,
+          source:             'manager_accounts'
+        });
+      }
+    }
+
+    // ── Fallback: read from clients (legacy / no manager mapping) ─────────
     const rows = await query(`
       SELECT subscription_plan, subscription_status, trial_ends_at, subscription_ends_at,
              stripe_customer_id, stripe_subscription_id
       FROM clients WHERE client_id = ?
-    `, [req.session.clientId]);
+    `, [clientId]);
 
     if (!rows.length) return res.status(404).json({ error: 'Client not found' });
     const r = rows[0];
@@ -88,7 +164,8 @@ router.get('/status', requireAuth, async (req, res, next) => {
       trialEndsAt:        r.TRIAL_ENDS_AT        || null,
       subscriptionEndsAt: r.SUBSCRIPTION_ENDS_AT || null,
       hasCustomer:        !!r.STRIPE_CUSTOMER_ID,
-      hasSubscription:    !!r.STRIPE_SUBSCRIPTION_ID
+      hasSubscription:    !!r.STRIPE_SUBSCRIPTION_ID,
+      source:             'clients'
     });
   } catch (err) { next(err); }
 });
@@ -97,6 +174,8 @@ router.get('/status', requireAuth, async (req, res, next) => {
  * POST /billing/create-checkout
  * Create a Stripe checkout session and redirect to Stripe
  * Body: { planId: 'starter' | 'growth' | 'pro' }
+ *
+ * Phase 3I: Reads/writes stripe_customer_id to manager_accounts (with dual-write to clients).
  */
 router.post('/create-checkout', requireAuth, async (req, res, next) => {
   // Guard: billing not configured
@@ -109,28 +188,55 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
     const plan = PLANS[planId];
     if (!plan) return res.status(400).json({ error: 'Invalid plan' });
 
-    // Fetch client details
+    const clientId = req.session.clientId;
+
+    // Fetch client details (email/name always from clients table)
     const rows = await query(`
       SELECT email, name, stripe_customer_id FROM clients WHERE client_id = ?
-    `, [req.session.clientId]);
+    `, [clientId]);
     if (!rows.length) return res.status(404).json({ error: 'Client not found' });
     const client = rows[0];
+
+    // ── Phase 3I: resolve manager context ─────────────────────────────────
+    const managerId = await getManagerId(clientId);
+
+    // Determine existing customer ID: manager_accounts takes precedence
+    let customerId = client.STRIPE_CUSTOMER_ID;
+    if (managerId) {
+      const mgrRows = await query(
+        'SELECT stripe_customer_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
+        [managerId]
+      );
+      if (mgrRows.length && mgrRows[0].STRIPE_CUSTOMER_ID) {
+        customerId = mgrRows[0].STRIPE_CUSTOMER_ID;
+      }
+    }
 
     // TODO: Initialize Stripe here (key is available at runtime)
     const Stripe = require('stripe');
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
     // Get or create Stripe customer
-    let customerId = client.STRIPE_CUSTOMER_ID;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: client.EMAIL,
         name:  client.NAME,
-        metadata: { clientId: req.session.clientId }
+        metadata: { clientId, managerId: managerId || clientId }
       });
       customerId = customer.id;
+
+      // ── Phase 3I: dual-write customer ID ──────────────────────────────
+      // Write to clients (legacy compat)
       await query(`UPDATE clients SET stripe_customer_id = ? WHERE client_id = ?`,
-        [customerId, req.session.clientId]);
+        [customerId, clientId]);
+
+      // Write to manager_accounts if mapping exists
+      if (managerId) {
+        await query(
+          `UPDATE CALBRIDGE_PROD.APP.manager_accounts SET stripe_customer_id = ? WHERE manager_id = ?`,
+          [customerId, managerId]
+        );
+      }
     }
 
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
@@ -143,7 +249,8 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
       success_url: `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${baseUrl}/billing/cancel`,
       metadata: {
-        clientId: req.session.clientId,
+        clientId,
+        managerId: managerId || '',
         planId:   plan.id
       }
     });
@@ -154,7 +261,9 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
 
 /**
  * GET /billing/success
- * Handle successful Stripe checkout redirect
+ * Handle successful Stripe checkout redirect.
+ *
+ * Phase 3I: Dual-writes subscription data to both manager_accounts and clients.
  */
 router.get('/success', requireAuth, async (req, res, next) => {
   // Guard: billing not configured
@@ -175,9 +284,17 @@ router.get('/success', requireAuth, async (req, res, next) => {
     });
 
     if (session.payment_status === 'paid' || session.status === 'complete') {
-      const sub = session.subscription;
-      const planId = session.metadata?.planId || null;
+      const sub     = session.subscription;
+      const planId  = session.metadata?.planId || null;
+      const clientId = req.session.clientId;
 
+      const subId     = sub?.id     || null;
+      const subStatus = sub?.status || 'active';
+      const subEndsAt = sub?.current_period_end
+        ? new Date(sub.current_period_end * 1000).toISOString()
+        : null;
+
+      // ── Phase 3I: write to clients (backward compat) ──────────────────
       await query(`
         UPDATE clients
         SET stripe_subscription_id = ?,
@@ -185,13 +302,20 @@ router.get('/success', requireAuth, async (req, res, next) => {
             subscription_status = ?,
             subscription_ends_at = ?
         WHERE client_id = ?
-      `, [
-        sub?.id || null,
-        planId,
-        sub?.status || 'active',
-        sub?.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-        req.session.clientId
-      ]);
+      `, [subId, planId, subStatus, subEndsAt, clientId]);
+
+      // ── Phase 3I: also write to manager_accounts if mapping exists ─────
+      const managerId = await getManagerId(clientId);
+      if (managerId) {
+        await query(`
+          UPDATE CALBRIDGE_PROD.APP.manager_accounts
+          SET stripe_subscription_id = ?,
+              subscription_plan   = ?,
+              subscription_status = ?,
+              subscription_ends_at = ?
+          WHERE manager_id = ?
+        `, [subId, planId, subStatus, subEndsAt, managerId]);
+      }
 
       return res.redirect('/billing.html?status=success');
     }
@@ -219,6 +343,9 @@ router.get('/cancel', requireAuth, (req, res) => {
  *   - customer.subscription.updated
  *   - customer.subscription.deleted
  *   - invoice.payment_failed
+ *
+ * Phase 3I: All subscription events dual-write to manager_accounts + clients.
+ * Lookup order: stripe_customer_id on manager_accounts first, then clients.
  */
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   // Guard: billing not configured
@@ -244,17 +371,36 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const sub = event.data.object;
-        // Look up client by Stripe customer ID
-        const rows = await query(
+
+        // Determine plan from price ID
+        const priceId = sub.items?.data?.[0]?.price?.id;
+        const planId  = Object.values(PLANS).find(p => p.stripePriceId === priceId)?.id || null;
+        const subEndsAt = sub.current_period_end
+          ? new Date(sub.current_period_end * 1000).toISOString()
+          : null;
+
+        // ── Phase 3I: try manager_accounts first ─────────────────────────
+        const mgrRows = await query(
+          `SELECT manager_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE stripe_customer_id = ?`,
+          [sub.customer]
+        );
+        if (mgrRows.length) {
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.manager_accounts
+            SET stripe_subscription_id = ?,
+                subscription_plan       = ?,
+                subscription_status     = ?,
+                subscription_ends_at    = ?
+            WHERE manager_id = ?
+          `, [sub.id, planId, sub.status, subEndsAt, mgrRows[0].MANAGER_ID]);
+        }
+
+        // ── Also update clients (dual-write) ──────────────────────────────
+        const clientRows = await query(
           `SELECT client_id FROM clients WHERE stripe_customer_id = ?`,
           [sub.customer]
         );
-        if (rows.length) {
-          // Determine plan from price metadata or product
-          // TODO: Map Stripe price IDs back to plan IDs via PLANS lookup
-          const priceId = sub.items?.data?.[0]?.price?.id;
-          const planId = Object.values(PLANS).find(p => p.stripePriceId === priceId)?.id || null;
-
+        if (clientRows.length) {
           await query(`
             UPDATE clients
             SET stripe_subscription_id = ?,
@@ -262,48 +408,76 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 subscription_status     = ?,
                 subscription_ends_at    = ?
             WHERE client_id = ?
-          `, [
-            sub.id,
-            planId,
-            sub.status,
-            sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-            rows[0].CLIENT_ID
-          ]);
+          `, [sub.id, planId, sub.status, subEndsAt, clientRows[0].CLIENT_ID]);
         }
+
         break;
       }
 
       case 'customer.subscription.deleted': {
-        const sub = event.data.object;
-        const rows = await query(
+        const sub     = event.data.object;
+        const endsAt  = sub.ended_at
+          ? new Date(sub.ended_at * 1000).toISOString()
+          : new Date().toISOString();
+
+        // ── Phase 3I: update manager_accounts ────────────────────────────
+        const mgrRows = await query(
+          `SELECT manager_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE stripe_customer_id = ?`,
+          [sub.customer]
+        );
+        if (mgrRows.length) {
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.manager_accounts
+            SET subscription_status  = 'cancelled',
+                subscription_ends_at = ?
+            WHERE manager_id = ?
+          `, [endsAt, mgrRows[0].MANAGER_ID]);
+        }
+
+        // ── Also update clients ────────────────────────────────────────────
+        const clientRows = await query(
           `SELECT client_id FROM clients WHERE stripe_customer_id = ?`,
           [sub.customer]
         );
-        if (rows.length) {
+        if (clientRows.length) {
           await query(`
             UPDATE clients
             SET subscription_status  = 'cancelled',
                 subscription_ends_at = ?
             WHERE client_id = ?
-          `, [
-            sub.ended_at ? new Date(sub.ended_at * 1000).toISOString() : new Date().toISOString(),
-            rows[0].CLIENT_ID
-          ]);
+          `, [endsAt, clientRows[0].CLIENT_ID]);
         }
+
         break;
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
-        const rows = await query(
+
+        // ── Phase 3I: update manager_accounts ────────────────────────────
+        const mgrRows = await query(
+          `SELECT manager_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE stripe_customer_id = ?`,
+          [invoice.customer]
+        );
+        if (mgrRows.length) {
+          await query(
+            `UPDATE CALBRIDGE_PROD.APP.manager_accounts SET subscription_status = 'past_due' WHERE manager_id = ?`,
+            [mgrRows[0].MANAGER_ID]
+          );
+        }
+
+        // ── Also update clients ────────────────────────────────────────────
+        const clientRows = await query(
           `SELECT client_id FROM clients WHERE stripe_customer_id = ?`,
           [invoice.customer]
         );
-        if (rows.length) {
-          await query(`
-            UPDATE clients SET subscription_status = 'past_due' WHERE client_id = ?
-          `, [rows[0].CLIENT_ID]);
+        if (clientRows.length) {
+          await query(
+            `UPDATE clients SET subscription_status = 'past_due' WHERE client_id = ?`,
+            [clientRows[0].CLIENT_ID]
+          );
         }
+
         // TODO: Send payment failure email via Resend
         console.warn('[Billing] Payment failed for customer:', invoice.customer);
         break;

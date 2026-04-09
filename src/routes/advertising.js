@@ -3,11 +3,14 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
+const { resolveClientId } = require('../services/advertiserResolver');
 // Cache helper: keyed on clientId + full request URL (includes all query params).
 // Each unique combination of date range, channel, and ad type gets its own cache entry,
 // so switching date ranges or channels always fetches fresh data from Snowflake.
-function reqCache(req, fetchFn) {
-  const ck = cacheKey(req.session.clientId, 'url', req.originalUrl);
+// clientId must be passed in (already resolved via resolveClientId) so cache keys are
+// scoped to the active advertiser, not always the default session clientId.
+function reqCache(clientId, req, fetchFn) {
+  const ck = cacheKey(clientId, 'url', req.originalUrl);
   return cachedQuery(ck, DEFAULT_TTL_MS, fetchFn);
 }
 
@@ -92,7 +95,7 @@ function parseRange(req) {
  */
 function withCache(ttlMs, handler) {
   return async (req, res, next) => {
-    const clientId = req.session?.clientId;
+    const clientId = await resolveClientId(req);
     if (!clientId) return handler(req, res, next);
     const ck = cacheKey(clientId, req.originalUrl);
     const hit = await cachedQuery(ck, ttlMs, async () => {
@@ -120,7 +123,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const channel   = req.query.channel;
     const adType    = req.query.adType;
     // Aggregate inside the CTE to avoid Snowflake nested-aggregate error on views
-    const ck = cacheKey(req.session.clientId, 'summary', days, startDate, endDate, channel, adType);
+    const clientId = await resolveClientId(req);
+    const ck = cacheKey(clientId, 'summary', days, startDate, endDate, channel, adType);
     const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
       WITH cp AS (
         SELECT
@@ -141,7 +145,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN total_impressions > 0 THEN total_clicks / total_impressions    ELSE NULL END AS ctr,
         CASE WHEN total_clicks > 0      THEN total_spend / total_clicks          ELSE NULL END AS cpc
       FROM cp
-    `, [req.session.clientId]));
+    `, [clientId]));
     res.json(rows[0] || {});
   } catch (err) { next(err); }
 });
@@ -157,7 +161,8 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const channel = req.query.channel;
     const adType  = req.query.adType;
-    const rows = await reqCache(req, () => query(`
+    const clientId = await resolveClientId(req);
+    const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
           date,
@@ -178,7 +183,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END         AS roas
       FROM cp
       ORDER BY date ASC
-    `, [req.session.clientId]));
+    `, [clientId]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -192,7 +197,8 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const rows = await reqCache(req, () => query(`
+    const clientId = await resolveClientId(req);
+    const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
           ad_type,
@@ -212,7 +218,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
       FROM cp
       ORDER BY spend DESC
-    `, [req.session.clientId]));
+    `, [clientId]));
     res.json(rows.filter(r => Number(r.SPEND || 0) > 0));
   } catch (err) { next(err); }
 });
@@ -229,7 +235,8 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const limit   = Number(req.query.limit) || 200;
     const channel = req.query.channel;
     const adType  = req.query.adType;
-    const rows = await reqCache(req, () => query(`
+    const clientId = await resolveClientId(req);
+    const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
           campaign_id,
@@ -263,7 +270,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
       FROM cp
       ORDER BY spend DESC
       LIMIT ?
-    `, [req.session.clientId, limit]));
+    `, [clientId, limit]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -277,7 +284,8 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const rows = await reqCache(req, () => query(`
+    const clientId = await resolveClientId(req);
+    const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
           ad_type,
@@ -298,7 +306,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
         CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
       FROM cp
       ORDER BY spend DESC
-    `, [req.session.clientId]));
+    `, [clientId]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -311,9 +319,9 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
-    const [roasRows, salesRow] = await reqCache(req, () => Promise.all([
+    const [roasRows, salesRow] = await reqCache(clientId, req, () => Promise.all([
       query(`
         WITH cp AS (
           SELECT
@@ -375,9 +383,9 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
     const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 200;
     const adType   = req.query.adType ? req.query.adType.toUpperCase() : null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
-    let rows = await reqCache(req, async () => {
+    let rows = await reqCache(clientId, req, async () => {
     let r = [];
     try {
       r = await query(`
@@ -472,9 +480,9 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const limit    = Number(req.query.limit) || 10;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
-    const rows = await reqCache(req, () => query(`
+    const rows = await reqCache(clientId, req, () => query(`
       SELECT
         st.search_term                                                            AS search_term,
         st.keyword                                                                AS keyword,
@@ -529,7 +537,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const limit     = Number(req.query.limit) || 500;
     const adType    = req.query.adType || null;  // 'SP' | 'SB' | null (all)
-    const clientId  = req.session.clientId;
+    const clientId  = await resolveClientId(req);
 
     // Build query — SP only, SB only, or both via UNION ALL
     let sql, binds;
@@ -593,7 +601,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       sql = `${spSql} UNION ALL ${sbSql}`; binds = [clientId, clientId];
     }
 
-    const rows = await reqCache(req, () => query(sql, binds));
+    const rows = await reqCache(clientId, req, () => query(sql, binds));
 
     // Sort combined results by spend desc and limit
     const sorted = rows
@@ -634,7 +642,7 @@ router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
     const days      = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId  = req.session.clientId;
+    const clientId  = await resolveClientId(req);
 
     // Normalize Amazon match_type values to 4 display buckets
     // AUTO: TARGETING_EXPRESSION, TARGETING_EXPRESSION_PREDEFINED, null
@@ -732,9 +740,9 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
     const days     = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
-    const rows = await reqCache(req, () => query(`
+    const rows = await reqCache(clientId, req, () => query(`
       SELECT
         SUM(impressions)                                                          AS total_impressions,
         SUM(clicks)                                                               AS total_clicks,
@@ -794,9 +802,9 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const limit    = Number(req.query.limit) || 200;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
-    const rows = await reqCache(req, () => query(`
+    const rows = await reqCache(clientId, req, () => query(`
       SELECT
         campaign_id,
         MAX(campaign_name)                                                        AS order_name,
@@ -859,9 +867,9 @@ router.get('/keyword-type-breakdown', requireAuth, async (req, res, next) => {
     const days      = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId  = req.session.clientId;
+    const clientId  = await resolveClientId(req);
 
-    const rows = await reqCache(req, () => query(`
+    const rows = await reqCache(clientId, req, () => query(`
       SELECT
         COALESCE(match_type, 'AUTO')                                              AS match_type,
         SUM(cost)                                                                 AS spend,
