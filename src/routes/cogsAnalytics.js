@@ -13,7 +13,6 @@ const router = express.Router();
 const { query } = require('../services/snowflakeService');
 const { requireAuth } = require('../middleware/requireAuth');
 
-const SCHEMA = 'CALBRIDGE_PROD.RAW';
 const APP_SCHEMA = 'CALBRIDGE_PROD.APP';
 
 function getClientId(req) {
@@ -63,11 +62,15 @@ router.get('/entries', requireAuth, async (req, res, next) => {
         p.title,
         p.model_number
       FROM ${APP_SCHEMA}.CLIENT_COGS c
-      LEFT JOIN ${SCHEMA}.RETAIL_LISTING p
-        ON p.client_id = c.client_id AND p.asin = c.asin
+      LEFT JOIN (
+        SELECT asin, MAX(title) AS title, MAX(model_number) AS model_number
+        FROM CALBRIDGE_PROD.APP.PRODUCTS
+        WHERE client_id = ?
+        GROUP BY asin
+      ) p ON p.asin = c.asin
       WHERE c.client_id = ?
       ORDER BY c.asin
-    `, [CLIENT_ID]);
+    `, [CLIENT_ID, CLIENT_ID]);
 
     res.json({
       entries: rows.map(r => ({
@@ -134,11 +137,12 @@ router.get('/margins', requireAuth, async (req, res, next) => {
     const CLIENT_ID = getClientId(req);
 
     const [listings, cogsEntries, salesData] = await Promise.all([
-      // All ASINs from listing
+      // All ASINs from products table (deduplicated)
       query(`
-        SELECT asin, title, model_number
-        FROM ${SCHEMA}.RETAIL_LISTING
+        SELECT asin, MAX(title) AS title, MAX(model_number) AS model_number
+        FROM CALBRIDGE_PROD.APP.PRODUCTS
         WHERE client_id = ?
+        GROUP BY asin
         ORDER BY asin
       `, [CLIENT_ID]),
 
@@ -156,8 +160,8 @@ router.get('/margins', requireAuth, async (req, res, next) => {
           SUM(shipped_cogs)    AS shipped_cogs,
           SUM(shipped_units)   AS shipped_units,
           SUM(shipped_revenue) AS shipped_revenue
-        FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
-        WHERE client_id = ? AND date >= DATEADD('week', -4, CURRENT_DATE)
+        FROM CALBRIDGE_PROD.APP.VENDOR_SALES
+        WHERE client_id = ? AND start_date >= DATEADD('week', -4, CURRENT_DATE)
         GROUP BY asin
       `, [CLIENT_ID]),
 
