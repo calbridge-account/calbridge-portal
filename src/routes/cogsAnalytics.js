@@ -17,7 +17,9 @@ const SCHEMA = 'CALBRIDGE_PROD.RAW';
 const APP_SCHEMA = 'CALBRIDGE_PROD.APP';
 
 function getClientId(req) {
-  return req.session?.clientId || '7d88ea17-002b-4a02-97fc-bcab1292d57e';
+  const id = req.session?.clientId;
+  if (!id) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+  return id;
 }
 
 function n(v) {

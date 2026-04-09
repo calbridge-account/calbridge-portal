@@ -177,8 +177,11 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const orderedRevenue   = Number(s.PO_ORDERED_REVENUE   || 0);
     const shippedRevenue   = Number(vs.VS_SHIPPED_REVENUE  || 0);
     const shippedCogs      = Number(vs.VS_SHIPPED_COGS     || 0);
-    // Total retail sales = ordered (PO demand) + shipped (P&L)
-    const totalRetailSales = orderedRevenue + shippedRevenue;
+    // Total retail sales: prefer shipped revenue (actual invoiced P&L signal);
+    // fall back to ordered revenue (PO demand) only when shipped is zero.
+    // Do NOT add them — they represent the same product at different pipeline stages
+    // and summing would double-count Vendor Central revenue.
+    const totalRetailSales = shippedRevenue > 0 ? shippedRevenue : orderedRevenue;
     const totalAdSpend     = Number(a.TOTAL_AD_SPEND    || 0);
 
     // Total ROAS = Total retail sales / Ad spend (true blended ROAS) — via metrics.js true_roas

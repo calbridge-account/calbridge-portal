@@ -38,7 +38,9 @@ const T = {
  * backwards compatibility while we finish portal wiring.
  */
 function getClientId(req) {
-  return req.session?.clientId || '7d88ea17-002b-4a02-97fc-bcab1292d57e';
+  const id = req.session?.clientId;
+  if (!id) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+  return id;
 }
 
 /**
