@@ -169,3 +169,71 @@ _After Phase 2+3 stable. This is the product differentiator._
 - Adjusted spend: SPEND_ADJUSTMENTS + adjusted_campaign_performance view preserved at all times
 - Advertiser nav: always functional, never broken by migrations
 - No hardcoded client IDs anywhere in route code
+
+---
+
+## Phase 3 Update — 4-Tier Account Model (confirmed 2026-04-09)
+
+### Final hierarchy
+```
+Agency (Calbridge)                    ← agency_accounts table
+  └── Manager Account (CyberPower)    ← manager_accounts table, billed here
+       └── Advertiser (CyberPower US) ← advertiser_accounts table, data scoped here
+  └── Manager Account (Acer)
+       └── Advertiser (Acer US)
+```
+
+### Role model (users live at BOTH agency and manager levels)
+| Role | Scope |
+|------|-------|
+| agency_admin | All managers, all advertisers, billing |
+| agency_staff | All managers, read-only, no billing |
+| manager_owner | Their manager + all advertisers, invite users, no agency billing |
+| manager_admin | All advertisers under their manager, no billing |
+| advertiser_manager | Specific advertiser(s), can make changes |
+| advertiser_analyst | Specific advertiser(s), read + annotations |
+| advertiser_viewer | Specific advertiser(s), read-only |
+
+### Self-serve signup flow
+1. User fills name/company/email/password on calbridge.com/signup
+2. Create manager_account (their company)
+3. Create user row
+4. Link user → manager with role = 'owner'
+5. Create Stripe customer + subscription on manager_account
+6. Create first advertiser_account (connects Amazon later)
+7. Session: { userId, agencyId, managerId, advertiserId, role }
+
+### Current clients mapped
+- Calbridge agency_id: TBD (create new)
+- CyberPower → manager_id (existing client_id: 7d88ea17)
+- Acer → manager_id (existing client_id: 929cea98)
+- Abe (abe@teamcalbridge.com) → agency_admin
+- cyberpower@teamcalbridge.com → manager_owner (CyberPower)
+- acer@teamcalbridge.com → manager_owner (Acer)
+- colin/justina/tim → manager_user (CyberPower)
+
+### Schema additions needed
+```sql
+CREATE TABLE agency_accounts (
+  agency_id              VARCHAR(36) PRIMARY KEY,
+  name                   VARCHAR(255),
+  stripe_customer_id     VARCHAR(255),
+  stripe_subscription_id VARCHAR(255),
+  subscription_plan      VARCHAR(20),
+  subscription_status    VARCHAR(20),
+  created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+);
+
+ALTER TABLE manager_accounts ADD COLUMN agency_id VARCHAR(36);
+ALTER TABLE users ADD COLUMN agency_id VARCHAR(36);  -- for agency-level users
+ALTER TABLE client_migration_map ADD COLUMN agency_id VARCHAR(36);
+```
+
+### Session model target
+```js
+req.session.userId        // authenticated user
+req.session.agencyId      // their agency (null for non-agency users)
+req.session.managerId     // current manager account
+req.session.advertiserId  // currently selected advertiser
+req.session.role          // role at the active scope level
+```
