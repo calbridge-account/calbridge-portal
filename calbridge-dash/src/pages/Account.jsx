@@ -309,7 +309,6 @@ function CampaignAssignModal({ budget, allCampaigns, onClose, onSave }) {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 {c.ad_type && <AdTypeBadge type={c.ad_type} />}
-                <span className="text-xs text-gray-400">{fmt$(c.total_spend)}</span>
               </div>
             </label>
           ))}

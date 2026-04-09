@@ -39,32 +39,29 @@ router.use(requireAuth);
 router.get('/campaigns/available', async (req, res) => {
   const clientId = getClientId(req);
   try {
-    // Use ad_campaigns as the source for the picker — it's already one row per campaign
-    // and avoids scanning the full performance table (which caused gateway timeouts).
-    // MTD spend is joined separately so the picker shows current-month context.
+    // Use ad_campaigns as the source for the picker — one row per campaign, fast.
+    // Normalize campaign_type (Amazon raw: 'sponsoredProducts') to short code (SP/SB/SD/DSP)
+    // so it fits the AD_TYPE column (max 32 chars) and is consistent with adjusted_campaign_performance.
     const rows = await query(
       `SELECT
-         c.campaign_id,
-         c.campaign_name,
-         c.campaign_type   AS ad_type,
-         COALESCE(s.mtd_spend, 0) AS total_spend
-       FROM ${SCHEMA}.AD_CAMPAIGNS c
-       LEFT JOIN (
-         SELECT campaign_id, SUM(adjusted_spend) AS mtd_spend
-         FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
-         WHERE client_id = ?
-           AND date >= DATE_TRUNC('month', CURRENT_DATE())
-         GROUP BY campaign_id
-       ) s ON s.campaign_id = c.campaign_id
-       WHERE c.client_id = ?
-       ORDER BY total_spend DESC NULLS LAST`,
-      [clientId, clientId]
+         campaign_id,
+         campaign_name,
+         CASE campaign_type
+           WHEN 'sponsoredProducts' THEN 'SP'
+           WHEN 'sponsoredBrands'   THEN 'SB'
+           WHEN 'sponsoredDisplay'  THEN 'SD'
+           WHEN 'hsa'               THEN 'SB'
+           ELSE UPPER(campaign_type)
+         END AS ad_type
+       FROM ${SCHEMA}.AD_CAMPAIGNS
+       WHERE client_id = ?
+       ORDER BY campaign_name ASC`,
+      [clientId]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
       campaign_name: r.CAMPAIGN_NAME || r.campaign_name,
       ad_type:       r.AD_TYPE       || r.ad_type,
-      total_spend:   n(r.TOTAL_SPEND ?? r.total_spend),
     })));
   } catch (err) {
     console.error('[Budgets] available campaigns error:', err.message);
