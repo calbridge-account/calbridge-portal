@@ -141,19 +141,22 @@ async function writeSales(clientId, connectionType, salesData) {
         AND t.asin = s.asin AND t.order_date = s.order_date
       WHEN MATCHED THEN UPDATE SET
         units_ordered = ?, ordered_revenue = ?,
-        units_received = ?, shipped_revenue = ?,
+        -- SP-API seller reports only provide demand (ordered) data, not fulfillment data.
+        -- units_received and shipped_revenue are vendor-side concepts; there is no shipped
+        -- equivalent in the SP-API Sales & Traffic report. B2B ordered units/revenue must NOT
+        -- be mapped here — B2B ordered ≠ received/shipped. Set both to 0 to avoid poisoning
+        -- downstream queries that expect vendor fulfillment data in these columns.
+        units_received = 0, shipped_revenue = 0,
         synced_at = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT
         (client_id, connection_type, asin, order_date,
          units_ordered, ordered_revenue, units_received, shipped_revenue, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP)
     `, [
       clientId, connectionType, asin, date,
       sales.unitsOrdered || 0, sales.orderedProductSales?.amount || 0,
-      sales.unitsOrderedB2B || 0, sales.orderedProductSalesB2B?.amount || 0,
       clientId, connectionType, asin, date,
-      sales.unitsOrdered || 0, sales.orderedProductSales?.amount || 0,
-      sales.unitsOrderedB2B || 0, sales.orderedProductSalesB2B?.amount || 0
+      sales.unitsOrdered || 0, sales.orderedProductSales?.amount || 0
     ]);
     written++;
   }
