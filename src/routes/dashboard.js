@@ -398,7 +398,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     const [topAsins, dailyOrdered, dailyShipped, channelSplit] = await Promise.all([
       // Top 10 ASINs by ordered revenue (PO demand signal)
@@ -520,7 +520,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/inventory-summary', requireAuth, async (req, res, next) => {
   try {
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     // Latest snapshot rows
     const invRows = await query(`
@@ -614,7 +614,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     // Revenue source of truth for TACOS:
     // - Vendor accounts: prefer VENDOR_SALES.shipped_revenue (actual invoiced P&L signal)
@@ -697,7 +697,7 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 90;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     // Revenue source of truth for forecast:
     // - Primary: vendor_sales.shipped_revenue (authoritative P&L signal) grouped by start_date
@@ -796,7 +796,7 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/budget-pacing', requireAuth, async (req, res, next) => {
   try {
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
     const now         = new Date();
     const dayOfMonth  = now.getDate();
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -925,7 +925,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     const rows = await query(`
       WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} AND new_to_brand_purchases IS NOT NULL)
@@ -1019,7 +1019,7 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId = req.session.clientId;
+    const clientId = await resolveClientId(req);
 
     const rows = await query(`
       SELECT
@@ -1076,7 +1076,7 @@ router.get('/ads-trend', requireAuth, async (req, res, next) => {
     const days      = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
-    const clientId  = req.session.clientId;
+    const clientId  = await resolveClientId(req);
 
     const rows = await query(`
       SELECT
@@ -1129,7 +1129,7 @@ router.get('/profitability-trend', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const limit     = Number(req.query.limit) || 20;
-    const clientId  = req.session.clientId;
+    const clientId  = await resolveClientId(req);
 
     // Pull all ASINs with CM data in the period
     const asinRows = await query(`

@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { v4: uuidv4 } = require('uuid');
+const { resolveClientId } = require('../services/advertiserResolver');
 
 /**
  * Ensure campaign_actions table exists.
@@ -73,7 +74,7 @@ router.get('/', requireAuth, async (req, res, next) => {
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget
       ORDER BY SUM(ap.spend) DESC NULLS LAST
-    `, [days, req.session.clientId]);
+    `, [days, await resolveClientId(req)]);
 
     res.json(rows);
   } catch (err) { next(err); }
@@ -92,7 +93,7 @@ router.get('/actions/pending', requireAuth, async (req, res, next) => {
       WHERE client_id = ?
         AND status = 'pending'
       ORDER BY created_at DESC
-    `, [req.session.clientId]);
+    `, [await resolveClientId(req)]);
 
     res.json(rows);
   } catch (err) { next(err); }
@@ -130,7 +131,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget
-    `, [days, req.session.clientId, id]);
+    `, [days, await resolveClientId(req), id]);
 
     if (!campaignRows || campaignRows.length === 0) {
       return res.status(404).json({ error: 'Campaign not found' });
@@ -153,7 +154,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         AND report_date >= DATEADD(day, -?, CURRENT_DATE)
       GROUP BY report_date
       ORDER BY report_date ASC
-    `, [req.session.clientId, id, days]);
+    `, [await resolveClientId(req), id, days]);
 
     // Pending actions for this campaign
     const actionRows = await query(`
@@ -163,7 +164,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         AND campaign_id = ?
         AND status = 'pending'
       ORDER BY created_at DESC
-    `, [req.session.clientId, id]);
+    `, [await resolveClientId(req), id]);
 
     res.json({
       campaign: campaignRows[0],
@@ -180,8 +181,9 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 router.post('/:id/pause', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const actionId = await logCampaignAction(req.session.clientId, id, 'pause');
-    console.log(`[CampaignAction] PAUSE queued — client=${req.session.clientId} campaign=${id} action=${actionId}`);
+    const clientId = await resolveClientId(req);
+    const actionId = await logCampaignAction(clientId, id, 'pause');
+    console.log(`[CampaignAction] PAUSE queued — client=${clientId} campaign=${id} action=${actionId}`);
     res.json({
       status: 'queued',
       actionId,
@@ -197,8 +199,9 @@ router.post('/:id/pause', requireAuth, async (req, res, next) => {
 router.post('/:id/resume', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const actionId = await logCampaignAction(req.session.clientId, id, 'resume');
-    console.log(`[CampaignAction] RESUME queued — client=${req.session.clientId} campaign=${id} action=${actionId}`);
+    const clientId = await resolveClientId(req);
+    const actionId = await logCampaignAction(clientId, id, 'resume');
+    console.log(`[CampaignAction] RESUME queued — client=${clientId} campaign=${id} action=${actionId}`);
     res.json({
       status: 'queued',
       actionId,
@@ -219,8 +222,9 @@ router.patch('/:id/budget', requireAuth, async (req, res, next) => {
     if (budget == null || isNaN(Number(budget)) || Number(budget) <= 0) {
       return res.status(400).json({ error: 'budget must be a positive number' });
     }
-    const actionId = await logCampaignAction(req.session.clientId, id, 'update_budget', { budget: Number(budget) });
-    console.log(`[CampaignAction] UPDATE_BUDGET queued — client=${req.session.clientId} campaign=${id} budget=${budget} action=${actionId}`);
+    const clientId = await resolveClientId(req);
+    const actionId = await logCampaignAction(clientId, id, 'update_budget', { budget: Number(budget) });
+    console.log(`[CampaignAction] UPDATE_BUDGET queued — client=${clientId} campaign=${id} budget=${budget} action=${actionId}`);
     res.json({
       status: 'queued',
       actionId,
@@ -241,8 +245,9 @@ router.patch('/:id/bids', requireAuth, async (req, res, next) => {
     if (bid == null || isNaN(Number(bid)) || Number(bid) <= 0) {
       return res.status(400).json({ error: 'bid must be a positive number' });
     }
-    const actionId = await logCampaignAction(req.session.clientId, id, 'update_bids', { bid: Number(bid) });
-    console.log(`[CampaignAction] UPDATE_BIDS queued — client=${req.session.clientId} campaign=${id} bid=${bid} action=${actionId}`);
+    const clientId = await resolveClientId(req);
+    const actionId = await logCampaignAction(clientId, id, 'update_bids', { bid: Number(bid) });
+    console.log(`[CampaignAction] UPDATE_BIDS queued — client=${clientId} campaign=${id} bid=${bid} action=${actionId}`);
     res.json({
       status: 'queued',
       actionId,

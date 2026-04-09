@@ -33,12 +33,16 @@ const T = {
   RETAIL_FORECAST:      'VENDOR_FORECASTS',
 };
 
+const { resolveClientId } = require('../services/advertiserResolver');
+
 /**
- * Resolve client ID — session takes priority, falls back to CyberPower for
- * backwards compatibility while we finish portal wiring.
+ * Resolve client ID — resolves via advertiserId → client_migration_map if an
+ * advertiser has been explicitly switched in the nav selector.
+ * Falls back to session.clientId for backward compatibility.
+ * Throws 401 if no clientId is present at all.
  */
-function getClientId(req) {
-  const id = req.session?.clientId;
+async function getClientId(req) {
+  const id = await resolveClientId(req);
   if (!id) throw Object.assign(new Error('Not authenticated'), { status: 401 });
   return id;
 }
@@ -117,7 +121,7 @@ function weekCutoff(weeks) {
 // ─── GET /vendor-analytics/overview ──────────────────────────────────────────
 router.get('/overview', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     // Previous period cutoff = 7 days before the start of the range
     const prevCutoffDate = new Date(cutoff); prevCutoffDate.setDate(prevCutoffDate.getDate() - 7);
@@ -452,7 +456,7 @@ router.get('/overview', async (req, res, next) => {
 // ─── GET /vendor-analytics/vendor ────────────────────────────────────────────
 router.get('/vendor', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = req.query.weeks || 12;
 
@@ -547,7 +551,7 @@ router.get('/vendor', async (req, res, next) => {
 // ─── GET /vendor-analytics/vendor/asins ──────────────────────────────────────
 router.get('/vendor/asins', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = req.query.weeks || 12;
 
@@ -646,7 +650,7 @@ router.get('/vendor/asins', async (req, res, next) => {
 // Returns combined metrics + per-type breakdown for SP, SB, SD, DSP
 router.get('/advertising', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = req.query.weeks || 12;
 
@@ -1000,7 +1004,7 @@ router.get('/advertising', async (req, res, next) => {
 // ─── GET /vendor-analytics/forecasting ───────────────────────────────────────
 router.get('/forecasting', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = Math.min(Number(req.query.weeks) || 4, 26);
 
@@ -1085,7 +1089,7 @@ router.get('/forecasting', async (req, res, next) => {
 // Returns how Amazon's forecast has changed over time per ASIN (by FORECAST_GENERATION_DATE)
 router.get('/forecast-shift', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const asinParam = req.query.asin || null; // optional: filter to single ASIN
 
     // Get top 10 ASINs by total forecasted units (next 8 weeks, latest generation)
@@ -1215,7 +1219,7 @@ router.get('/forecast-shift', async (req, res, next) => {
 // Returns YTD actuals + projected remaining weeks = full-year revenue projection
 router.get('/annual-projection', async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
     const currentYear = new Date().getUTCFullYear();
     const janFirst = `${currentYear}-01-01`;
 
@@ -1339,7 +1343,7 @@ router.get('/annual-projection', async (req, res, next) => {
 // weeks_of_cover = sellable_units / avg_weekly_shipped (trailing 4 weeks)
 router.get('/inventory-detail', requireAuth, async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
 
     const rows = await query(`
       WITH latest_inv AS (
@@ -1425,7 +1429,7 @@ router.get('/inventory-detail', requireAuth, async (req, res, next) => {
 // and avg lead time computed from PO data directly.
 router.get('/po-summary', requireAuth, async (req, res, next) => {
   try {
-    const CLIENT_ID = getClientId(req);
+    const CLIENT_ID = await getClientId(req);
 
     const rows = await query(`
       WITH best_product AS (
