@@ -135,19 +135,18 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
     // ----------------------------------------------------------------
     if (isVendor) {
       const vendorRows = await query(`
-        WITH vendor_sales AS (
+        WITH vendor_data AS (
           SELECT
             s.client_id,
             s.asin,
-            s.order_date             AS calc_date,
+            s.start_date             AS calc_date,
             SUM(s.shipped_revenue)   AS revenue,       -- gross reference value
             SUM(s.shipped_cogs)      AS shipped_cogs,  -- what Amazon actually paid
-            SUM(s.units_received)     AS units
-          FROM vendor_purchase_orders s
+            SUM(s.shipped_units)      AS units
+          FROM CALBRIDGE_PROD.APP.VENDOR_SALES s
           WHERE s.client_id = ?
-            AND s.connection_type = 'vendor'
-            AND s.order_date >= DATEADD(day, -?, CURRENT_DATE)
-          GROUP BY s.client_id, s.asin, s.order_date
+            AND s.start_date >= DATEADD(day, -?, CURRENT_DATE)
+          GROUP BY s.client_id, s.asin, s.start_date
         ),
         asin_ad_spend AS (
           SELECT
@@ -184,7 +183,7 @@ async function calculateContributionMargin(clientId, daysBack = 30) {
           0                                      AS referral_fees,  -- vendor doesn't pay referral fees
           COALESCE(v.shipped_cogs, 0)            AS shipped_cogs,
           p.cogs                                  -- brand's internal COGS, may be NULL
-        FROM vendor_sales v
+        FROM vendor_data v
         LEFT JOIN asin_ad_spend aas
           ON v.client_id = aas.client_id
           AND v.calc_date = aas.calc_date
