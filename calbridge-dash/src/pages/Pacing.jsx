@@ -12,7 +12,11 @@ function fmt$(n) {
 
 function fmtDate(d) {
   if (!d) return '';
-  const date = new Date(d);
+  // Parse date-only strings (YYYY-MM-DD) as local date to avoid UTC→local
+  // timezone shift that shows dates one day early in PT/ET.
+  const s = String(d).substring(0, 10);
+  const [year, month, day] = s.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 

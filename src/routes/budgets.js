@@ -39,19 +39,26 @@ router.use(requireAuth);
 router.get('/campaigns/available', async (req, res) => {
   const clientId = getClientId(req);
   try {
+    // Use ad_campaigns as the source for the picker — it's already one row per campaign
+    // and avoids scanning the full performance table (which caused gateway timeouts).
+    // MTD spend is joined separately so the picker shows current-month context.
     const rows = await query(
-      `/* Group by name+ad_type to dedupe DSP campaigns with truncated IDs */
-       SELECT
-         MAX_BY(campaign_id, adjusted_spend) AS campaign_id,
-         campaign_name,
-         ad_type,
-         SUM(adjusted_spend) AS total_spend
-       FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
-       WHERE client_id = ?
-         AND date >= DATEADD('day', -90, CURRENT_DATE())
-       GROUP BY campaign_name, ad_type
+      `SELECT
+         c.campaign_id,
+         c.campaign_name,
+         c.campaign_type   AS ad_type,
+         COALESCE(s.mtd_spend, 0) AS total_spend
+       FROM ${SCHEMA}.AD_CAMPAIGNS c
+       LEFT JOIN (
+         SELECT campaign_id, SUM(adjusted_spend) AS mtd_spend
+         FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
+         WHERE client_id = ?
+           AND date >= DATE_TRUNC('month', CURRENT_DATE())
+         GROUP BY campaign_id
+       ) s ON s.campaign_id = c.campaign_id
+       WHERE c.client_id = ?
        ORDER BY total_spend DESC NULLS LAST`,
-      [clientId]
+      [clientId, clientId]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
