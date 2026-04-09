@@ -456,26 +456,32 @@ router.get('/vendor', async (req, res, next) => {
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = req.query.weeks || 12;
 
-    const [invAgg, weeklyInv, weeklyUnits] = await Promise.all([
+    const [invAgg, invSnapshot, weeklyInv, weeklyUnits] = await Promise.all([
 
-      // Aggregate inventory KPIs
-      // NOTE: AVG(vendor_confirmation_rate) only over weeks with data (>0) to avoid dragging
-      //       down the average with weeks where no POs were issued (confirmation_rate=0).
-      //       receive_fill_rate is shown separately — it's expected to be 0 for recent POs
-      //       that haven't been received yet.
+      // Rate KPIs averaged over the selected date range (trend-based — date range IS relevant)
+      // NOTE: AVG(vendor_confirmation_rate) only over weeks with active POs (rate > 0)
       query(`
         SELECT
           AVG(sell_through_rate)          AS avg_sell_through,
           AVG(CASE WHEN vendor_confirmation_rate > 0 THEN vendor_confirmation_rate END) AS avg_conf_rate,
           AVG(receive_fill_rate)          AS avg_fill_rate,
-          AVG(avg_vendor_lead_time_days)  AS avg_lead_time,
-          SUM(sellable_on_hand_units)     AS total_sellable,
-          SUM(aged_90_plus_units)         AS total_aged_90,
-          SUM(unhealthy_units)            AS total_unhealthy,
-          SUM(unfilled_customer_ordered_units) AS total_oos
+          AVG(avg_vendor_lead_time_days)  AS avg_lead_time
         FROM ${SCHEMA}.VENDOR_INVENTORY
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
+
+      // Snapshot KPIs: always use latest snapshot — NEVER summed across date range
+      // (summing daily rows inflates on-hand counts by 30x, 90x, etc.)
+      query(`
+        SELECT
+          SUM(sellable_on_hand_units)          AS total_sellable,
+          SUM(aged_90_plus_units)              AS total_aged_90,
+          SUM(unhealthy_units)                 AS total_unhealthy,
+          SUM(unfilled_customer_ordered_units) AS total_oos
+        FROM ${SCHEMA}.VENDOR_INVENTORY
+        WHERE client_id = ?
+          AND end_date = (SELECT MAX(end_date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?)
+      `, [CLIENT_ID, CLIENT_ID]),
 
       // Weekly sell-through rate trend
       // Only average conf_rate over rows where a PO was confirmed (rate > 0)
@@ -508,14 +514,16 @@ router.get('/vendor', async (req, res, next) => {
 
     res.json({
       metrics: {
+        // Rate metrics: averaged over selected date range (trend-based)
         avgSellThrough:       n(invAgg[0]?.AVG_SELL_THROUGH),
         avgConfRate:          n(invAgg[0]?.AVG_CONF_RATE),
         avgFillRate:          n(invAgg[0]?.AVG_FILL_RATE),
         avgLeadTime:          n(invAgg[0]?.AVG_LEAD_TIME),
-        totalSellable:        n(invAgg[0]?.TOTAL_SELLABLE),
-        totalAged90:          n(invAgg[0]?.TOTAL_AGED_90),
-        totalUnhealthy:       n(invAgg[0]?.TOTAL_UNHEALTHY),
-        totalOos:             n(invAgg[0]?.TOTAL_OOS),
+        // Snapshot metrics: always current (latest snapshot only — not date-range dependent)
+        totalSellable:        n(invSnapshot[0]?.TOTAL_SELLABLE),
+        totalAged90:          n(invSnapshot[0]?.TOTAL_AGED_90),
+        totalUnhealthy:       n(invSnapshot[0]?.TOTAL_UNHEALTHY),
+        totalOos:             n(invSnapshot[0]?.TOTAL_OOS),
       },
       weeklyInventoryTrend: weeklyInv.map(r => ({
         week:          r.WEEK,
@@ -550,26 +558,43 @@ router.get('/vendor/asins', async (req, res, next) => {
           SELECT asin, MAX(title) AS title, MAX(model_number) AS model_number
           FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
           GROUP BY asin
+        ),
+        latest_inv AS (
+          -- Inventory is point-in-time: always use the single most recent snapshot per ASIN.
+          -- Never filter by the date range selector — that only applies to flow metrics
+          -- (revenue, units shipped). Summing multiple daily snapshots inflates on-hand counts.
+          SELECT
+            asin,
+            sellable_on_hand_units,
+            open_purchase_order_units,
+            aged_90_plus_units,
+            unhealthy_units,
+            unfilled_customer_ordered_units,
+            sell_through_rate,
+            vendor_confirmation_rate,
+            receive_fill_rate,
+            avg_vendor_lead_time_days
+          FROM ${SCHEMA}.VENDOR_INVENTORY
+          WHERE client_id = ?
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY asin ORDER BY end_date DESC, start_date DESC) = 1
         )
         SELECT
           i.asin,
           MAX(bp.title)                       AS title,
           MAX(bp.model_number)                AS model_number,
-          SUM(i.sellable_on_hand_units)       AS sellable_on_hand,
-          SUM(i.open_purchase_order_units)    AS open_po_units,
-          SUM(i.aged_90_plus_units)           AS aged_90_plus,
-          SUM(i.unhealthy_units)              AS unhealthy,
-          SUM(i.unfilled_customer_ordered_units) AS oos_units,
-          AVG(i.sell_through_rate)            AS sell_through,
-          AVG(CASE WHEN i.vendor_confirmation_rate > 0 THEN i.vendor_confirmation_rate END) AS conf_rate,
-          AVG(i.receive_fill_rate)            AS fill_rate,
-          AVG(i.avg_vendor_lead_time_days)    AS lead_time
-        FROM ${SCHEMA}.VENDOR_INVENTORY i
+          i.sellable_on_hand_units            AS sellable_on_hand,
+          i.open_purchase_order_units         AS open_po_units,
+          i.aged_90_plus_units                AS aged_90_plus,
+          i.unhealthy_units                   AS unhealthy,
+          i.unfilled_customer_ordered_units   AS oos_units,
+          i.sell_through_rate                 AS sell_through,
+          CASE WHEN i.vendor_confirmation_rate > 0 THEN i.vendor_confirmation_rate ELSE NULL END AS conf_rate,
+          i.receive_fill_rate                 AS fill_rate,
+          i.avg_vendor_lead_time_days         AS lead_time
+        FROM latest_inv i
         LEFT JOIN best_product bp ON bp.asin = i.asin
-        WHERE i.client_id = ? AND i.start_date >= ?
-        GROUP BY i.asin
         ORDER BY sellable_on_hand DESC NULLS LAST
-      `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, CLIENT_ID]),
 
       // Per-ASIN shipped_cogs (AD_CAMPAIGN has no ASIN column, so ad spend is total-only)
       query(`
