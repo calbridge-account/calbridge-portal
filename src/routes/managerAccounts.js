@@ -235,23 +235,55 @@ router.put('/advertisers/:id', async (req, res) => {
 
 // ─── GET /manager/users ───────────────────────────────────────────────────────
 // Lists all users with access to any advertiser under this manager.
+// Falls back to reading from clients.team_members if the new tables are empty.
 
 router.get('/users', async (req, res) => {
   try {
-    const { managerId } = await resolveManagerContext(req.session.clientId);
+    const clientId   = req.session.clientId;
+    const { managerId } = await resolveManagerContext(clientId);
 
-    const rows = await query(
-      `SELECT u.user_id, u.email, u.name, u.created_at,
-              a.advertiser_id, a.name AS advertiser_name, uaa.role
-       FROM CALBRIDGE_PROD.APP.users u
-       JOIN CALBRIDGE_PROD.APP.user_advertiser_access uaa
-         ON u.user_id = uaa.user_id
-       JOIN CALBRIDGE_PROD.APP.advertiser_accounts a
-         ON uaa.advertiser_id = a.advertiser_id
-       WHERE a.manager_id = ?
-       ORDER BY u.email, a.name`,
-      [managerId]
-    );
+    // Try new tables first
+    let rows = [];
+    try {
+      rows = await query(
+        `SELECT u.user_id, u.email, u.name, u.created_at,
+                a.advertiser_id, a.name AS advertiser_name, uaa.role
+         FROM CALBRIDGE_PROD.APP.users u
+         JOIN CALBRIDGE_PROD.APP.user_advertiser_access uaa
+           ON u.user_id = uaa.user_id
+         JOIN CALBRIDGE_PROD.APP.advertiser_accounts a
+           ON uaa.advertiser_id = a.advertiser_id
+         WHERE a.manager_id = ?
+         ORDER BY u.email, a.name`,
+        [managerId]
+      );
+    } catch (queryErr) {
+      console.warn('[GET /manager/users] New tables query failed, using fallback:', queryErr.message);
+    }
+
+    // If new tables are empty, fall back to clients.team_members JSON
+    if (!rows.length) {
+      const fallbackRows = await query(
+        'SELECT team_members FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+        [clientId]
+      );
+      const teamMembers = fallbackRows[0]?.TEAM_MEMBERS
+        ? (typeof fallbackRows[0].TEAM_MEMBERS === 'string'
+            ? JSON.parse(fallbackRows[0].TEAM_MEMBERS)
+            : fallbackRows[0].TEAM_MEMBERS)
+        : [];
+      // Shape to match new-table response format
+      rows = teamMembers.map(m => ({
+        USER_ID:        m.id,
+        EMAIL:          m.email,
+        NAME:           m.name,
+        ROLE:           m.role,
+        CREATED_AT:     m.invitedAt,
+        ADVERTISER_ID:  clientId,
+        ADVERTISER_NAME: null,
+        source: 'legacy_team_members',
+      }));
+    }
 
     return res.json(rows);
   } catch (err) {
@@ -262,10 +294,12 @@ router.get('/users', async (req, res) => {
 
 // ─── POST /manager/users/invite ───────────────────────────────────────────────
 // Invite a user: create user row (if not exists) + user_advertiser_access row.
+// Also dual-writes to the legacy clients.team_members JSON for backward compat.
 
 router.post('/users/invite', async (req, res) => {
   try {
-    const { managerId } = await resolveManagerContext(req.session.clientId);
+    const clientId   = req.session.clientId;
+    const { managerId } = await resolveManagerContext(clientId);
     const { email, advertiser_id, role = 'viewer', name } = req.body;
 
     if (!email || !email.trim()) {
@@ -280,6 +314,8 @@ router.post('/users/invite', async (req, res) => {
       return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
     }
 
+    const normalEmail = email.trim().toLowerCase();
+
     // Verify the advertiser belongs to this manager
     const advertiserCheck = await query(
       `SELECT advertiser_id FROM CALBRIDGE_PROD.APP.advertiser_accounts
@@ -291,10 +327,10 @@ router.post('/users/invite', async (req, res) => {
       return res.status(404).json({ error: 'Advertiser account not found' });
     }
 
-    // Find or create the user
+    // ── New table: find or create the user ──────────────────────────────────
     const existingUser = await query(
       'SELECT user_id FROM CALBRIDGE_PROD.APP.users WHERE email = ?',
-      [email.trim().toLowerCase()]
+      [normalEmail]
     );
 
     let userId;
@@ -304,9 +340,9 @@ router.post('/users/invite', async (req, res) => {
       userId = crypto.randomUUID();
       await query(
         `INSERT INTO CALBRIDGE_PROD.APP.users
-           (user_id, email, name, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-        [userId, email.trim().toLowerCase(), (name || '').trim() || null]
+           (user_id, client_id, email, name, role, is_active, invited_at, created_at)
+         VALUES (?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [userId, userId, normalEmail, (name || '').trim() || null, role]
       );
     }
 
@@ -321,7 +357,43 @@ router.post('/users/invite', async (req, res) => {
       [userId, advertiser_id, role]
     );
 
-    return res.status(201).json({ userId, email: email.trim().toLowerCase(), advertiser_id, role });
+    // ── Legacy dual-write: also update clients.team_members JSON ────────────
+    // Map new 4-tier role back to legacy 2-tier role for backward compat
+    const legacyRole = (role === 'owner' || role === 'manager') ? 'admin' : 'viewer';
+    try {
+      const parentRows = await query(
+        'SELECT team_members FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+        [clientId]
+      );
+      const members = parentRows[0]?.TEAM_MEMBERS
+        ? (typeof parentRows[0].TEAM_MEMBERS === 'string'
+            ? JSON.parse(parentRows[0].TEAM_MEMBERS)
+            : parentRows[0].TEAM_MEMBERS)
+        : [];
+
+      const existing = members.find(m => m.email === normalEmail);
+      if (existing) {
+        existing.role = legacyRole;
+      } else {
+        members.push({
+          id:        userId,
+          email:     normalEmail,
+          name:      (name || '').trim() || normalEmail,
+          role:      legacyRole,
+          invitedAt: new Date().toISOString(),
+          status:    'pending',
+        });
+      }
+      await query(
+        'UPDATE CALBRIDGE_PROD.APP.clients SET team_members = ? WHERE client_id = ?',
+        [JSON.stringify(members), clientId]
+      );
+    } catch (legacyErr) {
+      // Non-fatal — new tables are the source of truth going forward
+      console.warn('[POST /manager/users/invite] Legacy dual-write failed:', legacyErr.message);
+    }
+
+    return res.status(201).json({ userId, email: normalEmail, advertiser_id, role });
   } catch (err) {
     console.error('[POST /manager/users/invite]', err);
     return res.status(500).json({ error: 'Internal server error' });
