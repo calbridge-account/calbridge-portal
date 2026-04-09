@@ -44,30 +44,28 @@ router.get('/campaigns/available', async (req, res) => {
     // Use ad_campaigns as the source for the picker — one row per campaign, fast.
     // Normalize campaign_type (Amazon raw: 'sponsoredProducts') to short code (SP/SB/SD/DSP)
     // so it fits the AD_TYPE column (max 32 chars) and is consistent with adjusted_campaign_performance.
+    // Source campaigns from adjusted_campaign_performance — these are the actual
+    // campaign IDs that have real spend data. ad_campaigns uses IDs from the entity
+    // API which can come from different profiles and won't match performance data.
     const rows = await query(
       `SELECT
-         campaign_id,
+         MAX_BY(campaign_id, adjusted_spend)  AS campaign_id,
          campaign_name,
-         status,
-         CASE campaign_type
-           WHEN 'sponsoredProducts' THEN 'SP'
-           WHEN 'sponsoredBrands'   THEN 'SB'
-           WHEN 'sponsoredDisplay'  THEN 'SD'
-           WHEN 'hsa'               THEN 'SB'
-           ELSE UPPER(campaign_type)
-         END AS ad_type
-       FROM ${SCHEMA}.AD_CAMPAIGNS
+         ad_type,
+         SUM(adjusted_spend)                  AS total_spend,
+         MAX(date)                            AS last_active
+       FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
        WHERE client_id = ?
-       ORDER BY
-         CASE status WHEN 'enabled' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
-         campaign_name ASC`,
+       GROUP BY campaign_name, ad_type
+       ORDER BY total_spend DESC NULLS LAST`,
       [clientId]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
       campaign_name: r.CAMPAIGN_NAME || r.campaign_name,
       ad_type:       r.AD_TYPE       || r.ad_type,
-      status:        (r.STATUS       || r.status || '').toLowerCase(),
+      status:        'active',
+      last_active:   r.LAST_ACTIVE   ? String(r.LAST_ACTIVE).substring(0,10) : null,
     })));
   } catch (err) {
     console.error('[Budgets] available campaigns error:', err.message);
