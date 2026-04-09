@@ -233,20 +233,24 @@ router.get('/overview', async (req, res, next) => {
 
       // Top 10 ASINs by shipped revenue (last 4 weeks) + their ad spend
       query(`
+        WITH best_product AS (
+          SELECT asin, MAX(title) AS title
+          FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+          GROUP BY asin
+        )
         SELECT
           s.asin,
-          MAX(p.title)           AS title,
+          MAX(bp.title)          AS title,
           SUM(s.shipped_revenue) AS shipped_revenue,
           SUM(s.shipped_units)   AS shipped_units,
           SUM(s.shipped_cogs)    AS shipped_cogs
         FROM ${SCHEMA}.VENDOR_SALES s
-        LEFT JOIN ${SCHEMA}.PRODUCTS p
-          ON p.client_id = s.client_id AND p.asin = s.asin
+        LEFT JOIN best_product bp ON bp.asin = s.asin
         WHERE s.client_id = ? AND s.start_date >= DATEADD('week', -4, CURRENT_DATE)
         GROUP BY s.asin
         ORDER BY shipped_revenue DESC NULLS LAST
         LIMIT 10
-      `, [CLIENT_ID]),
+      `, [CLIENT_ID, CLIENT_ID]),
 
       // Demand forecast table: top 20 ASINs by mean forecast (next 4 weeks summed)
       query(`
@@ -541,10 +545,16 @@ router.get('/vendor/asins', async (req, res, next) => {
 
     const [rows, shippedCogsByAsin] = await Promise.all([
       query(`
+        WITH best_product AS (
+          -- Collapse products to one row per ASIN (ads+vendor rows exist; prefer non-null title)
+          SELECT asin, MAX(title) AS title, MAX(model_number) AS model_number
+          FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+          GROUP BY asin
+        )
         SELECT
           i.asin,
-          MAX(p.title)                        AS title,
-          MAX(p.model_number)                 AS model_number,
+          MAX(bp.title)                       AS title,
+          MAX(bp.model_number)                AS model_number,
           SUM(i.sellable_on_hand_units)       AS sellable_on_hand,
           SUM(i.open_purchase_order_units)    AS open_po_units,
           SUM(i.aged_90_plus_units)           AS aged_90_plus,
@@ -555,12 +565,11 @@ router.get('/vendor/asins', async (req, res, next) => {
           AVG(i.receive_fill_rate)            AS fill_rate,
           AVG(i.avg_vendor_lead_time_days)    AS lead_time
         FROM ${SCHEMA}.VENDOR_INVENTORY i
-        LEFT JOIN ${SCHEMA}.PRODUCTS p
-          ON p.client_id = i.client_id AND p.asin = i.asin
+        LEFT JOIN best_product bp ON bp.asin = i.asin
         WHERE i.client_id = ? AND i.start_date >= ?
         GROUP BY i.asin
         ORDER BY sellable_on_hand DESC NULLS LAST
-      `, [CLIENT_ID, cutoff, rangeEnd]),
+      `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd]),
 
       // Per-ASIN shipped_cogs (AD_CAMPAIGN has no ASIN column, so ad spend is total-only)
       query(`
@@ -1308,30 +1317,23 @@ router.get('/inventory-detail', requireAuth, async (req, res, next) => {
     const CLIENT_ID = getClientId(req);
 
     const rows = await query(`
-      WITH latest_snapshot AS (
+      WITH latest_inv AS (
+        -- Deduplicate: take exactly one row per ASIN (the most recent end_date).
+        -- QUALIFY removes any duplicate rows sharing the same asin+end_date
+        -- (e.g. from re-ingestion runs on the same day).
         SELECT
           asin,
-          MAX(end_date) AS latest_date
+          end_date                           AS snapshot_date,
+          sellable_on_hand_units,
+          unsellable_on_hand_units,
+          open_purchase_order_units,
+          unfilled_customer_ordered_units,
+          aged_90_plus_units,
+          sell_through_rate,
+          avg_vendor_lead_time_days
         FROM ${SCHEMA}.VENDOR_INVENTORY
         WHERE client_id = ?
-        GROUP BY asin
-      ),
-      inv AS (
-        SELECT
-          vi.asin,
-          vi.end_date                        AS snapshot_date,
-          vi.sellable_on_hand_units,
-          vi.unsellable_on_hand_units,
-          vi.open_purchase_order_units,
-          vi.unfilled_customer_ordered_units,
-          vi.aged_90_plus_units,
-          vi.sell_through_rate,
-          vi.avg_vendor_lead_time_days
-        FROM ${SCHEMA}.VENDOR_INVENTORY vi
-        JOIN latest_snapshot ls
-          ON vi.asin = ls.asin
-          AND vi.end_date = ls.latest_date
-          AND vi.client_id = ?
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY asin ORDER BY end_date DESC, start_date DESC) = 1
       ),
       weekly_shipped AS (
         SELECT
@@ -1341,10 +1343,19 @@ router.get('/inventory-detail', requireAuth, async (req, res, next) => {
         WHERE client_id = ?
           AND start_date >= DATEADD('week', -4, CURRENT_DATE)
         GROUP BY asin
+      ),
+      -- Collapse products to one row per ASIN, preferring non-null titles.
+      -- Products can have two rows (ads + vendor connection_type); we want the best title.
+      best_product AS (
+        SELECT asin, MAX(title) AS title, MAX(model_number) AS model_number
+        FROM ${SCHEMA}.PRODUCTS
+        WHERE client_id = ?
+        GROUP BY asin
       )
       SELECT
         inv.asin,
-        p.title,
+        bp.title,
+        bp.model_number,
         inv.sellable_on_hand_units,
         inv.unsellable_on_hand_units,
         inv.open_purchase_order_units,
@@ -1359,13 +1370,11 @@ router.get('/inventory-detail', requireAuth, async (req, res, next) => {
           ELSE NULL
         END AS weeks_of_cover,
         inv.snapshot_date
-      FROM inv
-      LEFT JOIN ${SCHEMA}.PRODUCTS p
-        ON p.asin = inv.asin AND p.client_id = ?
-      LEFT JOIN weekly_shipped ws
-        ON ws.asin = inv.asin
+      FROM latest_inv inv
+      LEFT JOIN best_product bp ON bp.asin = inv.asin
+      LEFT JOIN weekly_shipped ws ON ws.asin = inv.asin
       ORDER BY inv.sellable_on_hand_units DESC NULLS LAST
-    `, [CLIENT_ID, CLIENT_ID, CLIENT_ID, CLIENT_ID]);
+    `, [CLIENT_ID, CLIENT_ID, CLIENT_ID]);
 
     const out = rows.map(r => ({
       asin:              r.ASIN,
@@ -1394,9 +1403,15 @@ router.get('/po-summary', requireAuth, async (req, res, next) => {
     const CLIENT_ID = getClientId(req);
 
     const rows = await query(`
+      WITH best_product AS (
+          -- Collapse products to one row per ASIN (ads+vendor rows exist; prefer non-null title)
+          SELECT asin, MAX(title) AS title
+          FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+          GROUP BY asin
+        )
       SELECT
         po.asin,
-        p.title,
+        MAX(bp.title)                                                AS title,
         SUM(po.units_ordered)                                        AS total_units_ordered,
         SUM(po.units_received)                                       AS total_units_received,
         SUM(po.units_ordered) - SUM(po.units_received)               AS open_units,
@@ -1409,12 +1424,11 @@ router.get('/po-summary', requireAuth, async (req, res, next) => {
           END
         )                                                            AS avg_lead_time_days
       FROM ${SCHEMA}.VENDOR_PURCHASE_ORDERS po
-      LEFT JOIN ${SCHEMA}.PRODUCTS p
-        ON p.asin = po.asin AND p.client_id = ?
+      LEFT JOIN best_product bp ON bp.asin = po.asin
       WHERE po.client_id = ?
-      GROUP BY po.asin, p.title
+      GROUP BY po.asin
       ORDER BY total_units_ordered DESC NULLS LAST
-    `, [CLIENT_ID, CLIENT_ID]);
+    `, [CLIENT_ID, CLIENT_ID, CLIENT_ID]);
 
     const out = rows.map(r => ({
       asin:              r.ASIN,
