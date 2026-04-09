@@ -137,7 +137,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
   // Rolling refresh: reset the most recent window back to pending so every run
   // re-fetches fresh same-day data from Amazon.
-  // Only resets entries completed >6 hours ago to avoid re-downloading data
+  // Only resets entries completed >1 hour ago to avoid re-downloading data
   // that was just written in the current cycle.
   const latestWindow = windows[windows.length - 1]; // most recent (today)
   try {
@@ -146,7 +146,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
       SET status = 'pending', completed_at = NULL, error_message = NULL
       WHERE report_date = ?
         AND status = 'completed'
-        AND (completed_at IS NULL OR completed_at < DATEADD('hour', -6, CURRENT_TIMESTAMP()))
+        AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))
     `, [latestWindow.rangeKey]);
     const n = resetCount?.[0]?.['number of rows updated'] || 0;
     if (n > 0) console.log(`[submitReports] Rolling refresh: reset ${n} completed reports for window ${latestWindow.rangeKey}`);
