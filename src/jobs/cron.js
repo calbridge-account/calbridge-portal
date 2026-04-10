@@ -300,13 +300,14 @@ const CRON_SCHEDULE = [
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
   },
 
-  // ── Hourly — DSP (separate API, advertiser-scoped auth) ───────────────
-  // Increased from every 6h to every 1h to match SP/SB/SD intra-day refresh cadence.
-  // DSP uses the same /reporting/reports endpoint and ads_report_queue flow;
-  // the rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads.
+  // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
+  // Runs 4× per day: 00:00, 06:00, 12:00, 18:00 UTC.
+  // Now ingests all 5 report grains: campaign, order, lineItem, audience, product.
+  // The rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads
+  // within the same cycle.
   {
     jobId: 'ingest_dsp',
-    expr:  '0 * * * *',   // every hour at :00
+    expr:  '0 */6 * * *',  // every 6 hours at :00
   },
 
   // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)

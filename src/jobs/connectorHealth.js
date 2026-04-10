@@ -92,12 +92,21 @@ async function getConnectionsFromClients() {
 
 /**
  * Test whether a token is actually valid by calling a lightweight endpoint.
- * For ads: GET /v2/profiles  For SP-API: GET /sellers/v1/marketplaceParticipations
+ *
+ * - ads/dsp:   GET /v2/profiles  (Advertising API)
+ * - seller:    GET /sellers/v1/marketplaceParticipations  (Seller Central SP-API)
+ * - vendor:    GET /vendor/orders/v1/purchaseOrders?limit=1  (Vendor Central SP-API)
+ *
+ * Note: seller and vendor tokens are scoped differently — using the seller
+ * endpoint to probe a vendor token will always 403, so we route them separately.
  */
 async function probeToken(connectionType, accessToken) {
-  const isAds = connectionType === 'ads' || connectionType === 'dsp';
+  const base = process.env.NODE_ENV === 'production'
+    ? 'https://sellingpartnerapi-na.amazon.com'
+    : 'https://sandbox.sellingpartnerapi-na.amazon.com';
+
   try {
-    if (isAds) {
+    if (connectionType === 'ads' || connectionType === 'dsp') {
       await axios.get('https://advertising-api.amazon.com/v2/profiles', {
         headers: {
           'Authorization':                    `Bearer ${accessToken}`,
@@ -105,10 +114,16 @@ async function probeToken(connectionType, accessToken) {
         },
         timeout: 10000,
       });
+    } else if (connectionType === 'vendor') {
+      // Vendor Central SP-API token — probe with a vendor-scoped endpoint
+      const createdAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      await axios.get(`${base}/vendor/orders/v1/purchaseOrders`, {
+        params: { limit: 1, createdAfter },
+        headers: { 'x-amz-access-token': accessToken },
+        timeout: 10000,
+      });
     } else {
-      const base = process.env.NODE_ENV === 'production'
-        ? 'https://sellingpartnerapi-na.amazon.com'
-        : 'https://sandbox.sellingpartnerapi-na.amazon.com';
+      // seller (and any future SP-API types)
       await axios.get(`${base}/sellers/v1/marketplaceParticipations`, {
         headers: { 'x-amz-access-token': accessToken },
         timeout: 10000,

@@ -1816,6 +1816,168 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   });
 }
 
+// ── DSP Order Report ─────────────────────────────────────────────────────────
+async function writeDspOrderReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|')
+    ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    advertiser_id:              String(r.advertiserId || advertiserId),
+    profile_id:                 realProfileId,
+    client_id:                  clientId,
+    date:                       String(r.date || '').substring(0, 10) || null,
+    order_id:                   String(r.orderId || ''),
+    order_name:                 r.orderName     || null,
+    order_budget:               r.orderBudget   || null,
+    order_start_date:           r.orderStartDate ? String(r.orderStartDate).substring(0, 10) : null,
+    order_end_date:             r.orderEndDate   ? String(r.orderEndDate).substring(0, 10)   : null,
+    order_currency:             r.orderCurrency  || null,
+    advertiser_name:            r.advertiserName || null,
+    impressions:                r.impressions    || 0,
+    clicks:                     r.clicks         || 0,
+    total_cost:                 r.totalCost      || 0,
+    sales:                      r.sales          || null,
+    total_sales:                r.totalSales     || null,
+    purchases:                  r.purchases      || null,
+    total_purchases:            r.totalPurchases || null,
+    new_to_brand_purchases:     r.newToBrandPurchases    || null,
+    new_to_brand_product_sales: r.newToBrandProductSales || null,
+    detail_page_views:          r.detailPageViews || null,
+    add_to_cart:                r.addToCart       || null,
+  }));
+  return batchMerge({
+    table: 'dsp_order_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'order_id'],
+    dataColumns: [
+      'advertiser_id', 'order_name', 'order_budget', 'order_start_date', 'order_end_date',
+      'order_currency', 'advertiser_name',
+      'impressions', 'clicks', 'total_cost',
+      'sales', 'total_sales', 'purchases', 'total_purchases',
+      'new_to_brand_purchases', 'new_to_brand_product_sales',
+      'detail_page_views', 'add_to_cart',
+    ],
+    dateColumns: ['date', 'order_start_date', 'order_end_date'],
+    rows: mapped,
+  });
+}
+
+// ── DSP Line Item Report ──────────────────────────────────────────────────────
+async function writeDspLineItemReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|')
+    ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    advertiser_id:                  String(r.advertiserId || advertiserId),
+    profile_id:                     realProfileId,
+    client_id:                      clientId,
+    date:                           String(r.date || '').substring(0, 10) || null,
+    line_item_id:                   String(r.lineItemId || ''),
+    line_item_name:                 r.lineItemName || null,
+    order_id:                       String(r.orderId || ''),
+    order_name:                     r.orderName    || null,
+    impressions:                    r.impressions  || 0,
+    clicks:                         r.clicks       || 0,
+    total_cost:                     r.totalCost    || 0,
+    sales:                          r.sales        || null,
+    purchases:                      r.purchases    || null,
+    new_to_brand_purchases:         r.newToBrandPurchases       || null,
+    new_to_brand_purchases_clicks:  r.newToBrandPurchasesClicks || null,
+    viewable_impressions:           r.viewableImpressions       || null,
+    viewability_rate:               r.viewabilityRate           || null,
+    detail_page_views:              r.detailPageViews           || null,
+    add_to_cart:                    r.addToCart                 || null,
+    video_ad_start:                 r.videoAdStart              || null,
+    video_ad_complete:              r.videoAdComplete           || null,
+  }));
+  return batchMerge({
+    table: 'dsp_line_item_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'line_item_id'],
+    dataColumns: [
+      'advertiser_id', 'line_item_name', 'order_id', 'order_name',
+      'impressions', 'clicks', 'total_cost',
+      'sales', 'purchases', 'new_to_brand_purchases', 'new_to_brand_purchases_clicks',
+      'viewable_impressions', 'viewability_rate',
+      'detail_page_views', 'add_to_cart',
+      'video_ad_start', 'video_ad_complete',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+// ── DSP Audience Report ───────────────────────────────────────────────────────
+async function writeDspAudienceReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|')
+    ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    advertiser_id:          String(r.advertiserId || advertiserId),
+    profile_id:             realProfileId,
+    client_id:              clientId,
+    date:                   String(r.date || '').substring(0, 10) || null,
+    audience_id:            String(r.audienceSegmentId || ''),
+    audience_name:          r.audienceSegmentName || null,
+    order_id:               String(r.orderId || ''),
+    impressions:            r.impressions           || 0,
+    clicks:                 r.clicks                || 0,
+    total_cost:             r.totalCost             || 0,
+    sales:                  r.sales                 || null,
+    purchases:              r.purchases             || null,
+    new_to_brand_purchases: r.newToBrandPurchases   || null,
+    detail_page_views:      r.detailPageViews       || null,
+    add_to_cart:            r.addToCart             || null,
+  }));
+  return batchMerge({
+    table: 'dsp_audience_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'audience_id', 'order_id'],
+    dataColumns: [
+      'advertiser_id', 'audience_name',
+      'impressions', 'clicks', 'total_cost',
+      'sales', 'purchases', 'new_to_brand_purchases',
+      'detail_page_views', 'add_to_cart',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+// ── DSP Product Report ────────────────────────────────────────────────────────
+async function writeDspProductReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|')
+    ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    advertiser_id:          String(r.advertiserId || advertiserId),
+    profile_id:             realProfileId,
+    client_id:              clientId,
+    date:                   String(r.date || '').substring(0, 10) || null,
+    asin:                   String(r.asin || ''),
+    product_name:           r.productName           || null,
+    order_id:               String(r.orderId || ''),
+    impressions:            r.impressions            || 0,
+    clicks:                 r.clicks                 || 0,
+    total_cost:             r.totalCost              || 0,
+    purchases:              r.purchases              || null,
+    purchases_clicks:       r.purchasesClicks        || null,
+    sales:                  r.sales                  || null,
+    new_to_brand_purchases: r.newToBrandPurchases    || null,
+    detail_page_views:      r.detailPageViews        || null,
+    add_to_cart:            r.addToCart              || null,
+  }));
+  return batchMerge({
+    table: 'dsp_product_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'asin', 'order_id'],
+    dataColumns: [
+      'advertiser_id', 'product_name',
+      'impressions', 'clicks', 'total_cost',
+      'purchases', 'purchases_clicks', 'sales', 'new_to_brand_purchases',
+      'detail_page_views', 'add_to_cart',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
 // ── Generic Gross & Invalid Traffic writer ──────────────────────────────────
 async function writeGrossAndInvalidReport(table, clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
@@ -1906,7 +2068,12 @@ const WRITE_FNS = {
   sbGrossAndInvalids: (c,p,d,rows) => writeGrossAndInvalidReport('sb_gross_and_invalid_report',c,p,d,rows),
   sdGrossAndInvalids: (c,p,d,rows) => writeGrossAndInvalidReport('sd_gross_and_invalid_report',c,p,d,rows),
   // DSP — reportTypeId is always 'dspCampaign'; key varies by groupBy
-  dspCampaign:  writeDspCampaignReport,    // groupBy: ['campaign'] — actual DSP data
+  // DSP — reportTypeId is always 'dspCampaign'; key distinguishes groupBy grain
+  dspCampaign:  writeDspCampaignReport,    // groupBy: ['campaign']
+  dspOrder:     writeDspOrderReport,       // groupBy: ['order']
+  dspLineItem:  writeDspLineItemReport,    // groupBy: ['lineItem']
+  dspAudience:  writeDspAudienceReport,   // groupBy: ['audience']
+  dspProduct:   writeDspProductReport,    // groupBy: ['product']
 };
 
 // ============================================================
@@ -2399,14 +2566,14 @@ async function requestDspReport(client, profileId, advertiserId, reportTypeId, g
 }
 
 /**
- * DSP report type definitions — 3 requests, all using reportTypeId: 'dspCampaign'.
- * This is the ONLY valid DSP v3 reportTypeId. Vary groupBy for different data grains.
- * timeUnit: DAILY returns one row per day across the full startDate→endDate window.
+ * DSP report type definitions — all use reportTypeId: 'dspCampaign' (the only valid DSP v3
+ * reportTypeId). Vary groupBy for different data grains. timeUnit: DAILY returns one row per
+ * day across the full startDate→endDate window.
  *
  * Valid groupBy values: campaign, order, lineItem, audience, product, geography, supply, creative
- * DO NOT invent: dspOrder, dspLineItem, dspAudience, dspProduct — these are not valid reportTypeIds.
+ * NOTE: 'dspOrder', 'dspLineItem', etc. are NOT reportTypeIds — they are only used as queue keys.
  */
-// Validated against live API 2026-03-26
+// Validated against live API 2026-03-26; expanded 2026-04-10
 const DSP_REPORT_TYPES = [
   {
     key:          'dspCampaign',
@@ -2423,6 +2590,61 @@ const DSP_REPORT_TYPES = [
       'totalPurchases', 'totalPurchasesClicks',
       'sales', 'totalSales',
       'newToBrandPurchases', 'newToBrandPurchasesClicks', 'newToBrandProductSales',
+    ],
+  },
+  {
+    key:          'dspOrder',
+    reportTypeId: 'dspCampaign',
+    groupBy:      ['order'],
+    columns:      [
+      'date', 'orderId', 'orderName', 'orderBudget', 'orderStartDate', 'orderEndDate', 'orderCurrency',
+      'advertiserId', 'advertiserName',
+      'impressions', 'clicks', 'totalCost',
+      'sales', 'totalSales',
+      'purchases', 'totalPurchases',
+      'newToBrandPurchases', 'newToBrandProductSales',
+      'detailPageViews', 'addToCart',
+    ],
+  },
+  {
+    key:          'dspLineItem',
+    reportTypeId: 'dspCampaign',
+    groupBy:      ['lineItem'],
+    columns:      [
+      'date', 'lineItemId', 'lineItemName', 'orderId', 'orderName',
+      'advertiserId', 'advertiserName',
+      'impressions', 'clicks', 'totalCost',
+      'viewableImpressions', 'viewabilityRate',
+      'sales', 'purchases',
+      'newToBrandPurchases', 'newToBrandPurchasesClicks',
+      'detailPageViews', 'addToCart',
+      'videoAdStart', 'videoAdComplete',
+    ],
+  },
+  {
+    key:          'dspAudience',
+    reportTypeId: 'dspCampaign',
+    groupBy:      ['audience'],
+    columns:      [
+      'date', 'audienceSegmentId', 'audienceSegmentName', 'orderId',
+      'advertiserId', 'advertiserName',
+      'impressions', 'clicks', 'totalCost',
+      'sales', 'purchases',
+      'newToBrandPurchases',
+      'detailPageViews', 'addToCart',
+    ],
+  },
+  {
+    key:          'dspProduct',
+    reportTypeId: 'dspCampaign',
+    groupBy:      ['product'],
+    columns:      [
+      'date', 'asin', 'productName', 'orderId',
+      'advertiserId', 'advertiserName',
+      'impressions', 'clicks', 'totalCost',
+      'purchases', 'purchasesClicks',
+      'sales', 'newToBrandPurchases',
+      'detailPageViews', 'addToCart',
     ],
   },
 ];
@@ -2479,7 +2701,7 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
     try {
       const reset = await query(
         `UPDATE ads_report_queue SET status='pending', completed_at=NULL, error_message=NULL
-         WHERE report_date=? AND report_type='dspCampaign' AND status='completed'
+         WHERE report_date=? AND report_type IN ('dspCampaign','dspOrder','dspLineItem','dspAudience','dspProduct') AND status='completed'
            AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))`,
         [latestRangeKey]
       );
@@ -2510,8 +2732,13 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
 
         for (const rt of DSP_REPORT_TYPES) {
           const existing = await query(
-            'SELECT COUNT(*) as cnt FROM ads_report_queue WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=? AND status IN (?,?)',
-            [targetClientId, rt.key, windowKey, queueProfileId, 'pending', 'completed']
+            `SELECT COUNT(*) as cnt FROM ads_report_queue
+             WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
+               AND (
+                 status IN ('pending','ready','completed')
+                 OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
+               )`,
+            [targetClientId, rt.key, windowKey, queueProfileId]
           );
           if (Number(existing[0]?.CNT||0) > 0) continue;
 

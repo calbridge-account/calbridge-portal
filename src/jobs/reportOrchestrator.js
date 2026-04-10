@@ -249,13 +249,15 @@ async function pollReportStatus({ triggeredBy = 'cron' } = {}) {
   const runId = await startJob('poll_report_status', 'system', triggeredBy);
 
   try {
-    // Fetch all pending reports across all clients, oldest first
+    // Fetch all pending reports across all clients, oldest first.
+    // Window is 30 days to cover any reports that fell outside a prior
+    // narrow poll window (e.g. submitted late at night and not picked up).
     const pending = await query(`
       SELECT report_id, client_id, connection_type, profile_id, requested_at,
              COALESCE(owner_client_id, client_id) AS token_client_id
       FROM ads_report_queue
       WHERE status = 'pending'
-        AND requested_at >= DATEADD('hour', -4, CURRENT_TIMESTAMP())
+        AND requested_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
       ORDER BY requested_at ASC
       LIMIT ?
     `, [POLL_BATCH_SIZE]);
