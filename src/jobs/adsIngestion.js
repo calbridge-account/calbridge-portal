@@ -1748,14 +1748,17 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     trustedAdvertiserIds = null;
   }
 
-  const filteredRows = trustedAdvertiserIds
-    ? rows.filter(r => {
-        const aid = String(r.advertiserId || advertiserId);
-        const trusted = trustedAdvertiserIds.has(aid);
-        if (!trusted) console.warn(`[DSP] Rejecting row with unknown advertiserId ${aid} (truncation artifact)`);
-        return trusted;
-      })
-    : rows;
+  // Instead of rejecting rows with unrecognized IDs (silent data loss when Amazon
+  // returns truncated 64-bit integers), fall back to the known-good advertiserId
+  // from the ingestion context. This prevents truncation artifacts from dropping data.
+  const filteredRows = rows.map(r => {
+    const aid = String(r.advertiserId || advertiserId);
+    if (trustedAdvertiserIds && !trustedAdvertiserIds.has(aid)) {
+      console.warn(`[DSP] Correcting truncated advertiserId ${aid} → ${advertiserId}`);
+      return { ...r, advertiserId };
+    }
+    return r;
+  });
 
   if (!filteredRows.length) return 0;
 
@@ -2688,7 +2691,8 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
             `SELECT COUNT(*) as cnt FROM ads_report_queue
              WHERE client_id=? AND report_type=? AND report_date=? AND profile_id=?
                AND (
-                 status IN ('pending','ready','completed')
+                 status IN ('pending','ready')
+                 OR (status = 'completed' AND COALESCE(records_written, 0) > 0)
                  OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
                )`,
             [targetClientId, rt.key, windowKey, queueProfileId]
