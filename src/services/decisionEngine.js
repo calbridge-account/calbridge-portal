@@ -236,22 +236,30 @@ function profileFilter(authorizedProfiles) {
 function loadSpKeywords(clientId, days, authorizedProfiles) {
   return query(`
     SELECT
-      keyword_id, targeting AS keyword_text, targeting, match_type, keyword_bid,
-      campaign_id, campaign_name, ad_group_id, profile_id,
-      SUM(cost)              AS spend,
-      SUM(sales_30_d)        AS sales,
-      SUM(purchases_30_d)    AS orders,
-      SUM(clicks)            AS clicks,
-      SUM(impressions)       AS impressions
-    FROM CALBRIDGE_PROD.APP.sp_targeting_keyword_report
-    WHERE client_id = ?
-      AND date >= DATEADD('day', -?, CURRENT_DATE())
-      AND ad_keyword_status = 'ENABLED'
-      AND (keyword_type IN ('BROAD','PHRASE','EXACT') OR keyword_type IS NULL)
+      k.keyword_id, k.targeting AS keyword_text, k.targeting, k.match_type, k.keyword_bid,
+      k.campaign_id,
+      COALESCE(MAX(c.campaign_name), k.campaign_name) AS campaign_name,
+      k.ad_group_id, k.profile_id,
+      SUM(k.cost)              AS spend,
+      SUM(k.sales_30_d)        AS sales,
+      SUM(k.purchases_30_d)    AS orders,
+      SUM(k.clicks)            AS clicks,
+      SUM(k.impressions)       AS impressions
+    FROM CALBRIDGE_PROD.APP.sp_targeting_keyword_report k
+    LEFT JOIN (
+      SELECT DISTINCT campaign_id, MAX(campaign_name) AS campaign_name
+      FROM CALBRIDGE_PROD.APP.sp_campaign_report
+      WHERE client_id = ?
+      GROUP BY campaign_id
+    ) c ON c.campaign_id = k.campaign_id
+    WHERE k.client_id = ?
+      AND k.date >= DATEADD('day', -?, CURRENT_DATE())
+      AND k.ad_keyword_status = 'ENABLED'
+      AND (k.keyword_type IN ('BROAD','PHRASE','EXACT') OR k.keyword_type IS NULL)
       ${profileFilter(authorizedProfiles)}
-    GROUP BY keyword_id, targeting, match_type, keyword_bid, campaign_id, campaign_name, ad_group_id, profile_id
-    HAVING SUM(cost) > 5 OR SUM(clicks) >= ?
-  `, [clientId, days, MIN_CLICKS]);
+    GROUP BY k.keyword_id, k.targeting, k.match_type, k.keyword_bid, k.campaign_id, k.campaign_name, k.ad_group_id, k.profile_id
+    HAVING SUM(k.cost) > 5 OR SUM(k.clicks) >= ?
+  `, [clientId, clientId, days, MIN_CLICKS]);
 }
 
 function loadSbKeywords(clientId, days, authorizedProfiles) {
