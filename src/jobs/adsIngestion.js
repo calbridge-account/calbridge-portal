@@ -1948,9 +1948,12 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   // advertiser_id is still written/updated via dataColumns.
   return batchMerge({
     table: 'dsp_campaign_report',
-    keyColumns: ['client_id', 'profile_id', 'date', 'order_id'],
+    // Key on order_name instead of order_id — 64-bit DSP IDs get truncated by JS Number,
+    // causing the same campaign to appear under multiple order_ids. Using order_name as
+    // the key ensures all truncation variants MERGE into one row instead of creating duplicates.
+    keyColumns: ['client_id', 'profile_id', 'date', 'order_name'],
     dataColumns: [
-      'advertiser_id', 'order_name', 'order_budget', 'order_start_date', 'order_end_date',
+      'advertiser_id', 'order_id', 'order_budget', 'order_start_date', 'order_end_date',
       'order_currency', 'advertiser_name', 'entity_id',
       'impressions', 'clicks', 'total_cost',
       'viewable_impressions', 'viewability_rate',
