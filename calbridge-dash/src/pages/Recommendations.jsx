@@ -24,7 +24,7 @@ const approveOne      = (id)     => postJSON(`/decisions/${id}/approve`);
 const rejectOne       = (id)     => postJSON(`/decisions/${id}/reject`);
 const snoozeOne       = (id)     => postJSON(`/decisions/${id}/snooze`);
 const executeOne      = (id)     => postJSON(`/decisions/execute/${id}`);
-const approveAll      = ()       => postJSON('/decisions/approve-all');
+const approveAll      = (type)   => fetch('/decisions/approve-all', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type: type || null }) }).then(r=>r.json());
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -272,8 +272,8 @@ export default function Recommendations() {
   };
 
   const handleApproveAll = () => withLoading(async () => {
-    const r = await approveAll();
-    showToast(`Approved ${r.approved} recommendations`);
+    const r = await approveAll(typeFilter || null);
+    showToast(`Approved ${r.approved} ${typeFilter ? typeFilter.replace('_',' ') : ''} recommendations`);
   });
 
   return (
@@ -331,8 +331,25 @@ export default function Recommendations() {
               onClick={handleApproveAll}
               disabled={actionLoading || !actions?.length}
               className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors"
+              title={typeFilter ? `Approve all ${typeFilter.replace('_',' ')} recommendations` : 'Approve all pending recommendations'}
             >
-              ✓ Approve All
+              ✓ Approve {typeFilter ? typeFilter.replace(/_/g,' ') : 'All'}
+            </button>
+          )}
+          {activeTab === 'approved' && (
+            <button
+              onClick={() => withLoading(async () => {
+                const ids = (window.__sortedActions || actions || []).map(a => a.actionId);
+                let done = 0, failed = 0;
+                for (const id of ids) {
+                  try { await executeOne(id); done++; } catch { failed++; }
+                }
+                showToast(`Executed ${done}${failed ? `, ${failed} failed` : ''}`);
+              })}
+              disabled={actionLoading || !actions?.length}
+              className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            >
+              ▶ Execute All
             </button>
           )}
         </div>
