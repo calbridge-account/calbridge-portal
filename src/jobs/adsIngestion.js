@@ -1741,6 +1741,92 @@ async function writeSpPurchasedProductReport(clientId, profileId, reportDate, ro
 }
 
 // ============================================================
+// DSP ORDER ID CANONICAL NORMALIZATION
+// ============================================================
+
+/**
+ * Per-ingestion-run cache: maps "clientId:orderName" → canonical order_id string.
+ * Populated lazily on first DSP write in a given Node.js process lifetime.
+ * Cleared and rebuilt each time ingestDsp() runs (call clearDspOrderIdCache()).
+ *
+ * Root cause: Amazon's DSP API returns 64-bit integer order IDs that can be
+ * truncated/rounded differently across report downloads (floating-point precision
+ * loss). The same campaign "CP_US_FY26_DSP_..._Rackmount" may appear as
+ * 586470325001475375 in one download and 586470325001475300 in another.
+ * This causes duplicate rows in dsp_campaign_report and gaps in budget_campaign_map.
+ *
+ * Fix: before writing any DSP row, look up the canonical order_id for that
+ * order_name in the existing data. Always write under the earliest-seen ID.
+ * New campaigns (no prior data) use the ID as-is and it becomes canonical.
+ */
+const _dspOrderIdCache = new Map();   // "clientId:orderName" → canonicalOrderId
+let   _dspOrderIdCacheLoaded = false; // true once we've done the initial bulk load
+
+/**
+ * Reset the DSP order ID cache. Call at the start of each ingestDsp() run so
+ * the lookup reflects the current state of dsp_campaign_report.
+ */
+function clearDspOrderIdCache() {
+  _dspOrderIdCache.clear();
+  _dspOrderIdCacheLoaded = false;
+}
+
+/**
+ * Bulk-load all known (clientId, orderName) → min(order_id) mappings from
+ * dsp_campaign_report into the in-process cache. Runs once per process lifetime
+ * (or after clearDspOrderIdCache()). Subsequent calls are no-ops.
+ *
+ * Using MIN(order_id) as canonical: the first (lowest numeric string) order_id
+ * ever seen for a given order_name is the canonical one. New truncation variants
+ * get mapped to it on write, preventing duplicate rows and budget map gaps.
+ */
+async function loadDspOrderIdCache() {
+  if (_dspOrderIdCacheLoaded) return;
+  try {
+    const rows = await query(`
+      SELECT client_id, order_name, MIN(order_id) AS canonical_order_id
+      FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+      WHERE order_name IS NOT NULL AND order_name != ''
+      GROUP BY client_id, order_name
+    `);
+    for (const r of rows) {
+      const cid  = String(r.CLIENT_ID  || r.client_id  || '');
+      const name = String(r.ORDER_NAME || r.order_name || '').trim();
+      const oid  = String(r.CANONICAL_ORDER_ID || r.canonical_order_id || '');
+      if (cid && name && oid) {
+        _dspOrderIdCache.set(`${cid}:${name}`, oid);
+      }
+    }
+    _dspOrderIdCacheLoaded = true;
+    console.log(`[DSP] Loaded ${_dspOrderIdCache.size} canonical order_id mappings into cache`);
+  } catch (err) {
+    // Non-fatal: if cache load fails, normalization is skipped for this run
+    console.warn('[DSP] Could not load order_id normalization cache (non-fatal):', err.message);
+    _dspOrderIdCacheLoaded = true; // prevent retry loops
+  }
+}
+
+/**
+ * Return the canonical order_id for a given (clientId, orderName, rawOrderId).
+ * If a canonical ID is already known for this order_name, return it.
+ * Otherwise register rawOrderId as the canonical ID and return it.
+ */
+function getCanonicalOrderId(clientId, orderName, rawOrderId) {
+  const key = `${clientId}:${(orderName || '').trim()}`;
+  if (!orderName || !orderName.trim()) return rawOrderId; // no name → can't normalize
+  if (_dspOrderIdCache.has(key)) {
+    const canonical = _dspOrderIdCache.get(key);
+    if (canonical !== rawOrderId) {
+      console.warn(`[DSP] order_id normalization: "${orderName}" ${rawOrderId} → ${canonical}`);
+    }
+    return canonical;
+  }
+  // First time we've seen this order_name for this client — register as canonical
+  _dspOrderIdCache.set(key, rawOrderId);
+  return rawOrderId;
+}
+
+// ============================================================
 // DSP WRITE FUNCTIONS
 // ============================================================
 
@@ -1757,6 +1843,11 @@ async function writeSpPurchasedProductReport(clientId, profileId, reportDate, ro
 /**
  * Write DSP campaign report rows — matches actual Amazon v3 API response columns.
  * Key: advertiser_id + profile_id + date + order_id
+ *
+ * Before writing, normalizes order_id by order_name using getCanonicalOrderId().
+ * This prevents duplicate rows when Amazon returns slightly different 64-bit IDs
+ * for the same campaign across report downloads (floating-point truncation).
+ * Requires loadDspOrderIdCache() to have been called at the start of the run.
  */
 async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
@@ -1794,7 +1885,22 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
 
   if (!filteredRows.length) return 0;
 
-  const mapped = filteredRows.map(r => ({
+  // Normalize order_id by order_name to prevent duplicate rows from 64-bit ID truncation.
+  // Different report downloads can return slightly different integer values for the same
+  // campaign (e.g. 589356173504796800 vs 589356173504796763). We always write under the
+  // canonical (first-seen) order_id for a given order_name within this client.
+  // loadDspOrderIdCache() must have been called before this function (done in ingestDsp).
+  const normalizedRows = filteredRows.map(r => {
+    const rawOrderId   = String(r.orderId || '');
+    const orderName    = r.orderName || '';
+    const canonicalId  = getCanonicalOrderId(clientId, orderName, rawOrderId);
+    if (canonicalId !== rawOrderId) {
+      return { ...r, orderId: canonicalId };
+    }
+    return r;
+  });
+
+  const mapped = normalizedRows.map(r => ({
     advertiser_id:                String(r.advertiserId || advertiserId),
     profile_id:                   realProfileId,
     client_id:                    clientId,
@@ -2691,6 +2797,12 @@ const DSP_REPORT_TYPES = [
  */
 async function ingestDsp(clientId, connectionType, daysBack = 95) {
   return runJob(clientId, connectionType, 'dsp', async () => {
+    // Reset + reload the canonical order_id cache at the start of each run.
+    // This ensures we pick up any new canonical IDs written since the last run
+    // and that normalizations reflect the current state of dsp_campaign_report.
+    clearDspOrderIdCache();
+    await loadDspOrderIdCache();
+
     // ── Phase 2b: Load advertisers from client_accounts first ─────────────────
     // Query: active DSP accounts whose validity window covers today.
     // valid_to > CURRENT_DATE() means accounts with valid_to='2026-05-01' will
@@ -2860,6 +2972,11 @@ module.exports = {
   processReportQueue,
   ingestDsp,
   ensureAdsSchema,
+
+  // DSP order_id normalization (exported for testing)
+  clearDspOrderIdCache,
+  loadDspOrderIdCache,
+  getCanonicalOrderId,
 
   // Utilities (exported for testing)
   adsClient,
