@@ -164,10 +164,37 @@ async function writeSales(clientId, connectionType, salesData) {
 }
 
 /**
+ * Resolve account_id from client_accounts for a given channel (Phase 2c).
+ * Returns null if not found or on error. For logging/audit purposes.
+ */
+async function resolveAccountId(clientId, channel) {
+  try {
+    const rows = await query(`
+      SELECT account_id
+      FROM   CALBRIDGE_PROD.APP.client_accounts
+      WHERE  client_id = ?
+        AND  channel   = ?
+        AND  is_active = TRUE
+      LIMIT  1
+    `, [clientId, channel]);
+    if (rows.length > 0) return rows[0].ACCOUNT_ID || rows[0].account_id || null;
+  } catch (err) {
+    console.warn(`[spIngestion] account_id lookup for channel=${channel} failed (non-fatal):`, err.message);
+  }
+  return null;
+}
+
+/**
  * Main ingestion job — products
+ *
+ * Phase 2c: resolves account_id from client_accounts for logging.
  */
 async function ingestProducts(clientId, connectionType) {
   return runJob(clientId, connectionType, 'products', async () => {
+    // Phase 2c: log account_id if available
+    const accountId = await resolveAccountId(clientId, connectionType);
+    if (accountId) console.log(`[spIngestion] products client=${clientId} connectionType=${connectionType} account_id=${accountId}`);
+
     const client = await spClient(clientId, connectionType);
     const items = await fetchProducts(client);
     const written = await writeProducts(clientId, connectionType, items);
@@ -177,9 +204,15 @@ async function ingestProducts(clientId, connectionType) {
 
 /**
  * Main ingestion job — sales (last N days)
+ *
+ * Phase 2c: resolves account_id from client_accounts for logging.
  */
 async function ingestSales(clientId, connectionType, daysBack = 7) {
   return runJob(clientId, connectionType, 'sales', async () => {
+    // Phase 2c: log account_id if available
+    const accountId = await resolveAccountId(clientId, connectionType);
+    if (accountId) console.log(`[spIngestion] sales client=${clientId} connectionType=${connectionType} account_id=${accountId}`);
+
     const client = await spClient(clientId, connectionType);
     const endDate = new Date().toISOString().split('T')[0];
     const startDate = new Date(Date.now() - daysBack * 86400000).toISOString().split('T')[0];

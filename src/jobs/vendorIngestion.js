@@ -350,8 +350,27 @@ async function writeVendorForecasts(clientId, rows) {
 /**
  * Ingest all vendor retail reports for a client.
  * Safe to call daily — uses MERGE (idempotent).
+ *
+ * Phase 2c: resolves account_id from client_accounts for logging.
  */
 async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  // Resolve account_id from client_accounts (Phase 2c) for logging/audit
+  let accountId = null;
+  try {
+    const acctRows = await query(`
+      SELECT account_id
+      FROM   CALBRIDGE_PROD.APP.client_accounts
+      WHERE  client_id = ?
+        AND  channel   = 'vendor'
+        AND  is_active = TRUE
+      LIMIT  1
+    `, [clientId]);
+    if (acctRows.length > 0) accountId = acctRows[0].ACCOUNT_ID || acctRows[0].account_id;
+  } catch (err) {
+    console.warn('[vendorIngestion] account_id lookup failed (non-fatal):', err.message);
+  }
+  if (accountId) console.log(`[vendorIngestion] client=${clientId} account_id=${accountId}`);
+
   const client = await spClient(clientId);
   const results = {};
   let totalWritten = 0;

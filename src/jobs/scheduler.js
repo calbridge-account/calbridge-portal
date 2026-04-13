@@ -131,10 +131,21 @@ function startScheduler() {
   setTimeout(async function pollQueue() {
     try {
       const { query } = require('../services/snowflakeService');
+      // Phase 2c: pick up clients connected via EITHER legacy connections JSON OR client_accounts.
+      // Union both sources so no connected client is missed.
       const clients = await query(`
-        SELECT client_id FROM clients
-        WHERE status = 'active'
-        AND TRY_PARSE_JSON(connections):ads:accessToken IS NOT NULL
+        SELECT DISTINCT client_id FROM (
+          -- Legacy path: ads token stored directly in clients.connections JSON
+          SELECT client_id
+          FROM   clients
+          WHERE  TRY_PARSE_JSON(connections):ads:accessToken IS NOT NULL
+          UNION
+          -- New schema path: ads connection recorded in amazon_connections
+          SELECT DISTINCT client_id
+          FROM   CALBRIDGE_PROD.APP.amazon_connections
+          WHERE  connection_type = 'ads'
+            AND  (is_active IS NULL OR is_active = TRUE)
+        )
       `);
       for (const row of clients) {
         const cid = row.CLIENT_ID || row.client_id;

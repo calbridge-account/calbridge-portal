@@ -356,19 +356,85 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
 }
 
 /**
- * Get connection status for all 4 types for a client
+ * Get connection status for all 4 types for a client.
+ *
+ * Phase 2c dual-source: merges data from BOTH:
+ *  1. clients.connections (legacy JSON) — always read
+ *  2. client_accounts + amazon_connections (new schema) — OR logic
+ *
+ * For each channel: if EITHER source says connected → connected=true.
+ * Prefers amazon_connections for connected_at / expires_at when available.
  */
 async function getConnectionStatus(clientId) {
   const client = await authService.getById(clientId);
   const connections = client.connections || {};
 
+  // ── Source 2: client_accounts + amazon_connections (new schema) ────────────
+  // channel in client_accounts maps to: ads→sponsored_ads, dsp→dsp, seller→seller, vendor→vendor
+  const CHANNEL_TO_TYPE = {
+    sponsored_ads: 'ads',
+    dsp:           'dsp',
+    seller:        'seller',
+    vendor:        'vendor',
+  };
+
+  let acctRows = [];
+  try {
+    acctRows = await query(`
+      SELECT ca.channel,
+             ca.account_id,
+             ac.connected_at,
+             ac.expires_at    AS token_expires_at
+      FROM   CALBRIDGE_PROD.APP.client_accounts ca
+      LEFT JOIN CALBRIDGE_PROD.APP.amazon_connections ac
+             ON ac.client_id       = ca.client_id
+            AND ac.connection_type = CASE ca.channel
+                                       WHEN 'sponsored_ads' THEN 'ads'
+                                       WHEN 'dsp'           THEN 'dsp'
+                                       WHEN 'seller'        THEN 'seller'
+                                       WHEN 'vendor'        THEN 'vendor'
+                                     END
+            AND (ac.is_active IS NULL OR ac.is_active = TRUE)
+      WHERE  ca.client_id = ?
+        AND  ca.is_active = TRUE
+    `, [clientId]);
+  } catch (err) {
+    console.warn(`[AmazonAuth] getConnectionStatus: client_accounts lookup failed (falling back): ${err.message}`);
+  }
+
+  // Build a map: type → { connected_at, token_expires_at, account_id } from new schema
+  const newSchemaByType = {};
+  for (const row of acctRows) {
+    const ch   = (row.CHANNEL || row.channel || '').toLowerCase();
+    const type = CHANNEL_TO_TYPE[ch];
+    if (!type) continue;
+    newSchemaByType[type] = {
+      connectedAt: row.CONNECTED_AT   || row.connected_at   || null,
+      expiresAt:   row.TOKEN_EXPIRES_AT || row.token_expires_at || null,
+      accountId:   row.ACCOUNT_ID     || row.account_id     || null,
+    };
+  }
+
   return Object.fromEntries(
     Object.entries(CONNECTIONS).map(([type, meta]) => {
-      const conn = connections[type];
-      return [type, conn
-        ? { connected: true, label: meta.label, connectedAt: conn.connectedAt, expiresAt: conn.expiresAt, ...(conn.sellingPartnerId ? { sellingPartnerId: conn.sellingPartnerId } : {}) }
-        : { connected: false, label: meta.label }
-      ];
+      const legacyConn  = connections[type];      // legacy path
+      const newConn     = newSchemaByType[type];  // new schema path
+      const isConnected = !!(legacyConn || newConn); // OR logic
+
+      if (!isConnected) return [type, { connected: false, label: meta.label }];
+
+      // Prefer new schema for timestamps (more reliable); fall back to legacy
+      const connectedAt = newConn?.connectedAt || legacyConn?.connectedAt || null;
+      const expiresAt   = newConn?.expiresAt   || legacyConn?.expiresAt   || null;
+
+      return [type, {
+        connected:  true,
+        label:      meta.label,
+        connectedAt,
+        expiresAt,
+        ...(legacyConn?.sellingPartnerId ? { sellingPartnerId: legacyConn.sellingPartnerId } : {}),
+        ...(newConn?.accountId           ? { accountId: newConn.accountId }                  : {}),
+      }];
     })
   );
 }
