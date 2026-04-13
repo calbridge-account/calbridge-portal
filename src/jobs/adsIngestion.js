@@ -2033,9 +2033,12 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     clicks:                         r.clicks       || 0,
     total_cost:                     r.totalCost    || 0,
     sales:                          r.sales        || null,
+    total_sales:                    r.totalSales   || null,  // full halo attribution — matches Amazon DSP console
     purchases:                      r.purchases    || null,
+    total_purchases:                r.totalPurchases || null,
     new_to_brand_purchases:         r.newToBrandPurchases       || null,
     new_to_brand_purchases_clicks:  r.newToBrandPurchasesClicks || null,
+    new_to_brand_product_sales:     r.newToBrandProductSales    || null,
     viewable_impressions:           r.viewableImpressions       || null,
     viewability_rate:               r.viewabilityRate           || null,
     detail_page_views:              r.detailPageViews           || null,
@@ -2044,8 +2047,9 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     video_ad_complete:              r.videoAdComplete           || null,
   }));
   return batchMerge({
+    // Key on order_name (not order_id) to handle 64-bit truncation across reports
     table: 'dsp_campaign_report',  // ad grain shares campaign_report table (no separate ad table)
-    keyColumns:  ['client_id', 'profile_id', 'date', 'order_id'],
+    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name'],
     dataColumns: [
       'advertiser_id', 'order_name', 'advertiser_name',
       'impressions', 'clicks', 'total_cost',
