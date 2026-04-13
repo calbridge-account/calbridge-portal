@@ -1864,14 +1864,25 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   // Instead of rejecting rows with unrecognized IDs (silent data loss when Amazon
   // returns truncated 64-bit integers), fall back to the known-good advertiserId
   // from the ingestion context. This prevents truncation artifacts from dropping data.
-  const filteredRows = rows.map(r => {
-    const aid = String(r.advertiserId || advertiserId);
-    if (trustedAdvertiserIds && !trustedAdvertiserIds.has(aid)) {
-      console.warn(`[DSP] Correcting truncated advertiserId ${aid} → ${advertiserId}`);
-      return { ...r, advertiserId };
-    }
-    return r;
-  });
+  const filteredRows = rows
+    .map(r => {
+      const aid = String(r.advertiserId || advertiserId);
+      if (trustedAdvertiserIds && !trustedAdvertiserIds.has(aid)) {
+        console.warn(`[DSP] Correcting truncated advertiserId ${aid} → ${advertiserId}`);
+        return { ...r, advertiserId };
+      }
+      return r;
+    })
+    .filter(r => {
+      // Drop zero-value rows from non-active advertisers (retired SparkX accounts etc)
+      // Active-advertiser zero-spend days are valid and kept.
+      const aid = String(r.advertiserId || advertiserId);
+      const isCurrentAdvertiser = aid === String(advertiserId);
+      if (!isCurrentAdvertiser && Number(r.totalCost || 0) === 0 && Number(r.impressions || 0) === 0) {
+        return false;
+      }
+      return true;
+    });
 
   if (!filteredRows.length) return 0;
 
