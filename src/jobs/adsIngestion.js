@@ -2095,6 +2095,52 @@ async function writeDspCreativeReport(clientId, profileId, reportDate, rows) {
   });
 }
 
+// ── DSP Product Report (ASIN-level attribution) ────────────────────────────────
+/**
+ * Write DSP product report rows — ASIN-level attributed sales.
+ * This is the source for "total sales" in Amazon's native DSP console.
+ * Keyed on (client_id, profile_id, date, order_name, asin) to handle ID truncation.
+ */
+async function writeDspProductReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|')
+    ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows
+    .filter(r => r.asin || r.ASIN) // skip rows without ASIN
+    .map(r => ({
+      advertiser_id:          String(r.advertiserId || advertiserId),
+      profile_id:             realProfileId,
+      client_id:              clientId,
+      date:                   String(r.date || '').substring(0, 10) || null,
+      order_id:               String(r.orderId || ''),
+      order_name:             r.orderName || null,
+      asin:                   r.asin || null,
+      product_name:           r.productName || null,
+      impressions:            r.impressions            || 0,
+      clicks:                 r.clicks                 || 0,
+      total_cost:             r.totalCost              || 0,
+      purchases:              r.purchases              || null,
+      purchases_clicks:       r.purchasesClicks        || null,
+      sales:                  r.sales                  || null,
+      new_to_brand_purchases: r.newToBrandPurchases    || null,
+      detail_page_views:      r.detailPageViews        || null,
+      add_to_cart:            r.addToCart              || null,
+    }));
+  if (!mapped.length) return 0;
+  return batchMerge({
+    table: 'CALBRIDGE_PROD.APP.dsp_product_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name', 'asin'],
+    dataColumns: [
+      'advertiser_id', 'order_id', 'product_name',
+      'impressions', 'clicks', 'total_cost',
+      'purchases', 'purchases_clicks', 'sales',
+      'new_to_brand_purchases', 'detail_page_views', 'add_to_cart',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
 // ── Generic Gross & Invalid Traffic writer ──────────────────────────────────
 async function writeGrossAndInvalidReport(table, clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
@@ -2191,6 +2237,7 @@ const WRITE_FNS = {
   dspFlight:    writeDspFlightReport,      // groupBy: ['flight']   — line-item grain
   dspAd:        writeDspAdReport,          // groupBy: ['ad']       — ad grain
   dspCreative:  writeDspCreativeReport,    // groupBy: ['creative'] — creative performance
+  dspProduct:   writeDspProductReport,      // groupBy: ['product']  — ASIN-level attribution
 };
 
 // ============================================================
@@ -2821,6 +2868,22 @@ const DSP_REPORT_TYPES = [
     ],
   },
   {
+    // product grain — ASIN-level attributed sales (total halo attribution)
+    // This is the source of the "total sales" number Amazon shows in native DSP console
+    // groupBy: ['product'] returns one row per order+ASIN+date
+    key:          'dspProduct',
+    reportTypeId: 'dspCampaign',
+    groupBy:      ['product'],
+    columns:      [
+      'date', 'orderId', 'orderName', 'advertiserId', 'advertiserName',
+      'asin', 'productName',
+      'impressions', 'clicks', 'totalCost',
+      'purchases', 'purchasesClicks',
+      'sales', 'newToBrandPurchases',
+      'detailPageViews', 'addToCart',
+    ],
+  },
+  {
     // creative grain — video/display creative performance; validated live 2026-04-10
     key:          'dspCreative',
     reportTypeId: 'dspCampaign',
@@ -2941,7 +3004,7 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
     try {
       const reset = await query(
         `UPDATE ads_report_queue SET status='pending', completed_at=NULL, error_message=NULL
-         WHERE report_date=? AND report_type IN ('dspCampaign','dspFlight','dspAd','dspCreative') AND status='completed'
+         WHERE report_date=? AND report_type IN ('dspCampaign','dspFlight','dspAd','dspCreative','dspProduct') AND status='completed'
            AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))`,
         [latestRangeKey]
       );
