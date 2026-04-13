@@ -161,28 +161,28 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           ${marketplaceFilter(marketplace)}
       `, [clientId]),
 
-      // Shipped revenue from vendor_sales (actual invoiced revenue — hits P&L)
+      // Shipped revenue from mart_vendor_daily (actual invoiced revenue — hits P&L)
       query(`
         SELECT
           COALESCE(SUM(shipped_revenue), 0) AS vs_shipped_revenue,
           COALESCE(SUM(shipped_cogs), 0)    AS vs_shipped_cogs
-        FROM vendor_sales
+        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_vendor_daily
         WHERE client_id = ?
-          ${dateFilter("start_date", days, startDate, endDate)}
-          ${marketplaceFilter(marketplace)}
+          ${dateFilter('start_date', days, startDate, endDate)}
       `, [clientId]),
 
 
-      // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
+      // Ad attributed sales + spend — from mart_advertising_daily
       query(`
-        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} ${marketplaceFilter(marketplace)})
         SELECT
-          COALESCE(SUM(adjusted_spend), 0)   AS total_ad_spend,
+          COALESCE(SUM(spend), 0)   AS total_ad_spend,
           COALESCE(SUM(sales), 0)   AS total_ad_sales,
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
-          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS ad_roas,
-          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos
-        FROM cp
+          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
+          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
+        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        WHERE client_id = ?
+          ${dateFilter('date', days, startDate, endDate)}
       `, [clientId])
     ]);
 
@@ -541,20 +541,19 @@ router.get('/inventory-summary', requireAuth, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
 
-    // Latest snapshot rows
+    // Latest snapshot rows — from mart_inventory_snapshot
     const invRows = await query(`
       SELECT
-        SUM(sellable_on_hand_units)            AS total_sellable,
-        SUM(open_purchase_order_units)         AS total_open_po,
-        SUM(unfilled_customer_ordered_units)   AS total_unfilled,
-        SUM(aged_90_plus_units)                AS total_aged,
-        SUM(unsellable_on_hand_units)          AS total_unsellable,
-        COUNT(DISTINCT asin)                   AS asin_count,
-        MAX(end_date)                          AS snapshot_date
-      FROM vendor_inventory
+        SUM(sellable_units)       AS total_sellable,
+        SUM(open_po_units)        AS total_open_po,
+        0                         AS total_unfilled,
+        SUM(aged_90_plus_units)   AS total_aged,
+        SUM(unsellable_units)     AS total_unsellable,
+        COUNT(DISTINCT asin)      AS asin_count,
+        MAX(snapshot_date)        AS snapshot_date
+      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_inventory_snapshot
       WHERE client_id = ?
-        AND end_date = (SELECT MAX(end_date) FROM vendor_inventory WHERE client_id = ?)
-    `, [clientId, clientId]);
+    `, [clientId]);
 
     const inv = invRows[0] || {};
     const totalSellable = Number(inv.TOTAL_SELLABLE || 0);

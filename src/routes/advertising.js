@@ -140,45 +140,50 @@ router.get('/', requireAuth, async (req, res, next) => {
     const clientId  = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
 
+    // Build mart date filter for this route: prefer explicit range, else rolling window
+    function martDateFilter() {
+      const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (startDate && endDate && isoRe.test(startDate) && isoRe.test(endDate)) {
+        return `AND date BETWEEN '${startDate}' AND '${endDate}'`;
+      }
+      return `AND date >= DATEADD('day', -${Number(days)}, CURRENT_DATE()) AND date <= CURRENT_DATE()`;
+    }
+
     // Run summary + by-channel + weekly in parallel
     const [summaryRows, channelRows, weeklyRows] = await Promise.all([
-      // Combined KPI summary
+      // Combined KPI summary — from mart_advertising_daily
       query(`
-        WITH cp AS (
-          SELECT
-            COALESCE(SUM(impressions), 0)     AS total_impressions,
-            COALESCE(SUM(clicks), 0)          AS total_clicks,
-            COALESCE(SUM(adjusted_spend), 0)  AS total_spend,
-            COALESCE(SUM(sales), 0)           AS total_sales,
-            COALESCE(SUM(orders), 0)          AS total_orders,
-            COALESCE(SUM(units_sold), 0)      AS total_units
-          FROM adjusted_campaign_performance
-          WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
+        SELECT
+          COALESCE(SUM(impressions), 0)     AS total_impressions,
+          COALESCE(SUM(clicks), 0)          AS total_clicks,
+          COALESCE(SUM(spend), 0)           AS total_spend,
+          COALESCE(SUM(sales), 0)           AS total_sales,
+          COALESCE(SUM(orders), 0)          AS total_orders,
+          0                                 AS total_units,
+          CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)            ELSE NULL END AS acos,
+          CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
+          CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
+          CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
+        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        WHERE client_id = ?
+          ${martDateFilter()}
           ${channelFilter(channel, null)}
-          ${marketplaceFilter(marketplace)}
-        )
-        SELECT total_impressions, total_clicks, total_spend, total_sales, total_orders, total_units,
-          CASE WHEN total_sales > 0       THEN total_spend / total_sales        ELSE NULL END AS acos,
-          CASE WHEN total_spend > 0       THEN total_sales / total_spend        ELSE NULL END AS roas,
-          CASE WHEN total_impressions > 0 THEN total_clicks / total_impressions ELSE NULL END AS ctr,
-          CASE WHEN total_clicks > 0      THEN total_spend / total_clicks       ELSE NULL END AS cpc
-        FROM cp
       `, [clientId]),
-      // Per-type breakdown (always all types regardless of channel filter)
+      // Per-type breakdown — from mart_advertising_daily (all types regardless of channel filter)
       query(`
-        WITH cp AS (
-          SELECT ad_type,
-            SUM(impressions) AS impressions, SUM(clicks) AS clicks,
-            SUM(adjusted_spend) AS spend, SUM(sales) AS sales, SUM(orders) AS orders
-          FROM adjusted_campaign_performance
-          WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
-          ${marketplaceFilter(marketplace)}
-          GROUP BY ad_type
-        )
-        SELECT ad_type, impressions, clicks, spend, sales, orders,
-          CASE WHEN sales > 0 THEN spend / sales ELSE NULL END AS acos,
-          CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
-        FROM cp ORDER BY spend DESC
+        SELECT
+          ad_type,
+          COALESCE(SUM(impressions), 0) AS impressions,
+          COALESCE(SUM(clicks), 0)      AS clicks,
+          COALESCE(SUM(spend), 0)       AS spend,
+          COALESCE(SUM(sales), 0)       AS sales,
+          COALESCE(SUM(orders), 0)      AS orders,
+          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
+        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        WHERE client_id = ?
+          ${martDateFilter()}
+        ORDER BY spend DESC
       `, [clientId]),
       // Weekly trend per type
       query(`
@@ -267,27 +272,30 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const ck = cacheKey(clientId, 'summary', days, startDate, endDate, channel, adType, marketplace);
+    // Build mart date filter for summary route
+    function summaryMartDateFilter() {
+      const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (startDate && endDate && isoRe.test(startDate) && isoRe.test(endDate)) {
+        return `AND date BETWEEN '${startDate}' AND '${endDate}'`;
+      }
+      return `AND date >= DATEADD('day', -${Number(days)}, CURRENT_DATE()) AND date <= CURRENT_DATE()`;
+    }
     const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
-      WITH cp AS (
-        SELECT
-          COALESCE(SUM(impressions), 0)  AS total_impressions,
-          COALESCE(SUM(clicks), 0)       AS total_clicks,
-          COALESCE(SUM(adjusted_spend), 0)        AS total_spend,
-          COALESCE(SUM(sales), 0)        AS total_sales,
-          COALESCE(SUM(orders), 0)       AS total_orders,
-          COALESCE(SUM(units_sold), 0)   AS total_units
-        FROM adjusted_campaign_performance
-        WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
-        ${channelFilter(channel, adType)}
-        ${marketplaceFilter(marketplace)}
-      )
       SELECT
-        total_impressions, total_clicks, total_spend, total_sales, total_orders, total_units,
-        CASE WHEN total_sales > 0       THEN total_spend / total_sales           ELSE NULL END AS acos,
-        CASE WHEN total_spend > 0       THEN total_sales / total_spend           ELSE NULL END AS roas,
-        CASE WHEN total_impressions > 0 THEN total_clicks / total_impressions    ELSE NULL END AS ctr,
-        CASE WHEN total_clicks > 0      THEN total_spend / total_clicks          ELSE NULL END AS cpc
-      FROM cp
+        COALESCE(SUM(impressions), 0)  AS total_impressions,
+        COALESCE(SUM(clicks), 0)       AS total_clicks,
+        COALESCE(SUM(spend), 0)        AS total_spend,
+        COALESCE(SUM(sales), 0)        AS total_sales,
+        COALESCE(SUM(orders), 0)       AS total_orders,
+        0                              AS total_units,
+        CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)            ELSE NULL END AS acos,
+        CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
+        CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
+        CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
+      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      WHERE client_id = ?
+        ${summaryMartDateFilter()}
+        ${channelFilter(channel, adType)}
     `, [clientId]));
     res.json(rows[0] || {});
   } catch (err) { next(err); }
