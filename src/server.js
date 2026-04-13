@@ -4,7 +4,10 @@ const app = require('./app');
 // const { startScheduler } = require('./jobs/scheduler');
 
 // New cron runner — owns all platform job scheduling
-const { startCron } = require('./jobs/cron');
+const { startCron, JOB_HANDLERS } = require('./jobs/cron');
+
+// BullMQ concurrency layer — limits simultaneous Snowflake connections
+const { startWorkers } = require('./workers/jobWorker');
 
 const PORT = process.env.PORT || 3000;
 
@@ -27,6 +30,9 @@ app.listen(PORT, () => {
     clearStaleRunningJobs(30).catch(err =>
       console.warn('[server] clearStaleRunningJobs failed (non-fatal):', err.message)
     );
+
+    // Start BullMQ workers before cron so they're ready to receive jobs immediately
+    startWorkers(JOB_HANDLERS);
 
     // New cron runner — handles all jobs including report polling
     startCron({ runImmediately: true });

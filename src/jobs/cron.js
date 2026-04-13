@@ -28,6 +28,7 @@
 require('dotenv').config();
 const cron = require('node-cron');
 const { SCHEDULE_CRONS } = require('../config/jobs');
+const { enqueueJob } = require('../services/jobQueue');
 
 // ─── Job implementations ──────────────────────────────────────────────────────
 // Lazy-loaded so cron.js can be require()'d without triggering Snowflake connections
@@ -47,11 +48,26 @@ function slaChecker()         { return _slaChecker         || (_slaChecker      
 function adsIngestion()       { return _adsIngestion       || (_adsIngestion       = require('./adsIngestion')); }
 function vendorIngestion()    { return _vendorIngestion    || (_vendorIngestion    = require('./vendorIngestion')); }
 
-// ─── In-process run lock ──────────────────────────────────────────────────────
-// Prevents a slow job from stacking up if the cron fires again before it finishes.
+// ─── In-process run lock (fallback only) ─────────────────────────────────────
+// Used as a fallback when Redis/BullMQ is unavailable. Under normal operation
+// concurrency is managed by the BullMQ workers (see src/workers/jobWorker.js).
 const runningJobs = new Set();
 
+/**
+ * Enqueue a job via BullMQ. Falls back to direct in-process execution if Redis
+ * is unavailable, so cron jobs always run even without the queue layer.
+ */
 async function withLock(jobId, fn) {
+  try {
+    const queueType = await enqueueJob(jobId);
+    console.log(`[cron] Enqueued ${jobId} → ${queueType}`);
+    return; // worker will execute the job asynchronously
+  } catch (queueErr) {
+    // Redis unavailable or BullMQ error — fall back to direct execution
+    console.warn(`[cron] BullMQ enqueue failed for ${jobId} (${queueErr.message}), running directly`);
+  }
+
+  // ── Fallback: run directly with in-process lock ────────────────────────────
   if (runningJobs.has(jobId)) {
     console.warn(`[cron] ${jobId} still running from previous cycle — skipping this tick`);
     return;
@@ -356,6 +372,17 @@ async function runJob(jobId, { triggeredBy = 'manual' } = {}) {
   }
 
   console.log(`[cron] Running ${jobId} (${triggeredBy})`);
+
+  // Route through BullMQ for consistent concurrency control, even for manual triggers.
+  // Falls back to direct execution if Redis is unavailable.
+  try {
+    const queueType = await enqueueJob(jobId, { triggeredBy });
+    console.log(`[cron] Enqueued ${jobId} (${triggeredBy}) → ${queueType}`);
+    return;
+  } catch (queueErr) {
+    console.warn(`[cron] BullMQ enqueue failed for ${jobId} (${queueErr.message}), running directly`);
+  }
+
   return handler({ triggeredBy });
 }
 
@@ -424,4 +451,5 @@ module.exports = {
   stopCron,
   runJob,
   JOB_HANDLERS,
+  // JOB_HANDLERS exported so jobWorker.js can resolve handler functions by jobId
 };
