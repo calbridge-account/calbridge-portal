@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'spend-adjustments')  loadAdjustments();
       if (tab.dataset.tab === 'nav-visibility')     initNavVisibility();
       if (tab.dataset.tab === 'account-structure')  loadAccountStructure();
+      if (tab.dataset.tab === 'accounts')           loadAccounts();
     });
   });
 
@@ -651,6 +652,147 @@ async function savePlan() {
     btn.disabled = false; btn.textContent = 'Save Plan';
   }
 }
+
+
+// ── Accounts (client_accounts registry) ──────────────────────────────────────
+
+let allAccounts = [];
+let accountsInitialized = false;
+
+async function loadAccounts() {
+  const tbody = document.getElementById('accounts-table-body');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">Loading&hellip;</td></tr>';
+
+  // Populate client dropdown once
+  if (!accountsInitialized) {
+    accountsInitialized = true;
+    const sel = document.getElementById('acct-client');
+    if (sel) {
+      allClients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.clientId;
+        opt.textContent = c.companyName || c.name || c.email;
+        sel.appendChild(opt);
+      });
+    }
+    document.getElementById('add-account-btn')?.addEventListener('click', addAccount);
+    document.getElementById('refresh-accounts-btn')?.addEventListener('click', () => { accountsInitialized = false; loadAccounts(); });
+  }
+
+  try {
+    const res = await adminFetch('/admin/accounts');
+    if (!res.ok) throw new Error('Failed to load accounts');
+    allAccounts = await res.json();
+    renderAccountsTable();
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="loading-cell">Error: ${err.message}</td></tr>`;
+  }
+}
+
+const CHANNEL_LABELS = {
+  dsp:           'DSP',
+  sponsored_ads: 'Sponsored Ads',
+  seller:        'Seller Central',
+  vendor:        'Vendor Central',
+};
+
+function renderAccountsTable() {
+  const tbody = document.getElementById('accounts-table-body');
+  if (!tbody) return;
+  if (!allAccounts.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="loading-cell">No accounts found.</td></tr>';
+    return;
+  }
+
+  let lastClient = null;
+  tbody.innerHTML = allAccounts.map(a => {
+    const isNewClient = a.clientName !== lastClient;
+    lastClient = a.clientName;
+    const clientCell = isNewClient
+      ? `<td style="font-weight:700;font-size:13px">${a.clientName || a.clientId}</td>`
+      : `<td style="color:var(--gray-300);font-size:11px">&#8627;</td>`;
+    const activeBadge = a.isActive
+      ? '<span class="status-pill pill-active">Active</span>'
+      : '<span class="status-pill pill-suspended">Retired</span>';
+    const retireBtn = a.isActive
+      ? `<button class="action-btn btn-suspend" onclick="retireAccount('${a.accountId}','${a.accountName}')">Retire</button>`
+      : '<span style="color:var(--gray-300);font-size:11px">retired</span>';
+    return `
+      <tr style="${!a.isActive ? 'opacity:0.55' : ''}">
+        ${clientCell}
+        <td style="font-size:13px">${a.accountName || '&mdash;'}</td>
+        <td><span style="font-size:12px;background:var(--brand-light);color:var(--brand);padding:2px 8px;border-radius:20px;font-weight:600">${CHANNEL_LABELS[a.channel] || a.channel || '&mdash;'}</span></td>
+        <td style="font-size:13px">${a.marketplace || '&mdash;'}</td>
+        <td style="font-family:monospace;font-size:11px;color:var(--gray-500)">${a.platformProfileId || '&mdash;'}</td>
+        <td style="font-size:12px;color:var(--gray-500)">${a.managedBy || '&mdash;'}</td>
+        <td>${activeBadge}</td>
+        <td style="font-size:12px">${a.validFrom ? new Date(a.validFrom).toLocaleDateString() : '&mdash;'}</td>
+        <td style="font-size:12px">${a.validTo   ? new Date(a.validTo).toLocaleDateString()   : '&mdash;'}</td>
+        <td>${retireBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function addAccount() {
+  const result            = document.getElementById('acct-result');
+  const clientId          = document.getElementById('acct-client')?.value;
+  const accountName       = document.getElementById('acct-name')?.value.trim();
+  const channel           = document.getElementById('acct-channel')?.value;
+  const marketplace       = document.getElementById('acct-marketplace')?.value.trim();
+  const platformProfileId = document.getElementById('acct-platform-id')?.value.trim();
+  const agencyProfileId   = document.getElementById('acct-agency-id')?.value.trim();
+  const managedBy         = document.getElementById('acct-managed-by')?.value.trim();
+
+  result.className = 'status-msg hidden';
+
+  if (!clientId || !accountName || !channel) {
+    result.className   = 'status-msg error';
+    result.textContent = 'Client, Account Name, and Channel are required.';
+    return;
+  }
+
+  const btn = document.getElementById('add-account-btn');
+  btn.disabled = true; btn.textContent = 'Adding…';
+
+  try {
+    const res  = await adminFetch('/admin/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ clientId, accountName, channel, marketplace, platformProfileId, agencyProfileId, managedBy })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      result.className   = 'status-msg error';
+      result.textContent = data.error || 'Add failed.';
+    } else {
+      result.className   = 'status-msg success';
+      result.textContent = '✅ Account added.';
+      ['acct-name','acct-marketplace','acct-platform-id','acct-agency-id','acct-managed-by']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('acct-client').value  = '';
+      document.getElementById('acct-channel').value = '';
+      const res2 = await adminFetch('/admin/accounts');
+      if (res2.ok) { allAccounts = await res2.json(); renderAccountsTable(); }
+      setTimeout(() => result.classList.add('hidden'), 4000);
+    }
+  } catch {
+    result.className   = 'status-msg error';
+    result.textContent = 'Request failed.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Add Account';
+  }
+}
+
+window.retireAccount = async function(accountId, accountName) {
+  if (!confirm(`Retire account "${accountName}"?\n\nThis will set is_active=FALSE and valid_to=TODAY. The account row is NOT deleted.`)) return;
+  try {
+    const res  = await adminFetch(`/admin/accounts/${accountId}/retire`, { method: 'PATCH' });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Retire failed'); return; }
+    const res2 = await adminFetch('/admin/accounts');
+    if (res2.ok) { allAccounts = await res2.json(); renderAccountsTable(); }
+  } catch { alert('Request failed.'); }
+};
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function showResult(el, msg, type) {

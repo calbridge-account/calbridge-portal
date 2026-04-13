@@ -253,8 +253,10 @@ const TYPE_TO_CHANNEL = {
 /**
  * Handle OAuth callback for any connection type.
  *
- * Phase 2a dual-write: saves tokens to BOTH clients.connections (legacy) AND
- * client_credentials (new schema) on every new OAuth connection.
+ * Phase 3: writes tokens to amazon_connections ONLY.
+ * clients.connections (legacy) is NO LONGER written on new OAuth connects.
+ * The read fallback to clients.connections remains in getValidToken() so
+ * existing tokens continue to work until they expire naturally.
  */
 async function handleCallback({ clientId, code, state, type, extra = {} }) {
   const stateData = stateStore.get(state);
@@ -265,14 +267,8 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
 
   const tokens = await exchangeCode({ code, type });
   const connectedAt = new Date().toISOString();
-  const tokenData = { ...tokens, ...extra, connectedAt };
 
-  // ── Write 1: legacy clients.connections ────────────────────────────────────
-  const client = await authService.getById(clientId);
-  const connections = { ...(client.connections || {}), [type]: tokenData };
-  await authService.updateClient(clientId, { connections });
-
-  // ── Write 2: client_credentials (new schema) ───────────────────────────────
+  // ── Write: amazon_connections only (Phase 3 — legacy dual-write removed) ─────────────
   try {
     // Look up account_id from client_accounts
     const channel = TYPE_TO_CHANNEL[type];
@@ -347,11 +343,10 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
     // Invalidate in-process cache so next read picks up fresh token
     _tokenCache.delete(`${clientId}:${type}`);
 
-    console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} — dual-write OK${accountId ? ` (account=${accountId})` : ''}`);
+    console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} — connected OK${accountId ? ` (account=${accountId})` : ''}`);
   } catch (err) {
-    // Non-fatal: legacy write already succeeded; log and continue
-    console.error(`[Amazon] client_credentials dual-write failed (non-fatal): ${err.message}`);
-    console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} (legacy only)`);
+    console.error(`[Amazon] amazon_connections write failed: ${err.message}`);
+    throw err; // re-throw — without amazon_connections we have no token stored
   }
 }
 

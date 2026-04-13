@@ -86,6 +86,7 @@
       <div class="admin-tabs">
         <button class="admin-tab active" data-tab="clients">👥 Clients</button>
         <button class="admin-tab" data-tab="account-structure">🏢 Account Structure</button>
+        <button class="admin-tab" data-tab="accounts">🔗 Accounts</button>
         <button class="admin-tab" data-tab="invite">✉️ Invite Client</button>
         <button class="admin-tab" data-tab="spend-adjustments">💰 Spend Adjustments</button>
         <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
@@ -278,6 +279,58 @@
             </thead>
             <tbody id="nv-table-body">
               <tr><td colspan="3" class="loading-cell">Select a client to configure</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Accounts Tab -->
+      <div id="tab-accounts" class="admin-section">
+        <div class="invite-form" style="margin-bottom:20px">
+          <h3>➕ Add Account</h3>
+          <p class="settings-desc">Register a new account in the canonical <code>client_accounts</code> registry.</p>
+          <div class="invite-row" style="flex-wrap:wrap;gap:10px;margin-top:12px">
+            <select id="acct-client" style="flex:2;min-width:200px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px">
+              <option value="">Select client&hellip;</option>
+            </select>
+            <input type="text" id="acct-name" placeholder="Account Name" style="flex:2;min-width:200px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px" />
+            <select id="acct-channel" style="flex:1;min-width:160px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px">
+              <option value="">Channel&hellip;</option>
+              <option value="dsp">DSP</option>
+              <option value="sponsored_ads">Sponsored Ads</option>
+              <option value="seller">Seller Central</option>
+              <option value="vendor">Vendor Central</option>
+            </select>
+            <input type="text" id="acct-marketplace" placeholder="Marketplace (e.g. US)" style="flex:1;min-width:140px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px" />
+            <input type="text" id="acct-platform-id" placeholder="Platform Profile ID" style="flex:2;min-width:180px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px" />
+            <input type="text" id="acct-agency-id" placeholder="Agency Profile ID (optional)" style="flex:2;min-width:180px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px" />
+            <input type="text" id="acct-managed-by" placeholder="Managed By (optional)" style="flex:1;min-width:160px;padding:9px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px" />
+            <button class="btn-primary" id="add-account-btn" style="width:auto;padding:9px 20px">Add Account</button>
+          </div>
+          <div id="acct-result" class="status-msg hidden" style="margin-top:12px"></div>
+        </div>
+        <div class="table-card">
+          <div class="table-header-row">
+            <h3>All Accounts</h3>
+            <button class="btn-secondary" id="refresh-accounts-btn" style="width:auto;padding:6px 14px;font-size:13px">↻ Refresh</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Account Name</th>
+                <th>Channel</th>
+                <th>Marketplace</th>
+                <th>Profile ID</th>
+                <th>Managed By</th>
+                <th>Active</th>
+                <th>Valid From</th>
+                <th>Valid To</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="accounts-table-body">
+              <tr><td colspan="10" class="loading-cell">Loading&hellip;</td></tr>
             </tbody>
           </table>
         </div>

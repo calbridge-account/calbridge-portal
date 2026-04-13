@@ -696,4 +696,106 @@ router.put('/advertisers/:advertiserId', requireAdmin, async (req, res, next) =>
   } catch (err) { next(err); }
 });
 
+// ============================================================
+// CLIENT ACCOUNTS (Phase 3 — canonical account registry)
+// ============================================================
+
+/**
+ * GET /admin/accounts
+ * List all rows in client_accounts, joined with client name
+ */
+router.get('/accounts', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT
+        ca.account_id,
+        ca.client_id,
+        c.name        AS client_name,
+        c.company_name,
+        ca.account_name,
+        ca.channel,
+        ca.marketplace,
+        ca.platform_profile_id,
+        ca.agency_profile_id,
+        ca.managed_by,
+        ca.is_active,
+        ca.valid_from,
+        ca.valid_to,
+        ca.created_at
+      FROM CALBRIDGE_PROD.APP.client_accounts ca
+      LEFT JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = ca.client_id
+      ORDER BY COALESCE(c.company_name, c.name, ca.client_id), ca.channel, ca.account_name
+    `);
+    res.json(rows.map(r => ({
+      accountId:         r.ACCOUNT_ID,
+      clientId:          r.CLIENT_ID,
+      clientName:        r.COMPANY_NAME || r.CLIENT_NAME || r.CLIENT_ID,
+      accountName:       r.ACCOUNT_NAME,
+      channel:           r.CHANNEL,
+      marketplace:       r.MARKETPLACE,
+      platformProfileId: r.PLATFORM_PROFILE_ID,
+      agencyProfileId:   r.AGENCY_PROFILE_ID,
+      managedBy:         r.MANAGED_BY,
+      isActive:          r.IS_ACTIVE,
+      validFrom:         r.VALID_FROM,
+      validTo:           r.VALID_TO,
+      createdAt:         r.CREATED_AT,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/accounts
+ * Insert a new client_accounts row
+ */
+router.post('/accounts', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId, accountName, channel, marketplace, platformProfileId, agencyProfileId, managedBy } = req.body;
+    if (!clientId || !accountName || !channel) {
+      return res.status(400).json({ error: 'clientId, accountName, and channel are required' });
+    }
+    const validChannels = ['dsp', 'sponsored_ads', 'seller', 'vendor'];
+    if (!validChannels.includes(channel)) {
+      return res.status(400).json({ error: `channel must be one of: ${validChannels.join(', ')}` });
+    }
+    const { v4: uuidv4 } = require('uuid');
+    const accountId = uuidv4();
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.client_accounts
+        (account_id, client_id, account_name, channel, marketplace,
+         platform_profile_id, agency_profile_id, managed_by,
+         is_active, valid_from, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_DATE(), CURRENT_TIMESTAMP())
+    `, [
+      accountId,
+      clientId,
+      accountName,
+      channel,
+      marketplace || null,
+      platformProfileId || null,
+      agencyProfileId   || null,
+      managedBy         || null,
+    ]);
+    res.status(201).json({ ok: true, accountId });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PATCH /admin/accounts/:accountId/retire
+ * Soft-retire an account: is_active=FALSE, valid_to=CURRENT_DATE()
+ */
+router.patch('/accounts/:accountId/retire', requireAdmin, async (req, res, next) => {
+  try {
+    const { accountId } = req.params;
+    await query(`
+      UPDATE CALBRIDGE_PROD.APP.client_accounts
+      SET    is_active = FALSE,
+             valid_to  = CURRENT_DATE()
+      WHERE  account_id = ?
+    `, [accountId]);
+    res.json({ ok: true, accountId });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
+
