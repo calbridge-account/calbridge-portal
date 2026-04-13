@@ -372,7 +372,7 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
       FROM ads_report_queue
       WHERE status = 'ready'
       ORDER BY requested_at ASC
-      LIMIT 30
+      LIMIT 100
     `);
 
     if (!ready?.length) {
