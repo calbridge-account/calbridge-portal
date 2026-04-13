@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const authService = require('./authService');
+const { query } = require('./snowflakeService');
 
 const LWA_AUTH_URL    = 'https://www.amazon.com/ap/oa';
 const LWA_TOKEN_URL   = 'https://api.amazon.com/auth/o2/token';
@@ -137,10 +138,17 @@ async function refreshAccessToken({ refreshToken, type }) {
 }
 
 /**
- * Get a valid access token for a client+type, auto-refreshing if needed
+ * Get a valid access token for a client+type, auto-refreshing if needed.
+ *
+ * Read order (Phase 2a dual-path):
+ *  1. In-process cache (fast path, no DB hit)
+ *  2. client_credentials table (new path)
+ *  3. clients.connections JSON (legacy fallback)
+ *
+ * On refresh: writes back to BOTH client_credentials AND clients.connections.
  */
 // In-process token cache: avoid hitting Snowflake on every call within the same Node process.
-// Key: `${clientId}:${type}`, value: { accessToken, expiresAt (ms) }
+// Key: `${clientId}:${type}`, value: { accessToken, expiresAt (ms), credentialId (optional) }
 const _tokenCache = new Map();
 
 async function getValidToken(clientId, type) {
@@ -151,6 +159,69 @@ async function getValidToken(clientId, type) {
     return cached.accessToken;
   }
 
+  // ── Path 1: amazon_connections table (new schema) ───────────────────────────
+  let credRow = null;
+  try {
+    const rows = await query(`
+      SELECT credential_id, access_token, refresh_token, expires_at AS token_expires_at
+      FROM   CALBRIDGE_PROD.APP.amazon_connections
+      WHERE  client_id = ?
+        AND  connection_type = ?
+        AND  (is_active IS NULL OR is_active = TRUE)
+      ORDER  BY connected_at DESC
+      LIMIT  1
+    `, [clientId, type]);
+    if (rows.length > 0) credRow = rows[0];
+  } catch (err) {
+    console.warn(`[AmazonAuth] amazon_connections lookup failed (falling back): ${err.message}`);
+  }
+
+  if (credRow) {
+    const accessToken  = credRow.ACCESS_TOKEN;
+    const refreshToken = credRow.REFRESH_TOKEN;
+    const credentialId = credRow.CREDENTIAL_ID;
+    const expiresAt    = credRow.TOKEN_EXPIRES_AT ? new Date(credRow.TOKEN_EXPIRES_AT).getTime() : 0;
+    const shouldRefresh = expiresAt - Date.now() < 30 * 60 * 1000;
+
+    if (shouldRefresh) {
+      const refreshed = await refreshAccessToken({ refreshToken, type });
+      const newExpiresAt = new Date(refreshed.expiresAt).getTime();
+      const newExpiresAtSf = refreshed.expiresAt.replace('T', ' ').replace('Z', '');
+
+      // Write back to amazon_connections
+      try {
+        await query(`
+          UPDATE CALBRIDGE_PROD.APP.amazon_connections
+          SET    access_token = ?,
+                 expires_at   = ?,
+                 updated_at   = CURRENT_TIMESTAMP()
+          WHERE  credential_id = ?
+        `, [refreshed.accessToken, newExpiresAtSf, credentialId]);
+      } catch (err) {
+        console.warn(`[AmazonAuth] Failed to update amazon_connections on refresh: ${err.message}`);
+      }
+
+      // Write back to clients.connections (legacy path — keep in sync during Phase 2)
+      try {
+        const client = await authService.getById(clientId);
+        const conn = client.connections?.[type] || {};
+        const updated = { ...conn, accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
+        const connections = { ...(client.connections || {}), [type]: updated };
+        await authService.updateClient(clientId, { connections });
+      } catch (err) {
+        console.warn(`[AmazonAuth] Failed to update clients.connections on refresh: ${err.message}`);
+      }
+
+      _tokenCache.set(cacheKey, { accessToken: refreshed.accessToken, expiresAt: newExpiresAt, credentialId });
+      return refreshed.accessToken;
+    }
+
+    _tokenCache.set(cacheKey, { accessToken, expiresAt, credentialId });
+    return accessToken;
+  }
+
+  // ── Path 2: legacy clients.connections fallback ────────────────────────────
+  console.log(`[AmazonAuth] No client_credentials row for ${clientId}/${type} — falling back to clients.connections`);
   const client = await authService.getById(clientId);
   const conn = client.connections?.[type];
   if (!conn) throw Object.assign(new Error(`${type} not connected`), { status: 401 });
@@ -171,8 +242,19 @@ async function getValidToken(clientId, type) {
   return conn.accessToken;
 }
 
+// Map from connection type → client_accounts.channel
+const TYPE_TO_CHANNEL = {
+  ads:    'sponsored_ads',
+  dsp:    'dsp',
+  seller: 'seller',
+  vendor: 'vendor',
+};
+
 /**
- * Handle OAuth callback for any connection type
+ * Handle OAuth callback for any connection type.
+ *
+ * Phase 2a dual-write: saves tokens to BOTH clients.connections (legacy) AND
+ * client_credentials (new schema) on every new OAuth connection.
  */
 async function handleCallback({ clientId, code, state, type, extra = {} }) {
   const stateData = stateStore.get(state);
@@ -182,11 +264,95 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
   stateStore.delete(state);
 
   const tokens = await exchangeCode({ code, type });
+  const connectedAt = new Date().toISOString();
+  const tokenData = { ...tokens, ...extra, connectedAt };
+
+  // ── Write 1: legacy clients.connections ────────────────────────────────────
   const client = await authService.getById(clientId);
-  const connections = { ...(client.connections || {}), [type]: { ...tokens, ...extra, connectedAt: new Date().toISOString() } };
+  const connections = { ...(client.connections || {}), [type]: tokenData };
   await authService.updateClient(clientId, { connections });
 
-  console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId}`);
+  // ── Write 2: client_credentials (new schema) ───────────────────────────────
+  try {
+    // Look up account_id from client_accounts
+    const channel = TYPE_TO_CHANNEL[type];
+    let accountId = null;
+    if (channel) {
+      const acctRows = await query(`
+        SELECT account_id
+        FROM   CALBRIDGE_PROD.APP.client_accounts
+        WHERE  client_id = ?
+          AND  channel   = ?
+          AND  is_active = TRUE
+        LIMIT  1
+      `, [clientId, channel]);
+      if (acctRows.length > 0) accountId = acctRows[0].ACCOUNT_ID;
+    }
+
+    const tokenExpiresAtSf = tokens.expiresAt
+      ? tokens.expiresAt.replace('T', ' ').replace('Z', '')
+      : null;
+    const connectedAtSf = connectedAt.replace('T', ' ').replace('Z', '');
+
+    // Check if a credential row already exists for this client + type
+    const existing = await query(`
+      SELECT credential_id
+      FROM   CALBRIDGE_PROD.APP.amazon_connections
+      WHERE  client_id = ?
+        AND  connection_type = ?
+      LIMIT  1
+    `, [clientId, type]);
+
+    if (existing.length > 0) {
+      // UPDATE existing row
+      await query(`
+        UPDATE CALBRIDGE_PROD.APP.amazon_connections
+        SET    account_id    = ?,
+               access_token  = ?,
+               refresh_token = ?,
+               expires_at    = ?,
+               connected_at  = ?,
+               is_active     = TRUE,
+               updated_at    = CURRENT_TIMESTAMP()
+        WHERE  credential_id = ?
+      `, [
+        accountId,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokenExpiresAtSf,
+        connectedAtSf,
+        existing[0].CREDENTIAL_ID,
+      ]);
+    } else {
+      // INSERT new row
+      const credentialId = uuidv4();
+      await query(`
+        INSERT INTO CALBRIDGE_PROD.APP.amazon_connections
+          (credential_id, account_id, client_id, connection_type,
+           access_token, refresh_token, expires_at, connected_at,
+           is_active, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP())
+      `, [
+        credentialId,
+        accountId,
+        clientId,
+        type,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokenExpiresAtSf,
+        connectedAtSf,
+      ]);
+    }
+
+    // Invalidate in-process cache so next read picks up fresh token
+    _tokenCache.delete(`${clientId}:${type}`);
+
+    console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} — dual-write OK${accountId ? ` (account=${accountId})` : ''}`);
+  } catch (err) {
+    // Non-fatal: legacy write already succeeded; log and continue
+    console.error(`[Amazon] client_credentials dual-write failed (non-fatal): ${err.message}`);
+    console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} (legacy only)`);
+  }
 }
 
 /**
