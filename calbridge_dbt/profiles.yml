@@ -1,0 +1,14 @@
+calbridge:
+  target: prod
+  outputs:
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: ACCOUNTADMIN
+      database: CALBRIDGE_PROD
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'CALBRIDGE_WH') }}"
+      schema: MARTS
+      threads: 4

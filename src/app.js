@@ -50,7 +50,7 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', creden
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session
+// Session — backed by Snowflake (CALBRIDGE_PROD.APP.sessions), survives server restarts ✅
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
@@ -172,13 +172,34 @@ ensureCampaignActionsTable().catch(err =>
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
+// Log 4xx/5xx requests server-side (no sensitive data exposed to clients)
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode >= 400) {
+      console.error(`[http] ${req.method} ${req.path} → ${res.statusCode}`);
+    }
+  });
+  next();
+});
+
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
-// Error handler
+// Global error handler — MUST be last middleware
+// Never exposes stack traces or internal details to clients in production
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  const status = err.status || err.statusCode || 500;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // Always log full error server-side
+  console.error(`[error] ${req.method} ${req.path} → ${status}:`, err.message);
+  if (!isProd) console.error(err.stack);
+
+  // Never expose stack traces or internal details to clients
+  res.status(status).json({
+    error: isProd ? (status < 500 ? err.message : 'Internal server error') : err.message,
+    ...(isProd ? {} : { stack: err.stack }),
+  });
 });
 
 module.exports = app;
