@@ -163,9 +163,14 @@ async function ingestDspAllClients({ triggeredBy = 'cron' } = {}) {
       try {
         const { getConnectionStatus } = require('../services/amazonAuthService');
         const conn = await getConnectionStatus(clientId);
-        if (!conn?.dsp?.connected) continue;
-        console.log(`[cron] ingest_dsp starting for ${clientId}`);
-        await ingestDsp(clientId, 'dsp', 95);
+        // Use 'ads' connection type for DSP reports — the ads OAuth token has the
+        // correct scope for Amazon DSP Reporting API. The 'dsp' token returns 401
+        // because it lacks the advertising::campaign_management scope needed for
+        // the DSP reporting endpoint. Fall back to 'dsp' token only if no ads conn.
+        const dspConnType = conn?.ads?.connected ? 'ads' : 'dsp';
+        if (!conn?.dsp?.connected && !conn?.ads?.connected) continue;
+        console.log(`[cron] ingest_dsp starting for ${clientId} (token: ${dspConnType})`);
+        await ingestDsp(clientId, dspConnType, 95);
         ran++;
       } catch (err) {
         console.warn(`[cron] ingest_dsp ${clientId} failed:`, err.message);
