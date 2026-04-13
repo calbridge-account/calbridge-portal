@@ -61,6 +61,20 @@ const AD_TYPE_BADGE = {
   DSP: 'bg-purple-100 text-purple-700',
 };
 
+
+// ─── Recommendation score ─────────────────────────────────────────────────────
+// Higher = more impactful. Factors: spend at stake, deviation from target, order volume
+function calcScore(action) {
+  const m = action.metrics || {};
+  const spend    = m.spend_30d   || 0;
+  const orders   = m.orders_30d  || 0;
+  const acos     = m.acos;
+  const TARGET   = 0.1176;
+  const deviation = acos != null ? Math.abs(acos - TARGET) / TARGET : 0;
+  // Score = spend × deviation × (1 + orders/10)
+  return spend * deviation * (1 + orders / 10);
+}
+
 // ─── Stats bar ────────────────────────────────────────────────────────────────
 
 function StatsBar({ stats, onRunAnalysis, isRunning }) {
@@ -193,10 +207,20 @@ const TYPE_FILTERS = [
   { key: 'add_keyword',     label: '🔍 Add Keyword' },
 ];
 
+const SORT_OPTIONS = [
+  { key: 'score_desc',   label: 'Highest Impact'    },
+  { key: 'spend_desc',   label: 'Most Spend'        },
+  { key: 'acos_desc',    label: 'Worst ACoS First'  },
+  { key: 'acos_asc',     label: 'Best ACoS First'   },
+  { key: 'orders_desc',  label: 'Most Orders'       },
+  { key: 'newest',       label: 'Newest First'      },
+];
+
 export default function Recommendations() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab]   = useState('pending');
   const [typeFilter, setTypeFilter] = useState('');
+  const [sortBy, setSortBy] = useState('score_desc');
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -289,6 +313,13 @@ export default function Recommendations() {
           >
             {TYPE_FILTERS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700"
+          >
+            {SORT_OPTIONS.map(s => <option key={s.key} value={s.key}>{s.key === sortBy ? '↕ ' : ''}{s.label}</option>)}
+          </select>
           {activeTab === 'pending' && (
             <button
               onClick={handleApproveAll}
@@ -303,6 +334,18 @@ export default function Recommendations() {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {(() => { window.__sortedActions = [...(actions||[])].sort((a,b) => {
+          const ma=a.metrics||{},mb=b.metrics||{};
+          switch(sortBy){
+            case 'score_desc': return calcScore(b)-calcScore(a);
+            case 'spend_desc': return (mb.spend_30d||0)-(ma.spend_30d||0);
+            case 'acos_desc':  return (mb.acos||0)-(ma.acos||0);
+            case 'acos_asc':   return (ma.acos||0)-(mb.acos||0);
+            case 'orders_desc':return (mb.orders_30d||0)-(ma.orders_30d||0);
+            case 'newest':     return new Date(b.createdAt||0)-new Date(a.createdAt||0);
+            default: return 0;
+          }
+        }); return null; })()}
         {actionsLoading || statsLoading ? (
           <div className="p-8"><SkeletonTable /></div>
         ) : isError ? (
@@ -330,7 +373,7 @@ export default function Recommendations() {
               </tr>
             </thead>
             <tbody>
-              {actions.map(a => (
+              {(window.__sortedActions||actions||[]).map(a => (
                 <ActionRow
                   key={a.actionId}
                   action={a}
