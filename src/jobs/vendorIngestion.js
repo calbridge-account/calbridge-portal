@@ -378,8 +378,8 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 1. Vendor Sales (DAY grain, max 14 days per request) ──────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    const endDate   = daysAgo(1);   // yesterday (same-day data unreliable)
-    const startDate = daysAgo(13);  // 14-day rolling window (Amazon max for DAY)
+    const endDate   = daysAgo(4);   // 3-day lag minimum for vendor data
+    const startDate = daysAgo(11);  // 7-day window (safe range with 3-day lag)
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
@@ -402,8 +402,8 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 2. Vendor Inventory (DAY grain, max 14 days per request) ───────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    const endDate   = daysAgo(1);
-    const startDate = daysAgo(13);
+    const endDate   = daysAgo(4);   // 3-day lag minimum for vendor data
+    const startDate = daysAgo(11);  // 7-day window
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
