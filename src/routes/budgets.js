@@ -165,15 +165,35 @@ router.get('/', async (req, res) => {
 
       // Sum spend for assigned campaigns within this budget's period
       let spent = 0;
+      // Per-campaign MTD spend (for campaign list)
+      const campaignMtdSpend = {};
+      // Spend by ad type
+      const spendByType = { SP: 0, SB: 0, SD: 0, DSP: 0 };
+      // Build a map of campaign_id -> ad_type from mappings for this budget
+      const budgetMappings = mappings.filter(m => (m.BUDGET_ID || m.budget_id) === budgetId);
+      const adTypeForCampaign = {};
+      for (const m of budgetMappings) {
+        const cid = m.CAMPAIGN_ID || m.campaign_id;
+        adTypeForCampaign[cid] = (m.AD_TYPE || m.ad_type || '').toUpperCase();
+      }
+
       for (const cid of campaignIds) {
         const entries = spendByCampaign[cid] || [];
+        let cidMtd = 0;
         for (const entry of entries) {
           const d = new Date(entry.date);
           d.setUTCHours(0, 0, 0, 0);
           if (d >= periodStart && d <= today) {
             spent += entry.spend;
+            cidMtd += entry.spend;
+            // Bucket into ad type
+            const adType = adTypeForCampaign[cid];
+            if (adType && spendByType.hasOwnProperty(adType)) {
+              spendByType[adType] += entry.spend;
+            }
           }
         }
+        campaignMtdSpend[cid] = cidMtd;
       }
 
       const MS_PER_DAY   = 86400000;
@@ -187,9 +207,59 @@ router.get('/', async (req, res) => {
       const dailyBurnRate  = spent / daysElapsed;
       const projectedTotal = dailyBurnRate * daysTotal;
 
+      // ── Velocity: compute burn_rate_7d and burn_rate_3d ──────────────────
+      const sevenDaysAgo  = new Date(today.getTime() - 7  * MS_PER_DAY);
+      const threeDaysAgo  = new Date(today.getTime() - 3  * MS_PER_DAY);
+      const thirtyDaysAgo = new Date(today.getTime() - 30 * MS_PER_DAY);
+
+      let spend7d = 0, spend3d = 0, spend30d = 0;
+      let days7dCount = 0, days3dCount = 0, days30dCount = 0;
+
+      for (const cid of campaignIds) {
+        const entries = spendByCampaign[cid] || [];
+        for (const entry of entries) {
+          const d = new Date(entry.date);
+          d.setUTCHours(0, 0, 0, 0);
+          if (d > sevenDaysAgo  && d <= today) { spend7d  += entry.spend; }
+          if (d > threeDaysAgo  && d <= today) { spend3d  += entry.spend; }
+          if (d > thirtyDaysAgo && d <= today) { spend30d += entry.spend; }
+        }
+      }
+      const burnRate7d  = spend7d  / 7;
+      const burnRate3d  = spend3d  / 3;
+      const burnRate30d = spend30d / 30;
+
+      // Velocity: compare 7-day avg vs overall avg (±15% threshold)
+      let velocity = 'steady';
+      if (dailyBurnRate > 0) {
+        const ratio = burnRate7d / dailyBurnRate;
+        if (ratio > 1.15)      velocity = 'accelerating';
+        else if (ratio < 0.85) velocity = 'decelerating';
+      }
+
       let paceStatus = 'on_pace';
       if (projectedTotal > totalAmount * 1.10)      paceStatus = 'over';
       else if (projectedTotal < totalAmount * 0.90) paceStatus = 'under';
+
+      // ── Alert flags ──────────────────────────────────────────────────────
+      const flightRisk    = projectedTotal > totalAmount * 1.20;
+      const underdelivery = projectedTotal < totalAmount * 0.80 && daysRemaining < 30;
+      const spike         = burnRate30d > 0 && burnRate3d > burnRate30d * 2;
+
+      // Build enhanced campaign list sorted by MTD spend DESC
+      const campaignList = budgetMappings
+        .map(m => ({
+          campaign_id:   m.CAMPAIGN_ID   || m.campaign_id,
+          campaign_name: m.CAMPAIGN_NAME || m.campaign_name,
+          ad_type:       m.AD_TYPE       || m.ad_type,
+          mtd_spend:     Math.round((campaignMtdSpend[m.CAMPAIGN_ID || m.campaign_id] || 0) * 100) / 100,
+        }))
+        .sort((a, b) => b.mtd_spend - a.mtd_spend);
+
+      // Round spendByType values
+      for (const k of Object.keys(spendByType)) {
+        spendByType[k] = Math.round(spendByType[k] * 100) / 100;
+      }
 
       return {
         budget_id:       budgetId,
@@ -203,13 +273,7 @@ router.get('/', async (req, res) => {
         created_at:      b.CREATED_AT   || b.created_at,
         updated_at:      b.UPDATED_AT   || b.updated_at,
         campaign_count:  campaignIds.length,
-        campaigns:       mappings
-          .filter(m => (m.BUDGET_ID || m.budget_id) === budgetId)
-          .map(m => ({
-            campaign_id:   m.CAMPAIGN_ID   || m.campaign_id,
-            campaign_name: m.CAMPAIGN_NAME || m.campaign_name,
-            ad_type:       m.AD_TYPE       || m.ad_type,
-          })),
+        campaigns:       campaignList,
         // pacing
         spent:           Math.round(spent * 100) / 100,
         remaining:       Math.round(remaining * 100) / 100,
@@ -221,6 +285,16 @@ router.get('/', async (req, res) => {
         daily_burn_rate: Math.round(dailyBurnRate * 100) / 100,
         projected_total: Math.round(projectedTotal * 100) / 100,
         pace_status:     paceStatus,
+        // velocity & advanced metrics
+        burn_rate_7d:    Math.round(burnRate7d  * 100) / 100,
+        burn_rate_3d:    Math.round(burnRate3d  * 100) / 100,
+        burn_rate_30d:   Math.round(burnRate30d * 100) / 100,
+        velocity,
+        spend_by_type:   spendByType,
+        // alert flags
+        alert_flight_risk:    flightRisk,
+        alert_underdelivery:  underdelivery,
+        alert_spike:          spike,
       };
     });
 

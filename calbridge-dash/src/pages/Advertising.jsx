@@ -9,49 +9,19 @@ import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Ad type color map (kept for chart colors only) ───────────────────────────
 const AD_TYPES = [
-  {
-    key: 'all',
-    label: 'All Types',
-    color: '#6366f1',
-    description: 'Combined view across SP, SB, SD, and DSP',
-  },
-  {
-    key: 'sp',
-    label: 'Sponsored Products',
-    abbr: 'SP',
-    color: '#2563eb',
-    description: 'Search-based product ads',
-  },
-  {
-    key: 'sb',
-    label: 'Sponsored Brands',
-    abbr: 'SB',
-    color: '#10b981',
-    description: 'Brand awareness — headline + video ads',
-  },
-  {
-    key: 'sd',
-    label: 'Sponsored Display',
-    abbr: 'SD',
-    color: '#f59e0b',
-    description: 'Display retargeting and product targeting',
-  },
-  {
-    key: 'dsp',
-    label: 'DSP',
-    abbr: 'DSP',
-    color: '#8b5cf6',
-    description: 'Programmatic display — viewability-based attribution',
-  },
+  { key: 'sp',  label: 'Sponsored Products', abbr: 'SP',  color: '#2563eb' },
+  { key: 'sb',  label: 'Sponsored Brands',   abbr: 'SB',  color: '#10b981' },
+  { key: 'sd',  label: 'Sponsored Display',  abbr: 'SD',  color: '#f59e0b' },
+  { key: 'dsp', label: 'DSP',                abbr: 'DSP', color: '#8b5cf6' },
 ];
 
 // ─── Channel selector options ─────────────────────────────────────────────────
 const CHANNELS = [
-  { key: 'all',  label: 'All',           description: 'SP · SB · SD · DSP — all ad types' },
-  { key: 'ads',  label: 'Sponsored Ads', description: 'SP · SB · SD — search and display ads' },
-  { key: 'dsp',  label: 'DSP',           description: 'Programmatic display — view-based attribution' },
+  { key: 'all',  label: 'All',           description: 'SP · SB · SD · DSP — all ad types',              chartColor: '#6366f1' },
+  { key: 'ads',  label: 'Sponsored Ads', description: 'SP · SB · SD — search and display ads',           chartColor: '#2563eb' },
+  { key: 'dsp',  label: 'DSP',           description: 'Programmatic display — view-based attribution',   chartColor: '#8b5cf6' },
 ];
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -85,63 +55,6 @@ function MetricCard({ title, value, format = 'currency', sub, highlight, loading
       <div className="text-sm font-medium text-gray-500 mb-2">{title}</div>
       <div className="text-2xl font-bold text-gray-900">{formatted}</div>
       {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function TypeSummaryCard({ type, data, loading, muted }) {
-  if (loading) return <SkeletonCard />;
-  const { color, label, abbr, description } = type;
-  // When muted, show card shell with dashes
-  const d = (!muted && data) ? data : {};
-  const val = (fn, field) => muted ? '—' : (d[field] != null ? fn(d[field]) : '—');
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span
-          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-white"
-          style={{ backgroundColor: color }}
-        >
-          {abbr || label}
-        </span>
-        <span className="text-xs text-gray-400">{description}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-xs text-gray-500">Spend</div>
-          <div className="text-sm font-semibold text-gray-900">{val(fmtCurrency, 'spend')}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Sales</div>
-          <div className="text-sm font-semibold text-gray-900">{val(fmtCurrency, 'sales')}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">ACoS</div>
-          <div className="text-sm font-semibold text-gray-900">{val(fmtPct, 'acos')}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">ROAS</div>
-          <div className="text-sm font-semibold text-gray-900">{val(fmtX, 'roas')}</div>
-        </div>
-        {!muted && d.ntbPurchases != null && (
-          <>
-            <div>
-              <div className="text-xs text-gray-500">NTB Orders</div>
-              <div className="text-sm font-semibold text-emerald-700">{fmtNum(d.ntbPurchases)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">NTB Sales</div>
-              <div className="text-sm font-semibold text-emerald-700">{fmtCurrency(d.ntbSales)}</div>
-            </div>
-          </>
-        )}
-        {!muted && d.viewableImpressions != null && (
-          <div>
-            <div className="text-xs text-gray-500">Viewable Imp.</div>
-            <div className="text-sm font-semibold text-gray-900">{fmtNum(d.viewableImpressions)}</div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -204,22 +117,15 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name })
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Advertising() {
   const { range } = useDateRange();
-  const [activeTab, setActiveTab] = useState('all');
   const [activeChannel, setActiveChannel] = useState('all');
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
-  const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeTab);
-
-  // Determine if a per-type card (SP/SB/SD/DSP) should be fully active under current channel
-  const isChannelActive = (type) =>
-    activeChannel === 'all' ||
-    (activeChannel === 'ads' && type !== 'DSP') ||
-    (activeChannel === 'dsp' && type === 'DSP');
+  const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
   const weekly   = data?.weekly   || {};
 
-  // Build a merged weekly series for "all" view
+  // Build a merged weekly series across all types
   const allWeeklyMerged = (() => {
     if (!data) return [];
     const map = {};
@@ -234,21 +140,42 @@ export default function Advertising() {
     return Object.values(map).sort((a, b) => a.weekStart?.localeCompare(b.weekStart));
   })();
 
-  const activeType = AD_TYPES.find(t => t.key === activeTab);
-
-  // Get weekly data for selected tab — enrich with roas/cpc if missing
+  // Get weekly data for active channel — enrich with roas/cpc if missing
   const enrichWeekly = (rows) => rows.map(r => ({
     ...r,
     roas: r.roas != null ? r.roas : (r.spend > 0 ? r.sales / r.spend : null),
     cpc:  r.cpc  != null ? r.cpc  : (r.clicks > 0 ? r.spend / r.clicks : null),
   }));
-  const chartData = enrichWeekly(activeTab === 'all' ? allWeeklyMerged : (weekly[activeTab] || []));
+
+  const chartData = enrichWeekly(
+    activeChannel === 'all' ? allWeeklyMerged :
+    activeChannel === 'dsp' ? (weekly['dsp'] || []) :
+    /* ads */ (() => {
+      const map = {};
+      for (const type of ['sp', 'sb', 'sd']) {
+        for (const row of (weekly[type] || [])) {
+          if (!map[row.weekStart]) map[row.weekStart] = { week: row.week, weekStart: row.weekStart, spend: 0, sales: 0, clicks: 0 };
+          map[row.weekStart].spend  += row.spend  || 0;
+          map[row.weekStart].sales  += row.sales  || 0;
+          map[row.weekStart].clicks += row.clicks || 0;
+        }
+      }
+      return Object.values(map).sort((a, b) => a.weekStart?.localeCompare(b.weekStart));
+    })()
+  );
+
+  const activeChannelInfo = CHANNELS.find(c => c.key === activeChannel);
+
+  // Trend chart title based on active channel
+  const chartTitle = activeChannel === 'all' ? 'Full Channel Trend'
+    : activeChannel === 'ads' ? 'Sponsored Ads Trend'
+    : 'DSP Trend';
 
   // ASIN table data — sorted by spend desc
   const tableAsins = (asinData?.asins || []).sort((a, b) => (b.spend || 0) - (a.spend || 0));
 
   // Pie chart data for spend mix
-  const pieData = AD_TYPES.filter(t => t.key !== 'all').map(type => ({
+  const pieData = AD_TYPES.map(type => ({
     name: type.abbr || type.label,
     value: byType[type.key]?.spend || 0,
     color: type.color,
@@ -258,12 +185,32 @@ export default function Advertising() {
     <div>
       <PageHeader
         title="Advertising"
-        subtitle="SP · SB · SD · DSP — all ad types in one view"
-        
-        
+        subtitle="Spend · Sales · ACoS · ROAS across your ad channels"
       />
 
       {isError && <ErrorState message={error?.message} />}
+
+      {/* Channel selector — sole filter for all page data */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        {CHANNELS.map(c => (
+          <button
+            key={c.key}
+            onClick={() => setActiveChannel(c.key)}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '20px',
+              border: activeChannel === c.key ? '2px solid #6366f1' : '1px solid #e5e7eb',
+              background: activeChannel === c.key ? '#6366f1' : '#fff',
+              color: activeChannel === c.key ? '#fff' : '#374151',
+              fontWeight: activeChannel === c.key ? 600 : 400,
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
 
       {/* Combined KPI cards — row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
@@ -281,180 +228,127 @@ export default function Advertising() {
         <MetricCard title="Conversion Rate" value={combined.conversionRate} format="percent" sub="Orders / clicks" loading={isLoading} />
       </div>
 
-      {/* Channel selector */}
-      <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
-        {CHANNELS.map(c => (
-          <button
-            key={c.key}
-            onClick={() => setActiveChannel(c.key)}
-            style={{
-              padding:'8px 18px',
-              borderRadius:'20px',
-              border: activeChannel === c.key ? '2px solid #6366f1' : '1px solid #e5e7eb',
-              background: activeChannel === c.key ? '#6366f1' : '#fff',
-              color: activeChannel === c.key ? '#fff' : '#374151',
-              fontWeight: activeChannel === c.key ? 600 : 400,
-              cursor:'pointer', fontSize:'14px'
-            }}
-          >{c.label}</button>
-        ))}
-      </div>
-
-      {/* Per-type summary strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        {AD_TYPES.filter(t => t.key !== 'all').map(type => (
-          <div key={type.key} style={{ opacity: isChannelActive(type.abbr || type.key.toUpperCase()) ? 1 : 0.35, transition: 'opacity 0.2s' }}>
-            <TypeSummaryCard
-              type={type}
-              data={isChannelActive(type.abbr || type.key.toUpperCase()) ? byType[type.key] : null}
-              loading={isLoading}
-              muted={!isChannelActive(type.abbr || type.key.toUpperCase())}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Tab switcher */}
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
-        {AD_TYPES.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === t.key
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t.key === 'all' ? 'All' : t.abbr}
-          </button>
-        ))}
-      </div>
-
-      {/* Chart + table for selected tab */}
-      <div className="mb-6">
-        {/* Weekly trend + Spend Mix side by side */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-          {/* Weekly chart — 2/3 width */}
-          <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">
-              Weekly Spend vs Sales — {activeType?.label}
-            </h3>
-            <p className="text-xs text-gray-400 mb-4">{activeType?.description}</p>
-            {isLoading ? (
-              <div className="h-64 bg-gray-100 rounded animate-pulse" />
-            ) : chartData.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    yAxisId="left"
-                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip
-                    formatter={(v, name) => {
-                      if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
-                      if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
-                      return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
-                    }}
-                    labelStyle={{ fontWeight: 600 }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeType?.color || '#2563eb'} strokeWidth={2} dot={false} />
-                  <Line yAxisId="left"  type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-                  <Line yAxisId="right" type="monotone" dataKey="roas"  name="ROAS"  stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
-                  <Line yAxisId="right" type="monotone" dataKey="cpc"   name="CPC"   stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Spend Mix pie — 1/3 width */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix by Ad Type</h3>
-            {isLoading || pieData.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center">
-                {isLoading
-                  ? <div className="h-40 w-40 bg-gray-100 rounded-full animate-pulse" />
-                  : <span className="text-gray-400 text-sm">No spend data</span>}
-              </div>
-            ) : (
-              <div className="flex-1">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={70}
-                      dataKey="value"
-                      labelLine={false}
-                      label={PieLabel}
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value, name) => [fmtCurrency(value), name]}
-                      labelFormatter={() => ''}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="mt-3 space-y-1.5">
-                  {AD_TYPES.filter(t => t.key !== 'all').map(type => {
-                    const spend = byType[type.key]?.spend || 0;
-                    const pct = combined.totalSpend > 0 ? (spend / combined.totalSpend * 100).toFixed(1) : '0.0';
-                    if (spend === 0) return null;
-                    return (
-                      <div key={type.key} className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: type.color }} />
-                          <span className="text-gray-600">{type.abbr}</span>
-                        </div>
-                        <span className="text-gray-500">{fmtCurrency(spend)} <span className="text-gray-400">({pct}%)</span></span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* DSP special note */}
-        {activeTab === 'dsp' && (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-4 text-sm text-purple-800">
-            <strong>DSP Attribution:</strong> DSP uses view-based attribution (not click-based). “Sales” reflects total attributed sales including view-through.
-            Note: ASIN-level data is sourced from SP reports; DSP ASIN data may be limited.
-          </div>
-        )}
-
-        {/* ASIN performance table */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">
-            Ad Performance by ASIN
-            {' '}
-            <span className="text-xs font-normal text-gray-400">sorted by spend — {activeTab === 'all' ? 'all ad types' : activeType?.label}</span>
+      {/* Weekly trend + Spend Mix side by side */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+        {/* Weekly chart — 2/3 width */}
+        <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">
+            Weekly Spend vs Sales — {chartTitle}
           </h3>
-          <AsinTable
-            asins={tableAsins}
-            loading={asinLoading}
-          />
+          <p className="text-xs text-gray-400 mb-4">{activeChannelInfo?.description}</p>
+          {isLoading ? (
+            <div className="h-64 bg-gray-100 rounded animate-pulse" />
+          ) : chartData.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                <YAxis
+                  yAxisId="left"
+                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip
+                  formatter={(v, name) => {
+                    if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
+                    if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
+                    return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
+                  }}
+                  labelStyle={{ fontWeight: 600 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeChannelInfo?.chartColor || '#6366f1'} strokeWidth={2} dot={false} />
+                <Line yAxisId="left"  type="monotone" dataKey="sales" name="Sales" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                <Line yAxisId="right" type="monotone" dataKey="roas"  name="ROAS"  stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                <Line yAxisId="right" type="monotone" dataKey="cpc"   name="CPC"   stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Spend Mix pie — 1/3 width */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Spend Mix by Ad Type</h3>
+          {isLoading || pieData.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              {isLoading
+                ? <div className="h-40 w-40 bg-gray-100 rounded-full animate-pulse" />
+                : <span className="text-gray-400 text-sm">No spend data</span>}
+            </div>
+          ) : (
+            <div className="flex-1">
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    dataKey="value"
+                    labelLine={false}
+                    label={PieLabel}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value, name) => [fmtCurrency(value), name]}
+                    labelFormatter={() => ''}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-3 space-y-1.5">
+                {AD_TYPES.map(type => {
+                  const spend = byType[type.key]?.spend || 0;
+                  const pct = combined.totalSpend > 0 ? (spend / combined.totalSpend * 100).toFixed(1) : '0.0';
+                  if (spend === 0) return null;
+                  return (
+                    <div key={type.key} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: type.color }} />
+                        <span className="text-gray-600">{type.abbr}</span>
+                      </div>
+                      <span className="text-gray-500">{fmtCurrency(spend)} <span className="text-gray-400">({pct}%)</span></span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* DSP attribution note */}
+      {activeChannel === 'dsp' && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-4 text-sm text-purple-800">
+          <strong>DSP Attribution:</strong> DSP uses view-based attribution (not click-based). "Sales" reflects total attributed sales including view-through.
+          Note: ASIN-level data is sourced from SP reports; DSP ASIN data may be limited.
+        </div>
+      )}
 
+      {/* ASIN performance table */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <h3 className="text-sm font-semibold text-gray-700 mb-4">
+          Ad Performance by ASIN
+          {' '}
+          <span className="text-xs font-normal text-gray-400">
+            sorted by spend — {activeChannel === 'all' ? 'all channels' : activeChannelInfo?.label}
+          </span>
+        </h3>
+        <AsinTable
+          asins={tableAsins}
+          loading={asinLoading}
+        />
+      </div>
     </div>
   );
 }
