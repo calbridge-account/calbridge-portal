@@ -26,7 +26,8 @@ const NAV = [
     group: 'Advertising',
     items: [
       { path: '/advertising', label: 'Performance',   emoji: '📢', minRole: 'viewer'  },
-      { path: '/pacing',      label: 'Budget Pacing', emoji: '🎯', minRole: 'analyst' },
+      { path: '/pacing',           label: 'Budget Pacing',    emoji: '🎯', minRole: 'analyst' },
+      { path: '/recommendations', label: 'Recommendations',  emoji: '⚡', minRole: 'analyst' },
     ],
   },
   {

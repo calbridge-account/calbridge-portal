@@ -12,6 +12,7 @@ import Advertising from './pages/Advertising';
 import Forecasting from './pages/Forecasting';
 import Account from './pages/Account';
 import Cogs from './pages/Cogs';
+import Recommendations from './pages/Recommendations';
 import Pacing from './pages/Pacing';
 
 const queryClient = new QueryClient({
@@ -40,7 +41,8 @@ export default function App() {
             <Route path="/forecasting" element={<Forecasting />} />
             <Route path="/account"     element={<Account />} />
             <Route path="/cogs"        element={<Cogs />} />
-            <Route path="/pacing"      element={<Pacing />} />
+            <Route path="/pacing"          element={<Pacing />} />
+            <Route path="/recommendations" element={<Recommendations />} />
           </Routes>
         </Layout>
       </BrowserRouter>
