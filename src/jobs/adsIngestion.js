@@ -1864,8 +1864,17 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   // Only write rows whose advertiserId matches our known-good advertiser_id.
   let trustedAdvertiserIds;
   try {
-    const knownRows = await query('SELECT advertiser_id FROM dsp_advertiser WHERE is_active = TRUE');
-    trustedAdvertiserIds = new Set(knownRows.map(r => String(r.ADVERTISER_ID || r.advertiser_id)));
+    // Pull from both dsp_advertiser (legacy) AND client_accounts (Phase 2b canonical source).
+    // dsp_advertiser rows were marked is_active=FALSE in Phase 3 — falling back to that table
+    // alone would produce an empty set and silently drop all new Calbridge DSP data.
+    const [legacyRows, caRows] = await Promise.all([
+      query('SELECT advertiser_id FROM dsp_advertiser').catch(() => []),
+      query("SELECT platform_profile_id AS advertiser_id FROM client_accounts WHERE channel='dsp' AND is_active=TRUE").catch(() => []),
+    ]);
+    trustedAdvertiserIds = new Set([
+      ...legacyRows.map(r => String(r.ADVERTISER_ID || r.advertiser_id)),
+      ...caRows.map(r => String(r.ADVERTISER_ID || r.advertiser_id)),
+    ]);
   } catch (err) {
     console.warn('[DSP] Could not load trusted advertiser IDs — skipping validation:', err.message);
     trustedAdvertiserIds = null;
