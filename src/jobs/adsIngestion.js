@@ -263,28 +263,9 @@ const REPORT_TYPES = [
     table:      'sb_search_term_report',
     primaryKey: ['client_id', 'profile_id', 'keyword_id', 'search_term', 'report_date']
   },
-  {
-    key:          'sbTargets',
-    adProduct:    'SPONSORED_BRANDS',
-    reportTypeId: 'sbTargeting',   // same reportTypeId, different filter
-    groupBy:      ['targeting'],
-    filters:      [{ field: 'keywordType', values: ['TARGETING_EXPRESSION','TARGETING_EXPRESSION_PREDEFINED'] }],
-    columns:      [
-      'campaignId', 'campaignName', 'campaignStatus',
-      'campaignBudgetAmount', 'campaignBudgetType', 'campaignBudgetCurrencyCode',
-      'adGroupId', 'adGroupName',
-      'targetingExpression', 'targetingId', 'targetingText', 'targetingType',
-      'impressions', 'clicks', 'cost', 'costType',
-      'purchases', 'purchasesClicks', 'sales', 'salesClicks', 'unitsSold',
-      'newToBrandPurchases', 'newToBrandPurchasesClicks',
-      'newToBrandSales', 'newToBrandSalesClicks',
-      'newToBrandUnitsSold', 'newToBrandUnitsSoldClicks',
-      'topOfSearchImpressionShare',
-      'date'
-    ],
-    table:      'sb_target_report',
-    primaryKey: ['client_id', 'profile_id', 'target_id', 'report_date']
-  },
+  // NOTE: sbTargets (TARGETING_EXPRESSION-only filter) removed 2026-04-13.
+  // All clients use keyword targeting — this report consistently returns 0 rows.
+  // sbTargeting (without filter) is kept — it covers all keyword types and IS working.
   {
     key:          'sbPlacements',
     adProduct:    'SPONSORED_BRANDS',
@@ -2172,7 +2153,7 @@ const WRITE_FNS = {
   sbCampaigns:          writeSbCampaignReport,
   sbTargeting:          writeSbKeywordReport,
   sbSearchTerms:        writeSbSearchTermReport,
-  sbTargets:            writeSbTargetReport,
+  // sbTargets removed — report type no longer queued (returns 0 rows for all clients)
   sbPlacements:         writeSbPlacementReport,
   sdCampaigns:          writeSdCampaignReport,
   sdAdGroups:           writeSdAdGroupReport,
@@ -2298,6 +2279,10 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
 
     console.log(`[performance] ${daysBack} days → ${windows.length} chunks of ≤${MAX_RANGE} days, ${REPORT_TYPES.length} report types = up to ${windows.length * REPORT_TYPES.length} requests`);
 
+    // Capability cache: lazy-loaded per client to avoid redundant Snowflake queries
+    // Keys: clientId → { hasSD: bool }
+    const clientCapabilities = {};
+
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
       const accountId = profileAccountMap[profileId] || null;
@@ -2308,6 +2293,22 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
         for (const rt of REPORT_TYPES) {
           try {
             await new Promise(r => setImmediate(r)); // yield event loop
+
+            // SD capability guard: skip SD reports for clients with no SD data in 90 days
+            if (rt.adProduct === 'SPONSORED_DISPLAY') {
+              if (!clientCapabilities[clientId]) {
+                const sdCheck = await query(
+                  `SELECT COUNT(*) as cnt FROM CALBRIDGE_PROD.APP.sd_campaign_report WHERE client_id = ? AND date >= DATEADD('day', -90, CURRENT_DATE())`,
+                  [clientId]
+                ).catch(() => [{ CNT: 1 }]); // fail open — if check fails, allow report
+                clientCapabilities[clientId] = { hasSD: Number(sdCheck[0]?.CNT || sdCheck[0]?.cnt || 0) > 0 };
+                console.log(`[performance] SD capability for ${clientId}: hasSD=${clientCapabilities[clientId].hasSD}`);
+              }
+              if (!clientCapabilities[clientId].hasSD) {
+                console.log(`[performance] Skipping SD report ${rt.key} for ${clientId} — no SD data in last 90 days`);
+                continue;
+              }
+            }
 
             // Deduplicate: skip if already pending/completed for this type+range+profile
             const existing = await query(`
@@ -2414,6 +2415,10 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
 
     console.log(`[performanceRange] ${startDate}→${endDate}: ${windows.length} chunks of ≤${MAX_RANGE} days, ${activeTypes.length} report type(s) = up to ${windows.length * activeTypes.length * profiles.length} requests`);
 
+    // Capability cache: lazy-loaded per client to avoid redundant Snowflake queries
+    // Keys: clientId → { hasSD: bool }
+    const clientCapabilities = {};
+
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
       const accountId = profileAccountMap[profileId] || null;
@@ -2424,6 +2429,22 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
         for (const rt of activeTypes) {
           try {
             await new Promise(r => setImmediate(r)); // yield event loop
+
+            // SD capability guard: skip SD reports for clients with no SD data in 90 days
+            if (rt.adProduct === 'SPONSORED_DISPLAY') {
+              if (!clientCapabilities[clientId]) {
+                const sdCheck = await query(
+                  `SELECT COUNT(*) as cnt FROM CALBRIDGE_PROD.APP.sd_campaign_report WHERE client_id = ? AND date >= DATEADD('day', -90, CURRENT_DATE())`,
+                  [clientId]
+                ).catch(() => [{ CNT: 1 }]); // fail open — if check fails, allow report
+                clientCapabilities[clientId] = { hasSD: Number(sdCheck[0]?.CNT || sdCheck[0]?.cnt || 0) > 0 };
+                console.log(`[performanceRange] SD capability for ${clientId}: hasSD=${clientCapabilities[clientId].hasSD}`);
+              }
+              if (!clientCapabilities[clientId].hasSD) {
+                console.log(`[performanceRange] Skipping SD report ${rt.key} for ${clientId} — no SD data in last 90 days`);
+                continue;
+              }
+            }
 
             // Deduplicate: skip if already pending/completed for this type+range+profile
             const existing = await query(`
@@ -2625,7 +2646,7 @@ async function processReportQueue(clientId, connectionType) {
           }
         }
         await query(`UPDATE ads_report_queue SET status='completed', records_written=?, completed_at=CURRENT_TIMESTAMP WHERE report_id=?`,
-          [written, reportId]);
+          [Number(written) || 0, reportId]); // always write 0 not NULL
         console.log(`[ReportQueue] ✅ ${reportId} (${reportType} ${reportDate}) — ${written} records`);
         return true;
       }
