@@ -382,7 +382,7 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     const startDate = daysAgo(13);  // 14-day rolling window (Amazon max for DAY)
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
-      distributorView:  'MANUFACTURING',
+      distributorView:  'SOURCING',
       sellingProgram:   'RETAIL',
       dataStartTime:    startDate,
       dataEndTime:      endDate,
@@ -406,7 +406,7 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     const startDate = daysAgo(13);
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
-      distributorView:  'MANUFACTURING',
+      distributorView:  'SOURCING',
       sellingProgram:   'RETAIL',
       dataStartTime:    startDate,
       dataEndTime:      endDate,
@@ -536,7 +536,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     // Sales (DAY)
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
-        reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'salesByAsin', 'reportData');
@@ -551,7 +551,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     // Inventory (DAY)
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
-        reportPeriod: 'DAY', distributorView: 'MANUFACTURING', sellingProgram: 'RETAIL',
+        reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'inventoryByAsin', 'reportData');
