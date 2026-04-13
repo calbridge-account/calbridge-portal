@@ -33,12 +33,28 @@ function rangeParams(range) {
   return `?range=${range.type || 'mtd'}`;
 }
 
-export const getOverview          = (range) => fetchJSON(`/overview${rangeParams(range)}`);
-export const getVendorMetrics     = (range) => fetchJSON(`/vendor${rangeParams(range)}`);
-export const getVendorAsins       = (range) => fetchJSON(`/vendor/asins${rangeParams(range)}`);
+export const getMarketplaces      = () => fetch('/manager/active-advertiser/marketplaces', { credentials: 'include' }).then(r => r.ok ? r.json() : { marketplaces: [], activeMarketplace: 'US' });
+export const postSetMarketplace   = (marketplace) => fetch('/manager/set-marketplace', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ marketplace }) });
+
+export const getOverview          = (range, marketplace) => {
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return fetchJSON(`/overview${rangeParams(range)}${mp}`);
+};
+export const getVendorMetrics     = (range, marketplace) => {
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return fetchJSON(`/vendor${rangeParams(range)}${mp}`);
+};
+export const getVendorAsins       = (range, marketplace) => {
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return fetchJSON(`/vendor/asins${rangeParams(range)}${mp}`);
+};
 export const getInventoryDetail   = ()      => fetchJSON('/inventory-detail');
 export const getPoSummary         = ()      => fetchJSON('/po-summary');
-export const getAdvertising       = (range) => fetchJSON(`/advertising${rangeParams(range)}`);
+export const getAdvertising       = (range, channel, marketplace) => {
+  const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return fetchJSON(`/advertising${rangeParams(range)}${channelParam}${mp}`);
+};
 export const getForecasting       = (range) => fetchJSON(`/forecasting${rangeParams(range)}`);
 export const getForecastShift     = (asin)  => fetchJSON(`/forecast-shift${asin ? `?asin=${asin}` : ''}`);
 export const getAnnualProjection  = ()      => fetchJSON('/annual-projection');
@@ -101,8 +117,9 @@ async function advJSON(path, options = {}) {
   return res.json();
 }
 
-export const getAsinPerformance = (range, adType) => {
+export const getAsinPerformance = (range, channel, marketplace) => {
   const base = rangeParams(range); // e.g. ?range=mtd or ?range=custom&start=...&end=...
-  const typeParam = adType && adType !== 'all' ? `&adType=${adType.toUpperCase()}` : '';
-  return advJSON(`/asin-performance${base}${typeParam}`);
+  const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return advJSON(`/asin-performance${base}${channelParam}${mp}`);
 };

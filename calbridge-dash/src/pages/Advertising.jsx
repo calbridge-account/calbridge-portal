@@ -47,6 +47,13 @@ const AD_TYPES = [
   },
 ];
 
+// ─── Channel selector options ─────────────────────────────────────────────────
+const CHANNELS = [
+  { key: 'all',  label: 'All',           description: 'SP · SB · SD · DSP — all ad types' },
+  { key: 'ads',  label: 'Sponsored Ads', description: 'SP · SB · SD — search and display ads' },
+  { key: 'dsp',  label: 'DSP',           description: 'Programmatic display — view-based attribution' },
+];
+
 // ─── Formatters ───────────────────────────────────────────────────────────────
 function fmtCurrency(n) {
   if (n == null || isNaN(n)) return '—';
@@ -82,10 +89,12 @@ function MetricCard({ title, value, format = 'currency', sub, highlight, loading
   );
 }
 
-function TypeSummaryCard({ type, data, loading }) {
+function TypeSummaryCard({ type, data, loading, muted }) {
   if (loading) return <SkeletonCard />;
-  if (!data) return null;
   const { color, label, abbr, description } = type;
+  // When muted, show card shell with dashes
+  const d = (!muted && data) ? data : {};
+  const val = (fn, field) => muted ? '—' : (d[field] != null ? fn(d[field]) : '—');
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -100,36 +109,36 @@ function TypeSummaryCard({ type, data, loading }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <div className="text-xs text-gray-500">Spend</div>
-          <div className="text-sm font-semibold text-gray-900">{fmtCurrency(data.spend)}</div>
+          <div className="text-sm font-semibold text-gray-900">{val(fmtCurrency, 'spend')}</div>
         </div>
         <div>
           <div className="text-xs text-gray-500">Sales</div>
-          <div className="text-sm font-semibold text-gray-900">{fmtCurrency(data.sales)}</div>
+          <div className="text-sm font-semibold text-gray-900">{val(fmtCurrency, 'sales')}</div>
         </div>
         <div>
           <div className="text-xs text-gray-500">ACoS</div>
-          <div className="text-sm font-semibold text-gray-900">{fmtPct(data.acos)}</div>
+          <div className="text-sm font-semibold text-gray-900">{val(fmtPct, 'acos')}</div>
         </div>
         <div>
           <div className="text-xs text-gray-500">ROAS</div>
-          <div className="text-sm font-semibold text-gray-900">{fmtX(data.roas)}</div>
+          <div className="text-sm font-semibold text-gray-900">{val(fmtX, 'roas')}</div>
         </div>
-        {data.ntbPurchases != null && (
+        {!muted && d.ntbPurchases != null && (
           <>
             <div>
               <div className="text-xs text-gray-500">NTB Orders</div>
-              <div className="text-sm font-semibold text-emerald-700">{fmtNum(data.ntbPurchases)}</div>
+              <div className="text-sm font-semibold text-emerald-700">{fmtNum(d.ntbPurchases)}</div>
             </div>
             <div>
               <div className="text-xs text-gray-500">NTB Sales</div>
-              <div className="text-sm font-semibold text-emerald-700">{fmtCurrency(data.ntbSales)}</div>
+              <div className="text-sm font-semibold text-emerald-700">{fmtCurrency(d.ntbSales)}</div>
             </div>
           </>
         )}
-        {data.viewableImpressions != null && (
+        {!muted && d.viewableImpressions != null && (
           <div>
             <div className="text-xs text-gray-500">Viewable Imp.</div>
-            <div className="text-sm font-semibold text-gray-900">{fmtNum(data.viewableImpressions)}</div>
+            <div className="text-sm font-semibold text-gray-900">{fmtNum(d.viewableImpressions)}</div>
           </div>
         )}
       </div>
@@ -196,8 +205,15 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name })
 export default function Advertising() {
   const { range } = useDateRange();
   const [activeTab, setActiveTab] = useState('all');
-  const { data, isLoading, isError, error } = useAdvertising(range);
+  const [activeChannel, setActiveChannel] = useState('all');
+  const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeTab);
+
+  // Determine if a per-type card (SP/SB/SD/DSP) should be fully active under current channel
+  const isChannelActive = (type) =>
+    activeChannel === 'all' ||
+    (activeChannel === 'ads' && type !== 'DSP') ||
+    (activeChannel === 'dsp' && type === 'DSP');
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
@@ -265,10 +281,36 @@ export default function Advertising() {
         <MetricCard title="Conversion Rate" value={combined.conversionRate} format="percent" sub="Orders / clicks" loading={isLoading} />
       </div>
 
+      {/* Channel selector */}
+      <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
+        {CHANNELS.map(c => (
+          <button
+            key={c.key}
+            onClick={() => setActiveChannel(c.key)}
+            style={{
+              padding:'8px 18px',
+              borderRadius:'20px',
+              border: activeChannel === c.key ? '2px solid #6366f1' : '1px solid #e5e7eb',
+              background: activeChannel === c.key ? '#6366f1' : '#fff',
+              color: activeChannel === c.key ? '#fff' : '#374151',
+              fontWeight: activeChannel === c.key ? 600 : 400,
+              cursor:'pointer', fontSize:'14px'
+            }}
+          >{c.label}</button>
+        ))}
+      </div>
+
       {/* Per-type summary strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {AD_TYPES.filter(t => t.key !== 'all').map(type => (
-          <TypeSummaryCard key={type.key} type={type} data={byType[type.key]} loading={isLoading} />
+          <div key={type.key} style={{ opacity: isChannelActive(type.abbr || type.key.toUpperCase()) ? 1 : 0.35, transition: 'opacity 0.2s' }}>
+            <TypeSummaryCard
+              type={type}
+              data={isChannelActive(type.abbr || type.key.toUpperCase()) ? byType[type.key] : null}
+              loading={isLoading}
+              muted={!isChannelActive(type.abbr || type.key.toUpperCase())}
+            />
+          </div>
         ))}
       </div>
 

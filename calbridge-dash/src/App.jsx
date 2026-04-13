@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateRangeProvider } from './context/DateRangeContext';
 import { UserProvider } from './context/UserContext';
 import { AdvertiserProvider } from './context/AdvertiserContext';
+import { MarketplaceProvider } from './context/MarketplaceContext';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import VendorPerformance from './pages/VendorPerformance';
@@ -28,6 +29,7 @@ export default function App() {
       <DateRangeProvider>
       <UserProvider>
       <AdvertiserProvider>
+      <MarketplaceProvider>
       <BrowserRouter basename="/analytics">
         <Layout>
           <Routes>
@@ -42,6 +44,7 @@ export default function App() {
           </Routes>
         </Layout>
       </BrowserRouter>
+      </MarketplaceProvider>
       </AdvertiserProvider>
       </UserProvider>
       </DateRangeProvider>

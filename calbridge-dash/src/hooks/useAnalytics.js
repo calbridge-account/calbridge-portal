@@ -1,4 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMarketplace } from '../context/MarketplaceContext';
+
+export { useMarketplace };
 import {
   getOverview,
   getVendorMetrics,
@@ -32,36 +35,40 @@ function rangeKey(range) {
 }
 
 export function useOverview(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['overview', rangeKey(range)],
-    queryFn: () => getOverview(range),
+    queryKey: ['overview', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getOverview(range, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
 }
 
 export function useVendorMetrics(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['vendor', rangeKey(range)],
-    queryFn: () => getVendorMetrics(range),
+    queryKey: ['vendor', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getVendorMetrics(range, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
 }
 
 export function useVendorAsins(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['vendor-asins', rangeKey(range)],
-    queryFn: () => getVendorAsins(range),
+    queryKey: ['vendor-asins', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getVendorAsins(range, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
 }
 
-export function useAdvertising(range) {
+export function useAdvertising(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['advertising', rangeKey(range)],
-    queryFn: () => getAdvertising(range),
+    queryKey: ['advertising', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getAdvertising(range, channel, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -193,10 +200,11 @@ export function usePoSummary() {
   });
 }
 
-export function useAsinPerformance(range, adType) {
+export function useAsinPerformance(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['asin-performance', rangeKey(range), adType || 'all'],
-    queryFn: () => getAsinPerformance(range, adType),
+    queryKey: ['asin-performance', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getAsinPerformance(range, channel, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
