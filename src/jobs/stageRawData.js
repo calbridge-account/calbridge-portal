@@ -948,9 +948,7 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
         const rows = await query(`
           SELECT
             MAX(${tsColumn})   AS last_load_at,
-            MAX(CASE WHEN TYPEOF(date) = 'varchar' THEN TRY_TO_DATE(date)
-                     WHEN TYPEOF(snapshot_date) = 'varchar' THEN TRY_TO_DATE(snapshot_date)
-                     ELSE COALESCE(date, snapshot_date) END) AS last_report_date,
+            NULL AS last_report_date,  -- skipped: date col varies per table
             COUNT(*)           AS row_count
           FROM ${table}
           WHERE client_id = ? AND account_id = ?
