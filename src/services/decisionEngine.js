@@ -54,10 +54,15 @@ async function adsClient(clientId, profileId) {
 // ─── Analysis ────────────────────────────────────────────────────────────────
 
 async function analyze(clientId, days = 30) {
+  // Resolve authorized profile IDs for this client from client_accounts
+  // This prevents Acer profile data (leaked under CyberPower client_id) from
+  // generating recommendations for the wrong account.
+  const authorizedProfiles = await getAuthorizedProfiles(clientId);
+
   const [spKeywords, sbKeywords, campaigns, cooldownSet] = await Promise.all([
-    loadSpKeywords(clientId, days),
-    loadSbKeywords(clientId, days),
-    loadCampaigns(clientId, days),
+    loadSpKeywords(clientId, days, authorizedProfiles),
+    loadSbKeywords(clientId, days, authorizedProfiles),
+    loadCampaigns(clientId, days, authorizedProfiles),
     loadCooldownSet(clientId),
   ]);
 
@@ -204,7 +209,31 @@ async function analyze(clientId, days = 30) {
 
 // ─── Data loaders ─────────────────────────────────────────────────────────────
 
-function loadSpKeywords(clientId, days) {
+async function getAuthorizedProfiles(clientId) {
+  try {
+    const rows = await query(`
+      SELECT DISTINCT platform_profile_id
+      FROM CALBRIDGE_PROD.APP.client_accounts
+      WHERE client_id = ? AND is_active = TRUE AND channel = 'sponsored_ads'
+    `, [clientId]);
+    if (rows.length) {
+      const profiles = rows.map(r => String(r.PLATFORM_PROFILE_ID)).filter(Boolean);
+      console.log(`[DecisionEngine] Authorized profiles for ${clientId.substring(0,8)}: ${profiles.join(', ')}`);
+      return profiles;
+    }
+  } catch (err) {
+    console.warn('[DecisionEngine] Could not load authorized profiles — allowing all:', err.message);
+  }
+  return null;
+}
+
+function profileFilter(authorizedProfiles) {
+  if (!authorizedProfiles || !authorizedProfiles.length) return '';
+  const list = authorizedProfiles.map(p => `'${p}'`).join(',');
+  return `AND profile_id IN (${list})`;
+}
+
+function loadSpKeywords(clientId, days, authorizedProfiles) {
   return query(`
     SELECT
       keyword_id, targeting AS keyword_text, targeting, match_type, keyword_bid,
@@ -218,14 +247,14 @@ function loadSpKeywords(clientId, days) {
     WHERE client_id = ?
       AND date >= DATEADD('day', -?, CURRENT_DATE())
       AND ad_keyword_status = 'ENABLED'
-      AND keyword_type = 'BROAD' OR keyword_type = 'PHRASE' OR keyword_type = 'EXACT'
-      OR keyword_type IS NULL
+      AND (keyword_type IN ('BROAD','PHRASE','EXACT') OR keyword_type IS NULL)
+      ${profileFilter(authorizedProfiles)}
     GROUP BY keyword_id, targeting, match_type, keyword_bid, campaign_id, campaign_name, ad_group_id, profile_id
     HAVING SUM(cost) > 5 OR SUM(clicks) >= ?
   `, [clientId, days, MIN_CLICKS]);
 }
 
-function loadSbKeywords(clientId, days) {
+function loadSbKeywords(clientId, days, authorizedProfiles) {
   return query(`
     SELECT
       keyword_id, keyword_text, keyword_bid, match_type,
@@ -239,6 +268,7 @@ function loadSbKeywords(clientId, days) {
     WHERE client_id = ?
       AND report_date >= DATEADD('day', -?, CURRENT_DATE())
       AND ad_keyword_status = 'ENABLED'
+      ${profileFilter(authorizedProfiles)}
     GROUP BY keyword_id, keyword_text, keyword_bid, match_type, campaign_id, campaign_name, ad_group_id, profile_id
     HAVING SUM(cost) > 5 OR SUM(clicks) >= ?
   `, [clientId, days, MIN_CLICKS]);
@@ -323,7 +353,7 @@ async function discoverKeywords(clientId, days, cooldownSet) {
   return actions;
 }
 
-function loadCampaigns(clientId, days) {
+function loadCampaigns(clientId, days, authorizedProfiles) {
   return query(`
     SELECT
       campaign_id, campaign_name, ad_type, profile_id,
@@ -336,6 +366,7 @@ function loadCampaigns(clientId, days) {
       AND date >= DATEADD('day', -?, CURRENT_DATE())
       AND ad_type IN ('SP','SB','SD')
       AND campaign_status = 'ENABLED'
+      ${profileFilter(authorizedProfiles)}
     GROUP BY campaign_id, campaign_name, ad_type, profile_id
     HAVING SUM(adjusted_spend) > 50
   `, [clientId, days]);
