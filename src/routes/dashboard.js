@@ -412,6 +412,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
 
     const [topAsins, dailyOrdered, dailyShipped, channelSplit] = await Promise.all([
       // Top 10 ASINs by ordered revenue (PO demand signal)
@@ -427,6 +428,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
              WHERE vs.client_id = po.client_id
                AND vs.asin = po.asin
                ${dateFilter("vs.start_date", days, startDate, endDate)}
+               ${marketplaceFilter(marketplace)}
             ), 0
           )                              AS shipped_revenue,
           COUNT(DISTINCT po.order_date)  AS active_days
@@ -434,6 +436,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         LEFT JOIN products p ON po.client_id = p.client_id AND po.asin = p.asin
         WHERE po.client_id = ?
           ${dateFilter("po.order_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
         GROUP BY po.asin
         ORDER BY ordered_revenue DESC
         LIMIT 10
@@ -448,6 +451,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
         GROUP BY order_date
         ORDER BY order_date ASC
       `, [clientId]),
@@ -462,6 +466,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         FROM vendor_sales
         WHERE client_id = ?
           ${dateFilter("start_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
         GROUP BY start_date
         ORDER BY start_date ASC
       `, [clientId]),
@@ -475,6 +480,7 @@ router.get('/sales-performance', requireAuth, async (req, res, next) => {
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
         GROUP BY connection_type
       `, [clientId])
     ]);

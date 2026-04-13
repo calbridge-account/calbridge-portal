@@ -4,6 +4,7 @@
  * - Collapse/expand toggle on desktop
  * - Persists collapse state in localStorage
  * - Brand logo switching: swaps sidebar logo to active advertiser's logo
+ * - Geo/marketplace selector: appears when advertiser has >1 marketplace
  */
 (function() {
   // ── Brand logo helpers ────────────────────────────────────────────────────
@@ -68,9 +69,63 @@
     }
   };
 
+  // ── Geo / Marketplace Selector ──────────────────────────────────────────
+  // Fetches the available marketplaces for the active advertiser and populates
+  // #geo-selector. Hidden by default; only shown when >1 marketplace exists.
+  // On change: calls POST /manager/set-marketplace, then reloads page data.
+  async function loadGeoSelector() {
+    const geoSelector = document.getElementById('geo-selector');
+    if (!geoSelector) return;
+    try {
+      const resp = await fetch('/manager/active-advertiser/marketplaces', { credentials: 'include' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const { marketplaces = [], activeMarketplace = 'US' } = data;
+      // Only show if >1 marketplace
+      if (marketplaces.length <= 1) return;
+      // Rebuild options (keep 'All Marketplaces' as first option)
+      geoSelector.innerHTML = '<option value="all">🌐 All</option>';
+      const countryFlag = {
+        US: '🇺🇸', CA: '🇨🇦', UK: '🇬🇧', GB: '🇬🇧',
+        DE: '🇩🇪', FR: '🇫🇷', IT: '🇮🇹', ES: '🇪🇸',
+        JP: '🇯🇵', AU: '🇦🇺', IN: '🇮🇳', MX: '🇲🇽', BR: '🇧🇷'
+      };
+      for (const mp of marketplaces) {
+        const opt = document.createElement('option');
+        opt.value = mp;
+        opt.textContent = (countryFlag[mp] || '') + ' ' + mp;
+        if (mp === activeMarketplace) opt.selected = true;
+        geoSelector.appendChild(opt);
+      }
+      geoSelector.style.display = '';
+      geoSelector.addEventListener('change', async () => {
+        const chosen = geoSelector.value;
+        try {
+          await fetch('/manager/set-marketplace', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ marketplace: chosen }),
+          });
+        } catch (e) {
+          console.warn('[geo-selector] set-marketplace failed:', e);
+        }
+        // Reload page data if the page exposes a loadAll() function
+        if (typeof window.loadAll === 'function') {
+          window.loadAll();
+        } else {
+          window.location.reload();
+        }
+      });
+    } catch (e) {
+      // Silently ignore — geo selector is non-critical infrastructure
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
-    // Load brand logo after DOM is ready
+    // Load brand logo and geo selector after DOM is ready
     loadActiveBrand();
+    loadGeoSelector();
     const sidebar  = document.querySelector('.sidebar');
     const main     = document.querySelector('.main-content');
     if (!sidebar) return;
