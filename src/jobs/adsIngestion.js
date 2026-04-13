@@ -1875,11 +1875,18 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     })
     .filter(r => {
       // Drop zero-value rows from non-active advertisers (retired SparkX accounts etc)
-      // Active-advertiser zero-spend days are valid and kept.
+      // BUT keep rows that have attributed sales/purchases even with zero spend/impressions
+      // — DSP view-through attribution can produce sales days after impressions ran.
       const aid = String(r.advertiserId || advertiserId);
       const isCurrentAdvertiser = aid === String(advertiserId);
-      if (!isCurrentAdvertiser && Number(r.totalCost || 0) === 0 && Number(r.impressions || 0) === 0) {
-        return false;
+      const hasSales = Number(r.totalSales || r.sales || 0) > 0
+                    || Number(r.purchases || 0) > 0
+                    || Number(r.totalPurchases || 0) > 0;
+      if (!isCurrentAdvertiser
+          && Number(r.totalCost || 0) === 0
+          && Number(r.impressions || 0) === 0
+          && !hasSales) {
+        return false; // pure noise row — no spend, no impressions, no sales
       }
       return true;
     });
