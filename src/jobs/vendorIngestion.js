@@ -346,10 +346,11 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 1. Vendor Sales (DAY grain, max 14 days per request) ──────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    // DAY grain: Amazon vendor data SLA = D-3 minimum (often D-4 to be safe)
-    // Max range per request: 14 days. Pull a rolling 7-day window of confirmed data.
-    const endDate   = daysAgo(4);   // D-4: safely within published window
-    const startDate = daysAgo(10);  // 7-day window (D-10 to D-4)
+    // DAY grain: Amazon vendor data SLA = D-3 minimum (D-4 to be safe).
+    // Pull D-14 to D-4 (11-day window) to catch any gaps and ensure full coverage.
+    // Amazon max range per request: 14 days.
+    const endDate   = daysAgo(2);   // D-2: vendor data typically available 48h after day close
+    const startDate = daysAgo(14);  // 13-day window ensures full coverage
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
@@ -372,9 +373,9 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 2. Vendor Inventory (DAY grain, max 14 days per request) ───────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    // DAY grain: same lag rules as sales report
-    const endDate   = daysAgo(4);   // D-4: safely within published window
-    const startDate = daysAgo(10);  // 7-day window (D-10 to D-4)
+    // DAY grain: same lag rules as sales report — 11-day window
+    const endDate   = daysAgo(2);   // D-2: vendor data typically available 48h after day close
+    const startDate = daysAgo(14);  // 13-day window ensures full coverage
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
