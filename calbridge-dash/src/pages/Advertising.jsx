@@ -9,7 +9,7 @@ import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
-// ─── Ad type color map (kept for chart colors only) ───────────────────────────
+// ─── Ad type color map ───────────────────────────────────────────────────────
 const AD_TYPES = [
   { key: 'sp',  label: 'Sponsored Products', abbr: 'SP',  color: '#2563eb' },
   { key: 'sb',  label: 'Sponsored Brands',   abbr: 'SB',  color: '#10b981' },
@@ -43,6 +43,62 @@ function fmtX(n) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Ad Type Breakdown Card ──────────────────────────────────────────────────
+function AdTypeCard({ type, metrics, muted, loading }) {
+  const colorMap = {
+    sp:  { border: 'border-t-blue-500',   badge: 'bg-blue-100 text-blue-700' },
+    sb:  { border: 'border-t-green-500',  badge: 'bg-green-100 text-green-700' },
+    sd:  { border: 'border-t-amber-500',  badge: 'bg-amber-100 text-amber-700' },
+    dsp: { border: 'border-t-purple-500', badge: 'bg-purple-100 text-purple-700' },
+  };
+  const colors = colorMap[type.key] || colorMap.sp;
+
+  const spend = muted ? '—' : fmtCurrency(metrics?.spend);
+  const sales = muted ? '—' : fmtCurrency(metrics?.sales);
+  const roas  = muted ? '—' : fmtX(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null));
+  const acos  = muted ? '—' : (type.key === 'dsp' ? null : fmtPct(metrics?.acos));
+
+  if (loading) return <SkeletonCard />;
+
+  return (
+    <div
+      className={`bg-white rounded-xl border border-gray-200 border-t-4 ${colors.border} p-4 transition-opacity`}
+      style={{ opacity: muted ? 0.35 : 1 }}
+    >
+      <div className="mb-3">
+        <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${colors.badge}`}>
+          {type.abbr}
+        </span>
+        <span className="ml-2 text-xs text-gray-500">{type.label}</span>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Spend</span>
+          <span className="font-semibold text-gray-900">{spend}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Sales</span>
+          <span className="font-medium text-gray-800">{sales}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">ROAS</span>
+          <span className="font-medium text-gray-800">{roas}</span>
+        </div>
+        {type.key === 'dsp' ? (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400 italic text-xs">View-through attribution</span>
+          </div>
+        ) : (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">ACoS</span>
+            <span className="font-medium text-gray-800">{acos}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MetricCard({ title, value, format = 'currency', sub, highlight, loading }) {
   if (loading) return <SkeletonCard />;
   const formatted = format === 'currency' ? fmtCurrency(value)
@@ -226,6 +282,25 @@ export default function Advertising() {
         <MetricCard title="Clicks" value={combined.totalClicks} format="number" loading={isLoading} />
         <MetricCard title="Orders" value={combined.totalOrders} format="number" loading={isLoading} />
         <MetricCard title="Conversion Rate" value={combined.conversionRate} format="percent" sub="Orders / clicks" loading={isLoading} />
+      </div>
+
+      {/* Ad type breakdown cards */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        {AD_TYPES.map(type => {
+          const isSponsoredType = type.key !== 'dsp';
+          const muted =
+            (activeChannel === 'ads' && type.key === 'dsp') ||
+            (activeChannel === 'dsp' && isSponsoredType);
+          return (
+            <AdTypeCard
+              key={type.key}
+              type={type}
+              metrics={byType[type.key]}
+              muted={muted}
+              loading={isLoading}
+            />
+          );
+        })}
       </div>
 
       {/* Weekly trend + Spend Mix side by side */}

@@ -126,6 +126,133 @@ function withCache(ttlMs, handler) {
 }
 
 /**
+ * GET /advertising?days=30&channel=ads|dsp
+ * Aggregator: combined KPI summary + per-type breakdown + weekly trend in one call.
+ * Used by the React app (calbridge-dash) useAdvertising hook.
+ * Returns: { combined, byType: {sp,sb,sd,dsp}, weekly: {sp,sb,sd,dsp,all} }
+ */
+router.get('/', requireAuth, async (req, res, next) => {
+  try {
+    const days      = Number(req.query.days) || 30;
+    const startDate = req.query.startDate || null;
+    const endDate   = req.query.endDate   || null;
+    const channel   = req.query.channel;
+    const clientId  = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
+
+    // Run summary + by-channel + weekly in parallel
+    const [summaryRows, channelRows, weeklyRows] = await Promise.all([
+      // Combined KPI summary
+      query(`
+        WITH cp AS (
+          SELECT
+            COALESCE(SUM(impressions), 0)     AS total_impressions,
+            COALESCE(SUM(clicks), 0)          AS total_clicks,
+            COALESCE(SUM(adjusted_spend), 0)  AS total_spend,
+            COALESCE(SUM(sales), 0)           AS total_sales,
+            COALESCE(SUM(orders), 0)          AS total_orders,
+            COALESCE(SUM(units_sold), 0)      AS total_units
+          FROM adjusted_campaign_performance
+          WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
+          ${channelFilter(channel, null)}
+          ${marketplaceFilter(marketplace)}
+        )
+        SELECT total_impressions, total_clicks, total_spend, total_sales, total_orders, total_units,
+          CASE WHEN total_sales > 0       THEN total_spend / total_sales        ELSE NULL END AS acos,
+          CASE WHEN total_spend > 0       THEN total_sales / total_spend        ELSE NULL END AS roas,
+          CASE WHEN total_impressions > 0 THEN total_clicks / total_impressions ELSE NULL END AS ctr,
+          CASE WHEN total_clicks > 0      THEN total_spend / total_clicks       ELSE NULL END AS cpc
+        FROM cp
+      `, [clientId]),
+      // Per-type breakdown (always all types regardless of channel filter)
+      query(`
+        WITH cp AS (
+          SELECT ad_type,
+            SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+            SUM(adjusted_spend) AS spend, SUM(sales) AS sales, SUM(orders) AS orders
+          FROM adjusted_campaign_performance
+          WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
+          GROUP BY ad_type
+        )
+        SELECT ad_type, impressions, clicks, spend, sales, orders,
+          CASE WHEN sales > 0 THEN spend / sales ELSE NULL END AS acos,
+          CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
+        FROM cp ORDER BY spend DESC
+      `, [clientId]),
+      // Weekly trend per type
+      query(`
+        SELECT
+          ad_type,
+          DATE_TRUNC('week', date) AS week_start,
+          TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week_label,
+          SUM(adjusted_spend) AS spend,
+          SUM(sales) AS sales,
+          SUM(clicks) AS clicks,
+          SUM(impressions) AS impressions,
+          SUM(orders) AS orders
+        FROM adjusted_campaign_performance
+        WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
+        ${channelFilter(channel, null)}
+        ${marketplaceFilter(marketplace)}
+        GROUP BY ad_type, DATE_TRUNC('week', date), TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD')
+        ORDER BY week_start ASC, ad_type
+      `, [clientId]),
+    ]);
+
+    // Shape combined summary
+    const s = summaryRows[0] || {};
+    const combined = {
+      totalImpressions: Number(s.TOTAL_IMPRESSIONS || 0),
+      totalClicks:      Number(s.TOTAL_CLICKS      || 0),
+      totalSpend:       Number(s.TOTAL_SPEND       || 0),
+      totalSales:       Number(s.TOTAL_SALES       || 0),
+      totalOrders:      Number(s.TOTAL_ORDERS      || 0),
+      totalUnits:       Number(s.TOTAL_UNITS       || 0),
+      acos:             s.ACOS  != null ? Number(s.ACOS)  : null,
+      roas:             s.ROAS  != null ? Number(s.ROAS)  : null,
+      ctr:              s.CTR   != null ? Number(s.CTR)   : null,
+      cpc:              s.CPC   != null ? Number(s.CPC)   : null,
+      conversionRate:   s.TOTAL_CLICKS > 0 ? Number(s.TOTAL_ORDERS) / Number(s.TOTAL_CLICKS) : null,
+    };
+
+    // Shape per-type breakdown
+    const byType = {};
+    for (const r of channelRows) {
+      const key = (r.AD_TYPE || '').toLowerCase();
+      byType[key] = {
+        spend:       Number(r.SPEND       || 0),
+        sales:       Number(r.SALES       || 0),
+        clicks:      Number(r.CLICKS      || 0),
+        impressions: Number(r.IMPRESSIONS || 0),
+        orders:      Number(r.ORDERS      || 0),
+        acos:        r.ACOS != null ? Number(r.ACOS) : null,
+        roas:        r.ROAS != null ? Number(r.ROAS) : null,
+      };
+    }
+
+    // Shape weekly trend per type
+    const weekly = {};
+    for (const r of weeklyRows) {
+      const key = (r.AD_TYPE || '').toLowerCase();
+      if (!weekly[key]) weekly[key] = [];
+      weekly[key].push({
+        week:       r.WEEK_LABEL,
+        weekStart:  r.WEEK_START ? String(r.WEEK_START).substring(0, 10) : null,
+        spend:      Number(r.SPEND       || 0),
+        sales:      Number(r.SALES       || 0),
+        clicks:     Number(r.CLICKS      || 0),
+        impressions:Number(r.IMPRESSIONS || 0),
+        orders:     Number(r.ORDERS      || 0),
+        roas:       r.SALES > 0 && r.SPEND > 0 ? Number(r.SALES) / Number(r.SPEND) : null,
+      });
+    }
+
+    res.json({ combined, byType, weekly });
+  } catch (err) { next(err); }
+});
+
+/**
  * GET /advertising/summary?days=30&channel=ads|dsp
  * Aggregated KPI totals
  */
