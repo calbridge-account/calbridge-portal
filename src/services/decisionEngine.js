@@ -5,11 +5,12 @@
  * and generates bid/budget recommendations for human approval.
  *
  * Rules:
- *   bid_decrease   — 30d ACoS > 11.76% AND spend > $10 AND clicks >= 10
- *   bid_increase   — 30d ACoS < 8% AND clicks >= 10 AND impressions < 10,000
- *   pause_keyword  — spend > $20 AND purchases_30d = 0 AND clicks >= 10
- *   budget_increase — campaign ACoS < 10% AND budget utilization > 90%
- *   budget_decrease — campaign ACoS > 15% AND spend > $500
+ *   bid_decrease    — 30d ACoS > 11.76% AND spend > $10 AND clicks >= 10
+ *   bid_increase    — 30d ACoS < 8% AND clicks >= 10 AND impressions < 10,000
+ *   pause_keyword   — spend > $20 AND purchases_30d = 0 AND clicks >= 10
+ *   add_keyword     — search term with ≥2 orders, good ACoS, not already targeted as EXACT
+ *   budget_increase  — campaign ACoS < 10% AND budget utilization > 90%
+ *   budget_decrease  — campaign ACoS > 15% AND spend > $500
  *
  * Safeguards:
  *   - Min bid: $1.00
@@ -125,6 +126,27 @@ async function analyze(clientId, days = 30) {
     }
   }
 
+  // ── Keyword discovery (search term mining) ──────────────────────────────────
+  const searchTermRecs = await discoverKeywords(clientId, days, cooldownSet);
+  for (const a of searchTermRecs) {
+    try {
+      await query(`
+        INSERT INTO CALBRIDGE_PROD.APP.decision_actions
+          (client_id, advertiser_id, action_type, entity_type, entity_id, entity_name,
+           campaign_id, campaign_name, ad_group_id, profile_id, ad_type,
+           current_value, proposed_value, reason, metrics_snapshot, status)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,PARSE_JSON(?),?
+      `, [
+        a.client_id, null, a.action_type, a.entity_type, a.entity_id, a.entity_name,
+        a.campaign_id || null, a.campaign_name || null, a.ad_group_id || null, a.profile_id || null, a.ad_type || null,
+        a.current_value, a.proposed_value, a.reason, JSON.stringify(a.metrics_snapshot), 'pending',
+      ]);
+      inserted++;
+    } catch (err) {
+      console.warn('[DecisionEngine] Keyword discovery insert failed:', err.message?.substring(0, 100));
+    }
+  }
+
   // ── Campaign budgets ────────────────────────────────────────────────────────
   for (const c of campaigns) {
     if (cooldownSet.has(String(c.CAMPAIGN_ID))) { skipped.cooldown++; continue; }
@@ -220,6 +242,85 @@ function loadSbKeywords(clientId, days) {
     GROUP BY keyword_id, keyword_text, keyword_bid, match_type, campaign_id, campaign_name, ad_group_id, profile_id
     HAVING SUM(cost) > 5 OR SUM(clicks) >= ?
   `, [clientId, days, MIN_CLICKS]);
+}
+
+// ─── Keyword discovery ───────────────────────────────────────────────────────
+
+async function discoverKeywords(clientId, days, cooldownSet) {
+  // Find search terms that:
+  //   1. Triggered via BROAD or PHRASE match (meaning no exact target exists)
+  //   2. Have ≥ 2 purchases and ≥ 5 clicks in last 30 days
+  //   3. ACoS < 15% (profitable enough to justify adding)
+  //   4. Not already targeted as EXACT in sp_targeting_keyword_report
+  const rows = await query(`
+    WITH search_perf AS (
+      SELECT
+        search_term,
+        campaign_id, campaign_name, ad_group_id, ad_group_name, profile_id,
+        MAX(keyword_bid) AS ref_bid,
+        SUM(cost)            AS spend,
+        SUM(sales_30_d)      AS sales,
+        SUM(purchases_30_d)  AS orders,
+        SUM(clicks)          AS clicks,
+        CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost)/SUM(sales_30_d) ELSE NULL END AS acos
+      FROM CALBRIDGE_PROD.APP.sp_search_term_report
+      WHERE client_id = ?
+        AND date >= DATEADD('day', -?, CURRENT_DATE())
+        AND match_type IN ('BROAD','PHRASE')
+        AND purchases_30_d > 0
+      GROUP BY search_term, campaign_id, campaign_name, ad_group_id, ad_group_name, profile_id
+      HAVING SUM(purchases_30_d) >= 2
+        AND SUM(clicks) >= 5
+        AND CASE WHEN SUM(sales_30_d) > 0 THEN SUM(cost)/SUM(sales_30_d) ELSE 1 END < 0.15
+    ),
+    already_exact AS (
+      SELECT DISTINCT LOWER(TRIM(targeting)) AS kw
+      FROM CALBRIDGE_PROD.APP.sp_targeting_keyword_report
+      WHERE client_id = ?
+        AND match_type = 'EXACT'
+        AND date >= DATEADD('day', -7, CURRENT_DATE())
+    )
+    SELECT sp.*
+    FROM search_perf sp
+    LEFT JOIN already_exact ae ON LOWER(TRIM(sp.search_term)) = ae.kw
+    WHERE ae.kw IS NULL
+    ORDER BY sp.orders DESC
+    LIMIT 50
+  `, [clientId, days, clientId]);
+
+  const actions = [];
+  for (const r of rows) {
+    // Use search term as entity_id (not a keyword_id — it's a new keyword to be created)
+    const entityId = `new_kw:${r.CAMPAIGN_ID}:${r.AD_GROUP_ID}:${(r.SEARCH_TERM||'').replace(/[^a-z0-9 ]/gi,'').substring(0,50)}`;
+    if (cooldownSet.has(entityId)) continue;
+
+    const spend   = Number(r.SPEND  || 0);
+    const sales   = Number(r.SALES  || 0);
+    const orders  = Number(r.ORDERS || 0);
+    const clicks  = Number(r.CLICKS || 0);
+    const acos    = r.ACOS != null ? Number(r.ACOS) : null;
+    const roas    = spend > 0 ? sales / spend : null;
+    // Suggest bid = ref_bid × 0.8 (conservative start), floor $1.00
+    const suggestedBid = Math.max(MIN_BID, +(Number(r.REF_BID || 2.00) * 0.8).toFixed(2));
+
+    actions.push({
+      client_id:    clientId,
+      action_type:  'add_keyword',
+      entity_type:  'keyword',
+      entity_id:    entityId,
+      entity_name:  r.SEARCH_TERM,
+      campaign_id:  String(r.CAMPAIGN_ID),
+      campaign_name: r.CAMPAIGN_NAME || null,
+      ad_group_id:  String(r.AD_GROUP_ID),
+      profile_id:   String(r.PROFILE_ID || ''),
+      ad_type:      'SP',
+      current_value: 0,
+      proposed_value: suggestedBid,
+      reason: `Search term "${r.SEARCH_TERM}" has ${orders} orders, ${(acos ? (acos*100).toFixed(1) : '—')}% ACoS via broad/phrase — add as EXACT match at $${suggestedBid} bid`,
+      metrics_snapshot: { acos, roas, spend_30d: spend, sales_30d: sales, clicks_30d: clicks, orders_30d: orders, search_term: r.SEARCH_TERM, suggested_match_type: 'EXACT' },
+    });
+  }
+  return actions;
 }
 
 function loadCampaigns(clientId, days) {
@@ -329,6 +430,17 @@ async function executeAction(actionId, clientId, executedBy) {
       } else {
         throw new Error(`Bid update not supported for ad type: ${action.AD_TYPE}`);
       }
+    } else if (action.ACTION_TYPE === 'add_keyword') {
+      // Add new keyword to SP campaign
+      const res = await client.post('/v2/sp/keywords', [{
+        campaignId:  action.CAMPAIGN_ID,
+        adGroupId:   action.AD_GROUP_ID,
+        keywordText: action.ENTITY_NAME,
+        matchType:   action.METRICS_SNAPSHOT?.suggested_match_type || 'EXACT',
+        bid:         action.PROPOSED_VALUE,
+        state:       'enabled',
+      }]);
+      result = res.data;
     } else if (action.ACTION_TYPE === 'budget_increase' || action.ACTION_TYPE === 'budget_decrease') {
       const res = await client.put('/v2/sp/campaigns', [
         { campaignId: action.ENTITY_ID, dailyBudget: action.PROPOSED_VALUE }

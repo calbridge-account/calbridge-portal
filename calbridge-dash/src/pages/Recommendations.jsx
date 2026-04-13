@@ -51,6 +51,7 @@ const ACTION_META = {
   pause_keyword:  { emoji: '⏸',  label: 'Pause Keyword',    bg: 'bg-gray-50',   badge: 'bg-gray-100 text-gray-700'   },
   budget_increase:{ emoji: '💰', label: 'Increase Budget',  bg: 'bg-blue-50',   badge: 'bg-blue-100 text-blue-700'   },
   budget_decrease:{ emoji: '✂️', label: 'Reduce Budget',    bg: 'bg-orange-50', badge: 'bg-orange-100 text-orange-700'},
+  add_keyword:    { emoji: '🔍', label: 'Add Keyword',      bg: 'bg-teal-50',   badge: 'bg-teal-100 text-teal-700'   },
 };
 
 const AD_TYPE_BADGE = {
@@ -123,12 +124,18 @@ function ActionRow({ action, tab, onApprove, onReject, onSnooze, onExecute, load
 
       {/* Bid change */}
       <td className="py-3 px-2 text-sm whitespace-nowrap">
-        <span className="text-gray-500">{valLabel}: </span>
-        <span className="font-semibold">{fmtBid(action.currentValue)}</span>
-        <span className="text-gray-400 mx-1">→</span>
-        <span className={`font-bold ${action.actionType === 'bid_decrease' || action.actionType === 'budget_decrease' ? 'text-red-600' : 'text-green-600'}`}>
-          {fmtBid(action.proposedValue)}
-        </span>
+        {action.actionType === 'add_keyword' ? (
+          <span className="text-teal-700 font-semibold">New EXACT @ {fmtBid(action.proposedValue)}</span>
+        ) : (
+          <>
+            <span className="text-gray-500">{valLabel}: </span>
+            <span className="font-semibold">{fmtBid(action.currentValue)}</span>
+            <span className="text-gray-400 mx-1">→</span>
+            <span className={`font-bold ${action.actionType === 'bid_decrease' || action.actionType === 'budget_decrease' ? 'text-red-600' : 'text-green-600'}`}>
+              {fmtBid(action.proposedValue)}
+            </span>
+          </>
+        )}
       </td>
 
       {/* Metrics */}
@@ -183,6 +190,7 @@ const TYPE_FILTERS = [
   { key: 'pause_keyword',   label: '⏸ Pause'         },
   { key: 'budget_increase', label: '💰 Budget +'     },
   { key: 'budget_decrease', label: '✂️ Budget −'     },
+  { key: 'add_keyword',     label: '🔍 Add Keyword' },
 ];
 
 export default function Recommendations() {
