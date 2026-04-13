@@ -52,6 +52,7 @@ const ACTION_META = {
   budget_increase:{ emoji: '💰', label: 'Increase Budget',  bg: 'bg-blue-50',   badge: 'bg-blue-100 text-blue-700'   },
   budget_decrease:{ emoji: '✂️', label: 'Reduce Budget',    bg: 'bg-orange-50', badge: 'bg-orange-100 text-orange-700'},
   add_keyword:    { emoji: '🔍', label: 'Add Keyword',      bg: 'bg-teal-50',   badge: 'bg-teal-100 text-teal-700'   },
+  launch_campaign:{ emoji: '🚀', label: 'Launch Ads',       bg: 'bg-indigo-50', badge: 'bg-indigo-100 text-indigo-700'},
 };
 
 const AD_TYPE_BADGE = {
@@ -140,6 +141,10 @@ function ActionRow({ action, tab, onApprove, onReject, onSnooze, onExecute, load
       <td className="py-3 px-2 text-sm whitespace-nowrap">
         {action.actionType === 'add_keyword' ? (
           <span className="text-teal-700 font-semibold">New EXACT @ {fmtBid(action.proposedValue)}</span>
+        ) : action.actionType === 'launch_campaign' ? (
+          <span className="text-indigo-700 font-semibold">
+            {action.metrics?.sellable_units?.toLocaleString()} units idle
+          </span>
         ) : (
           <>
             <span className="text-gray-500">{valLabel}: </span>
@@ -205,6 +210,7 @@ const TYPE_FILTERS = [
   { key: 'budget_increase', label: '💰 Budget +'     },
   { key: 'budget_decrease', label: '✂️ Budget −'     },
   { key: 'add_keyword',     label: '🔍 Add Keyword' },
+  { key: 'launch_campaign', label: '🚀 Launch Ads'  },
 ];
 
 const SORT_OPTIONS = [

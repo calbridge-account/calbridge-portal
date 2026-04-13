@@ -176,6 +176,27 @@ async function analyze(clientId, days = 30) {
     }
   }
 
+  // ── Idle inventory discovery ───────────────────────────────────────────────
+  const idleAsins = await discoverIdleInventory(clientId, days, cooldownSet);
+  for (const a of idleAsins) {
+    try {
+      await query(`
+        INSERT INTO CALBRIDGE_PROD.APP.decision_actions
+          (client_id, advertiser_id, action_type, entity_type, entity_id, entity_name,
+           campaign_id, campaign_name, ad_group_id, profile_id, ad_type,
+           current_value, proposed_value, reason, metrics_snapshot, status)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,PARSE_JSON(?),?
+      `, [
+        a.client_id, null, a.action_type, a.entity_type, a.entity_id, a.entity_name,
+        null, null, null, null, 'SP',
+        a.current_value, a.proposed_value, a.reason, JSON.stringify(a.metrics_snapshot), 'pending',
+      ]);
+      inserted++;
+    } catch (err) {
+      console.warn('[DecisionEngine] Idle inventory insert failed:', err.message?.substring(0, 100));
+    }
+  }
+
   // ── Insert new actions ──────────────────────────────────────────────────────
   let inserted = 0;
   for (const a of actions) {
@@ -512,6 +533,78 @@ async function executeAction(actionId, clientId, executedBy) {
       WHERE action_id=?
     `, [JSON.stringify({ error: err.message, response: err.response?.data }), actionId]);
     throw err;
+  }
+}
+
+// ─── Idle inventory discovery ─────────────────────────────────────────────────
+
+async function discoverIdleInventory(clientId, days, cooldownSet) {
+  // Find ASINs with significant inventory (>=50 units) but <$10 SP spend in last 30 days.
+  // These are products sitting in Amazon's warehouse with no ad support.
+  // Recommendation: launch or expand SP campaigns.
+  try {
+    const rows = await query(`
+      WITH latest_inv AS (
+        SELECT asin,
+               MAX(sellable_on_hand_units)   AS units,
+               MAX(open_purchase_order_units) AS open_pos,
+               MAX(end_date)                  AS snapshot
+        FROM CALBRIDGE_PROD.APP.vendor_inventory
+        WHERE client_id = ?
+          AND end_date >= DATEADD('day', -30, CURRENT_DATE())
+        GROUP BY asin
+        HAVING MAX(sellable_on_hand_units) >= 50
+      ),
+      sp_perf AS (
+        SELECT advertised_asin, SUM(cost) AS spend, SUM(purchases_30_d) AS orders
+        FROM CALBRIDGE_PROD.APP.sp_advertised_product_report
+        WHERE client_id = ?
+          AND date >= DATEADD('day', -?, CURRENT_DATE())
+        GROUP BY advertised_asin
+      )
+      SELECT i.asin, i.units, i.open_pos, i.snapshot,
+             COALESCE(s.spend, 0)  AS sp_spend,
+             COALESCE(s.orders, 0) AS sp_orders
+      FROM latest_inv i
+      LEFT JOIN sp_perf s ON i.asin = s.advertised_asin
+      WHERE COALESCE(s.spend, 0) < 10
+      ORDER BY i.units DESC
+      LIMIT 50
+    `, [clientId, clientId, days]);
+
+    const actions = [];
+    for (const r of rows) {
+      const entityId = `idle_inv:${r.ASIN}`;
+      if (cooldownSet.has(entityId)) continue;
+
+      const units   = Number(r.UNITS    || 0);
+      const spend   = Number(r.SP_SPEND || 0);
+      const orders  = Number(r.SP_ORDERS|| 0);
+      const openPos = Number(r.OPEN_POS || 0);
+
+      actions.push({
+        client_id:    clientId,
+        action_type:  'launch_campaign',
+        entity_type:  'asin',
+        entity_id:    entityId,
+        entity_name:  r.ASIN,
+        current_value: spend,
+        proposed_value: 0, // no specific bid — recommendation to create campaign
+        reason: `${units.toLocaleString()} units on hand with $${spend.toFixed(0)} SP spend in last ${days} days — product needs ad support to drive sell-through`,
+        metrics_snapshot: {
+          asin: r.ASIN,
+          sellable_units: units,
+          open_pos: openPos,
+          sp_spend_30d: spend,
+          sp_orders_30d: orders,
+          snapshot_date: r.SNAPSHOT?.toString().substring(0, 10),
+        },
+      });
+    }
+    return actions;
+  } catch (err) {
+    console.warn('[DecisionEngine] Idle inventory discovery failed (non-fatal):', err.message?.substring(0, 100));
+    return [];
   }
 }
 
