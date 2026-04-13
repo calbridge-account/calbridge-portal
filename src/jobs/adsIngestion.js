@@ -516,11 +516,43 @@ async function fetchProfiles(clientId, connectionType) {
 }
 
 /**
- * Filter profiles to those with a matching brand entry in Snowflake.
- * Falls back to all profiles if no brands are configured yet.
+ * Filter profiles to those authorized for this client.
+ *
+ * Phase 2b: First checks client_accounts (channel='sponsored_ads') as the canonical
+ * source. If client_accounts has matching profiles, those are preferred. Falls back
+ * to the brands table, then to all profiles if neither has data.
+ *
+ * Backward compatible: if client_accounts returns 0 rows, falls through to brands.
  */
 async function getAuthorizedProfiles(clientId, allProfiles) {
   try {
+    // ── Phase 2b: Try client_accounts first (canonical source) ────────────────
+    let caProfileIds = null;
+    try {
+      const caRows = await query(`
+        SELECT platform_profile_id, account_id
+        FROM client_accounts
+        WHERE client_id = ?
+          AND channel = 'sponsored_ads'
+          AND is_active = TRUE
+          AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+          AND (valid_to   IS NULL OR valid_to   >  CURRENT_DATE())
+      `, [clientId]);
+      if (caRows.length > 0) {
+        caProfileIds = new Set(caRows.map(r => String(r.PLATFORM_PROFILE_ID || r.platform_profile_id)));
+        const filtered = allProfiles.filter(p => caProfileIds.has(String(p.profileId)));
+        if (filtered.length > 0) {
+          console.log(`[Ads] Client ${clientId}: ${filtered.length}/${allProfiles.length} profiles via client_accounts`);
+          return filtered;
+        }
+        // client_accounts has rows but none match the live profile list — log and fall through
+        console.warn(`[Ads] Client ${clientId}: client_accounts has ${caRows.length} sponsored_ads entries but none match live profiles — falling back to brands`);
+      }
+    } catch (caErr) {
+      console.warn(`[Ads] client_accounts lookup failed — falling back to brands: ${caErr.message}`);
+    }
+
+    // ── Fallback: brands table (original method) ──────────────────────────────
     const brandRows = await query(
       'SELECT ads_profile_id FROM brands WHERE client_id = ? AND is_active = TRUE AND ads_profile_id IS NOT NULL',
       [clientId]
@@ -2105,6 +2137,26 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
     const profiles    = await getAuthorizedProfiles(clientId, allProfiles);
     let   queued      = 0;
 
+    // Phase 2b: build profileId → account_id lookup from client_accounts
+    // Used to populate account_id in ads_report_queue for traceability.
+    let profileAccountMap = {};
+    try {
+      const caRows = await query(`
+        SELECT platform_profile_id, account_id
+        FROM client_accounts
+        WHERE client_id = ? AND channel = 'sponsored_ads'
+          AND is_active = TRUE
+          AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+          AND (valid_to   IS NULL OR valid_to   >  CURRENT_DATE())
+      `, [clientId]);
+      for (const r of caRows) {
+        profileAccountMap[String(r.PLATFORM_PROFILE_ID || r.platform_profile_id)] = r.ACCOUNT_ID || r.account_id;
+      }
+    } catch (err) {
+      // Non-fatal — account_id will be NULL for this run
+      console.warn('[performance] client_accounts account_id lookup failed (non-fatal):', err.message);
+    }
+
     // Amazon max range per request: 31 days
     // Split daysBack into 31-day chunks — one request per chunk per report type
     const MAX_RANGE = 31;
@@ -2133,6 +2185,7 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
 
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
+      const accountId = profileAccountMap[profileId] || null;
 
       for (const { startIso, endIso } of windows) {
         const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
@@ -2159,9 +2212,9 @@ async function ingestPerformance(clientId, connectionType, daysBack = 30) {
 
           await query(`
             INSERT INTO ads_report_queue
-              (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-          `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey]);
+              (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, requested_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+          `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey, accountId]);
 
           console.log(`[performance] Queued ${rt.key} ${startIso}→${endIso} (${reportId.substring(0,8)})`);
           queued++;
@@ -2201,6 +2254,24 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
     let   queued      = 0;
     let   skipped     = 0;
 
+    // Phase 2b: build profileId → account_id lookup from client_accounts
+    let profileAccountMap = {};
+    try {
+      const caRows = await query(`
+        SELECT platform_profile_id, account_id
+        FROM client_accounts
+        WHERE client_id = ? AND channel = 'sponsored_ads'
+          AND is_active = TRUE
+          AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+          AND (valid_to   IS NULL OR valid_to   >  CURRENT_DATE())
+      `, [clientId]);
+      for (const r of caRows) {
+        profileAccountMap[String(r.PLATFORM_PROFILE_ID || r.platform_profile_id)] = r.ACCOUNT_ID || r.account_id;
+      }
+    } catch (err) {
+      console.warn('[performanceRange] client_accounts account_id lookup failed (non-fatal):', err.message);
+    }
+
     const activeTypes = reportTypeFilter
       ? REPORT_TYPES.filter(rt => reportTypeFilter.includes(rt.key))
       : REPORT_TYPES;
@@ -2230,6 +2301,7 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
 
     for (const profile of profiles) {
       const profileId = String(profile.profileId);
+      const accountId = profileAccountMap[profileId] || null;
 
       for (const { startIso, endIso } of windows) {
         const rangeKey = startIso.replace(/-/g,'') + '_' + endIso.replace(/-/g,'');
@@ -2260,9 +2332,9 @@ async function ingestPerformanceRange(clientId, connectionType, startDate, endDa
 
             await query(`
               INSERT INTO ads_report_queue
-                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
-              VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-            `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey]);
+                (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, requested_at)
+              VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+            `, [reportId, clientId, connectionType, profileId, rt.key, rangeKey, accountId]);
 
             console.log(`[performanceRange] Queued ${rt.key} ${startIso}→${endIso} profile=${profileId} (${reportId.substring(0,8)})`);
             queued++;
@@ -2610,28 +2682,77 @@ const DSP_REPORT_TYPES = [
  * advertiser per report type covering the full startDate→endDate window).
  * timeUnit: DAILY means Amazon returns one row per day in the response.
  *
+ * Phase 2b: Primary advertiser list comes from client_accounts (channel='dsp').
+ * If client_accounts returns 0 active rows, falls back to dsp_advertiser table
+ * for backward compatibility. DSP retirement (valid_to) is now automatic.
+ *
  * Replaces the old day-by-day loop (was: daysBack calls per advertiser).
  * Now: 5 calls per advertiser for the full window.
  */
 async function ingestDsp(clientId, connectionType, daysBack = 95) {
   return runJob(clientId, connectionType, 'dsp', async () => {
-    const advertiserRows = await query(
-      'SELECT advertiser_id, profile_id, name FROM dsp_advertiser WHERE is_active = TRUE'
-    );
+    // ── Phase 2b: Load advertisers from client_accounts first ─────────────────
+    // Query: active DSP accounts whose validity window covers today.
+    // valid_to > CURRENT_DATE() means accounts with valid_to='2026-05-01' will
+    // automatically stop being pulled on May 1 — no manual cron needed.
+    let advertiserRows = [];
+    let usingClientAccounts = false;
+    try {
+      const caRows = await query(`
+        SELECT
+          platform_profile_id  AS advertiser_id,
+          agency_profile_id    AS profile_id,
+          account_name         AS name,
+          client_id            AS target_client_id,
+          account_id
+        FROM client_accounts
+        WHERE channel = 'dsp'
+          AND is_active = TRUE
+          AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+          AND (valid_to   IS NULL OR valid_to   >  CURRENT_DATE())
+      `);
+      if (caRows.length > 0) {
+        usingClientAccounts = true;
+        // Normalise to the same shape as dsp_advertiser rows
+        advertiserRows = caRows.map(r => ({
+          ADVERTISER_ID:     r.ADVERTISER_ID     || r.advertiser_id,
+          PROFILE_ID:        r.PROFILE_ID        || r.profile_id,
+          NAME:              r.NAME              || r.name,
+          // carry target_client_id and account_id through for routing
+          TARGET_CLIENT_ID:  r.TARGET_CLIENT_ID  || r.target_client_id,
+          ACCOUNT_ID:        r.ACCOUNT_ID        || r.account_id,
+        }));
+        console.log(`[DSP] Using client_accounts: ${advertiserRows.length} active DSP accounts`);
+      } else {
+        console.log('[DSP] client_accounts returned 0 active DSP rows — falling back to dsp_advertiser');
+      }
+    } catch (caErr) {
+      console.warn('[DSP] client_accounts lookup failed — falling back to dsp_advertiser:', caErr.message);
+    }
+
+    // ── Fallback: dsp_advertiser table (original method) ─────────────────────
+    if (!usingClientAccounts) {
+      const legacyRows = await query(
+        'SELECT advertiser_id, profile_id, name FROM dsp_advertiser WHERE is_active = TRUE'
+      );
+      advertiserRows = legacyRows;
+    }
+
     if (!advertiserRows.length) return { recordsWritten: 0 };
 
-    // Build advertiser_id → client_id lookup from dsp_advertiser_client_map.
-    // Falls back to the triggering clientId if no mapping found.
-    // This allows one agency-level sync to correctly route each advertiser's data
-    // to the right client dashboard without cross-contamination.
+    // Build advertiser_id → client_id lookup.
+    // Phase 2b: if using client_accounts, target_client_id is already on each row.
+    // Fallback: use dsp_advertiser_client_map (original method).
     let advertiserClientMap = {};
-    try {
-      const mapRows = await query('SELECT advertiser_id, client_id FROM dsp_advertiser_client_map WHERE is_active = TRUE');
-      for (const r of mapRows) {
-        advertiserClientMap[String(r.ADVERTISER_ID || r.advertiser_id)] = r.CLIENT_ID || r.client_id;
+    if (!usingClientAccounts) {
+      try {
+        const mapRows = await query('SELECT advertiser_id, client_id FROM dsp_advertiser_client_map WHERE is_active = TRUE');
+        for (const r of mapRows) {
+          advertiserClientMap[String(r.ADVERTISER_ID || r.advertiser_id)] = r.CLIENT_ID || r.client_id;
+        }
+      } catch (err) {
+        console.warn('[DSP] advertiser_client_map lookup failed, using default clientId:', err.message);
       }
-    } catch (err) {
-      console.warn('[DSP] advertiser_client_map lookup failed, using default clientId:', err.message);
     }
 
     // Build 31-day windows (Amazon max range per request).
@@ -2675,12 +2796,18 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
       const profileId      = row.PROFILE_ID    || row.profile_id;
       const name           = row.NAME          || row.name;
       const queueProfileId = advertiserId + '|' + profileId;
+      // account_id from client_accounts (null for legacy dsp_advertiser path)
+      const accountId      = row.ACCOUNT_ID || row.account_id || null;
 
       // Route this advertiser's data to the correct client dashboard.
-      // Falls back to triggering clientId if no mapping exists.
-      const targetClientId = advertiserClientMap[String(advertiserId)] || clientId;
+      // Phase 2b: target_client_id already on row when using client_accounts.
+      // Fallback: use dsp_advertiser_client_map or triggering clientId.
+      const targetClientId = (usingClientAccounts
+        ? (row.TARGET_CLIENT_ID || row.target_client_id || clientId)
+        : (advertiserClientMap[String(advertiserId)] || clientId)
+      );
       if (targetClientId !== clientId) {
-        console.log(`[DSP] ${name} → routing to client ${targetClientId.slice(0,8)} (mapped)`);
+        console.log(`[DSP] ${name} → routing to client ${targetClientId.slice(0,8)} (${usingClientAccounts ? 'client_accounts' : 'mapped'})`);
       }
 
       for (const { startDate, endDate } of windows) {
@@ -2706,8 +2833,8 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
 
             if (reportId) {
               await query(
-                'INSERT INTO ads_report_queue (report_id,client_id,connection_type,profile_id,report_type,report_date,status,owner_client_id,requested_at) SELECT ?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP',
-                [reportId, targetClientId, connectionType, queueProfileId, rt.key, windowKey, 'pending', clientId]
+                'INSERT INTO ads_report_queue (report_id,client_id,connection_type,profile_id,report_type,report_date,status,owner_client_id,account_id,requested_at) SELECT ?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP',
+                [reportId, targetClientId, connectionType, queueProfileId, rt.key, windowKey, 'pending', clientId, accountId || null]
               );
               console.log(`[DSP] Queued ${name} ${startDate}→${endDate} (${reportId.substring(0,8)})`);
               totalQueued++;

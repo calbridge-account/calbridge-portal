@@ -172,8 +172,28 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
       let queued = 0;
 
+      // Phase 2b: build profileId → account_id lookup from client_accounts
+      let profileAccountMap = {};
+      try {
+        const caRows = await query(`
+          SELECT platform_profile_id, account_id
+          FROM client_accounts
+          WHERE client_id = ? AND channel = 'sponsored_ads'
+            AND is_active = TRUE
+            AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+            AND (valid_to   IS NULL OR valid_to   >  CURRENT_DATE())
+        `, [clientId]);
+        for (const r of caRows) {
+          profileAccountMap[String(r.PLATFORM_PROFILE_ID || r.platform_profile_id)] = r.ACCOUNT_ID || r.account_id;
+        }
+      } catch (err) {
+        // Non-fatal — account_id will be NULL for this run
+        console.warn(`[submitReports] client_accounts account_id lookup failed for ${clientId} (non-fatal):`, err.message);
+      }
+
       for (const profile of profiles) {
         const profileId = String(profile.profileId);
+        const accountId = profileAccountMap[profileId] || null;
 
         for (const window of windows) {
           for (const rt of REPORT_TYPES) {
@@ -207,9 +227,9 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
               await query(`
                 INSERT INTO ads_report_queue
-                  (report_id, client_id, connection_type, profile_id, report_type, report_date, status, requested_at)
-                VALUES (?, ?, 'ads', ?, ?, ?, 'pending', CURRENT_TIMESTAMP())
-              `, [reportId, clientId, profileId, rt.key, window.rangeKey]);
+                  (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, requested_at)
+                VALUES (?, ?, 'ads', ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP())
+              `, [reportId, clientId, profileId, rt.key, window.rangeKey, accountId]);
 
               queued++;
               totalQueued++;
