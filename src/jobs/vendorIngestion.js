@@ -15,7 +15,7 @@
 require('dotenv').config();
 const axios = require('axios');
 const zlib  = require('zlib');
-const { query } = require('../services/snowflakeService');
+const { query, batchMerge } = require('../services/snowflakeService');
 const { getValidToken } = require('../services/amazonAuthService');
 
 const IS_SANDBOX  = process.env.NODE_ENV !== 'production';
@@ -146,114 +146,82 @@ async function requestAndDownload(client, reportType, reportOptions, marketplace
 
 async function writeVendorSales(clientId, rows) {
   if (!Array.isArray(rows) || !rows.length) return 0;
-  let written = 0;
-  for (const row of rows) {
-    const asin       = row.asin || row.parentAsin;
-    const startDate  = row.startDate || row.reportingDate;
-    const endDate    = row.endDate   || row.reportingDate;
-    if (!asin || !startDate) continue;
-    // Revenue fields may come as { amount, currencyCode } objects or plain numbers
-    const moneyAmt = (v) => (v != null && typeof v === 'object') ? (v.amount ?? 0) : (v ?? 0);
-    const orderedAmt  = moneyAmt(row.orderedRevenue);
-    const orderedCcy  = row.orderedRevenue?.currencyCode || 'USD';
-    const shippedAmt  = moneyAmt(row.shippedRevenue);
-    const shippedCcy  = row.shippedRevenue?.currencyCode || 'USD';
-    const cogsAmt     = moneyAmt(row.shippedCogs ?? row.shippedCOGS);
-    await query(`
-      MERGE INTO CALBRIDGE_PROD.APP.VENDOR_SALES t
-      USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
-      ON t.client_id = s.client_id AND t.asin = s.asin AND t.start_date = s.start_date
-      WHEN MATCHED THEN UPDATE SET
-        end_date = ?, ordered_units = ?, ordered_revenue = ?,
-        ordered_currency = ?, shipped_units = ?, shipped_revenue = ?,
-        shipped_cogs = ?, shipped_currency = ?, customer_returns = ?,
-        synced_at = CURRENT_TIMESTAMP()
-      WHEN NOT MATCHED THEN INSERT
-        (client_id, asin, start_date, end_date,
-         ordered_units, ordered_revenue, ordered_currency,
-         shipped_units, shipped_revenue, shipped_cogs, shipped_currency,
-         customer_returns, synced_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP())
-    `, [
-      clientId, asin, startDate,
-      endDate,
-      row.orderedUnits ?? 0, orderedAmt, orderedCcy,
-      row.shippedUnits ?? 0, shippedAmt, cogsAmt, shippedCcy,
-      row.customerReturns ?? 0,
-      // INSERT values
-      clientId, asin, startDate, endDate,
-      row.orderedUnits ?? 0, orderedAmt, orderedCcy,
-      row.shippedUnits ?? 0, shippedAmt, cogsAmt, shippedCcy,
-      row.customerReturns ?? 0,
-    ]);
-    written++;
-  }
-  return written;
+  const moneyAmt = (v) => (v != null && typeof v === 'object') ? (v.amount ?? 0) : (v ?? 0);
+  const mapped = rows
+    .map(row => {
+      const asin      = row.asin || row.parentAsin;
+      const startDate = row.startDate || row.reportingDate;
+      const endDate   = row.endDate   || row.reportingDate;
+      if (!asin || !startDate) return null;
+      return {
+        client_id:        clientId,
+        asin,
+        start_date:       startDate,
+        end_date:         endDate,
+        ordered_units:    row.orderedUnits ?? 0,
+        ordered_revenue:  moneyAmt(row.orderedRevenue),
+        ordered_currency: row.orderedRevenue?.currencyCode || 'USD',
+        shipped_units:    row.shippedUnits ?? 0,
+        shipped_revenue:  moneyAmt(row.shippedRevenue),
+        shipped_cogs:     moneyAmt(row.shippedCogs ?? row.shippedCOGS),
+        shipped_currency: row.shippedRevenue?.currencyCode || 'USD',
+        customer_returns: row.customerReturns ?? 0,
+      };
+    })
+    .filter(Boolean);
+  if (!mapped.length) return 0;
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.APP.VENDOR_SALES',
+    keyColumns:  ['client_id', 'asin', 'start_date'],
+    dataColumns: ['end_date', 'ordered_units', 'ordered_revenue', 'ordered_currency',
+                  'shipped_units', 'shipped_revenue', 'shipped_cogs', 'shipped_currency',
+                  'customer_returns'],
+    dateColumns: ['start_date', 'end_date'],
+    rows:        mapped,
+  });
 }
 
 async function writeVendorInventory(clientId, rows) {
   if (!Array.isArray(rows) || !rows.length) return 0;
-  let written = 0;
-  for (const row of rows) {
-    const asin      = row.asin || row.parentAsin;
-    const startDate = row.startDate || row.reportingDate;
-    const endDate   = row.endDate   || row.reportingDate;
-    if (!asin || !startDate) continue;
-    await query(`
-      MERGE INTO CALBRIDGE_PROD.APP.VENDOR_INVENTORY t
-      USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
-      ON t.client_id = s.client_id AND t.asin = s.asin AND t.start_date = s.start_date
-      WHEN MATCHED THEN UPDATE SET
-        end_date = ?,
-        sellable_on_hand_units = ?, sellable_on_hand_cost = ?,
-        unsellable_on_hand_units = ?, sell_through_rate = ?,
-        vendor_confirmation_rate = ?, receive_fill_rate = ?,
-        avg_vendor_lead_time_days = ?, open_purchase_order_units = ?,
-        net_received_units = ?, aged_90_plus_units = ?,
-        unhealthy_units = ?, unfilled_customer_ordered_units = ?,
-        synced_at = CURRENT_TIMESTAMP()
-      WHEN NOT MATCHED THEN INSERT
-        (client_id, asin, start_date, end_date,
-         sellable_on_hand_units, sellable_on_hand_cost,
-         unsellable_on_hand_units, sell_through_rate,
-         vendor_confirmation_rate, receive_fill_rate,
-         avg_vendor_lead_time_days, open_purchase_order_units,
-         net_received_units, aged_90_plus_units,
-         unhealthy_units, unfilled_customer_ordered_units, synced_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP())
-    `, [
-      clientId, asin, startDate,
-      endDate,
-      row.sellableOnHandInventory?.units         || row.sellableOnHandUnits         || 0,
-      row.sellableOnHandInventory?.cost?.amount  || row.sellableOnHandCost          || null,
-      row.unsellableOnHandInventory?.units       || row.unsellableOnHandUnits       || 0,
-      row.sellThroughRate                        || null,
-      row.vendorConfirmationRate                 || null,
-      row.receiveFillRate                        || null,
-      row.averageVendorLeadTimeDays              || null,
-      row.openPurchaseOrderUnits                 || null,
-      row.netReceivedInventory?.units            || row.netReceivedUnits            || null,
-      row.aged90PlusInventory?.units             || row.aged90PlusUnits             || null,
-      row.unhealthyInventory?.units              || row.unhealthyUnits              || null,
-      row.unfilledCustomerOrderedUnits           || null,
-      // INSERT values
-      clientId, asin, startDate, endDate,
-      row.sellableOnHandInventory?.units         || row.sellableOnHandUnits         || 0,
-      row.sellableOnHandInventory?.cost?.amount  || row.sellableOnHandCost          || null,
-      row.unsellableOnHandInventory?.units       || row.unsellableOnHandUnits       || 0,
-      row.sellThroughRate                        || null,
-      row.vendorConfirmationRate                 || null,
-      row.receiveFillRate                        || null,
-      row.averageVendorLeadTimeDays              || null,
-      row.openPurchaseOrderUnits                 || null,
-      row.netReceivedInventory?.units            || row.netReceivedUnits            || null,
-      row.aged90PlusInventory?.units             || row.aged90PlusUnits             || null,
-      row.unhealthyInventory?.units              || row.unhealthyUnits              || null,
-      row.unfilledCustomerOrderedUnits           || null,
-    ]);
-    written++;
-  }
-  return written;
+  const mapped = rows
+    .map(row => {
+      const asin      = row.asin || row.parentAsin;
+      const startDate = row.startDate || row.reportingDate;
+      const endDate   = row.endDate   || row.reportingDate;
+      if (!asin || !startDate) return null;
+      return {
+        client_id:                      clientId,
+        asin,
+        start_date:                     startDate,
+        end_date:                       endDate,
+        sellable_on_hand_units:         row.sellableOnHandInventory?.units        || row.sellableOnHandUnits        || 0,
+        sellable_on_hand_cost:          row.sellableOnHandInventory?.cost?.amount || row.sellableOnHandCost         || null,
+        unsellable_on_hand_units:       row.unsellableOnHandInventory?.units      || row.unsellableOnHandUnits      || 0,
+        sell_through_rate:              row.sellThroughRate                       || null,
+        vendor_confirmation_rate:       row.vendorConfirmationRate                || null,
+        receive_fill_rate:              row.receiveFillRate                       || null,
+        avg_vendor_lead_time_days:      row.averageVendorLeadTimeDays             || null,
+        open_purchase_order_units:      row.openPurchaseOrderUnits                || null,
+        net_received_units:             row.netReceivedInventory?.units           || row.netReceivedUnits           || null,
+        aged_90_plus_units:             row.aged90PlusInventory?.units            || row.aged90PlusUnits            || null,
+        unhealthy_units:                row.unhealthyInventory?.units             || row.unhealthyUnits             || null,
+        unfilled_customer_ordered_units: row.unfilledCustomerOrderedUnits         || null,
+      };
+    })
+    .filter(Boolean);
+  if (!mapped.length) return 0;
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.APP.VENDOR_INVENTORY',
+    keyColumns:  ['client_id', 'asin', 'start_date'],
+    dataColumns: ['end_date', 'sellable_on_hand_units', 'sellable_on_hand_cost',
+                  'unsellable_on_hand_units', 'sell_through_rate',
+                  'vendor_confirmation_rate', 'receive_fill_rate',
+                  'avg_vendor_lead_time_days', 'open_purchase_order_units',
+                  'net_received_units', 'aged_90_plus_units',
+                  'unhealthy_units', 'unfilled_customer_ordered_units'],
+    dateColumns: ['start_date', 'end_date'],
+    rows:        mapped,
+  });
 }
 
 async function writeVendorTraffic(clientId, rows) {
@@ -378,8 +346,10 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 1. Vendor Sales (DAY grain, max 14 days per request) ──────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    const endDate   = daysAgo(4);   // 3-day lag minimum for vendor data
-    const startDate = daysAgo(11);  // 7-day window (safe range with 3-day lag)
+    // DAY grain: Amazon vendor data SLA = D-3 minimum (often D-4 to be safe)
+    // Max range per request: 14 days. Pull a rolling 7-day window of confirmed data.
+    const endDate   = daysAgo(4);   // D-4: safely within published window
+    const startDate = daysAgo(10);  // 7-day window (D-10 to D-4)
     const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
@@ -393,7 +363,7 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     totalWritten += written;
     console.log(`[vendorIngestion] VENDOR_SALES: ${written} rows written`);
   } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_SALES failed:', err.message?.substring(0, 120));
+    console.warn('[vendorIngestion] VENDOR_SALES failed:', err.message, (err.stack||'').split('\n')[1]);
     results.vendorSales = 0;
   }
 
@@ -402,8 +372,9 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 2. Vendor Inventory (DAY grain, max 14 days per request) ───────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    const endDate   = daysAgo(4);   // 3-day lag minimum for vendor data
-    const startDate = daysAgo(11);  // 7-day window
+    // DAY grain: same lag rules as sales report
+    const endDate   = daysAgo(4);   // D-4: safely within published window
+    const startDate = daysAgo(10);  // 7-day window (D-10 to D-4)
     const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
@@ -417,7 +388,7 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     totalWritten += written;
     console.log(`[vendorIngestion] VENDOR_INVENTORY: ${written} rows written`);
   } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_INVENTORY failed:', err.message?.substring(0, 120));
+    console.warn('[vendorIngestion] VENDOR_INVENTORY failed:', err.message, (err.stack||'').split('\n')[1]);
     results.vendorInventory = 0;
   }
 
@@ -426,10 +397,17 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 3. Vendor Traffic (WEEK grain, Sun→Sat aligned, no distributorView/sellingProgram) ─
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
-    // WEEK reports require Sunday start + Saturday end, strict alignment.
-    // Data is available ~48h after Saturday close — use last completed Sat.
-    const endDate   = lastCompletedSaturday();
-    const startDate = lastCompletedSunday(); // one full week only per daily run
+    // WEEK reports require Sunday→Saturday alignment.
+    // Traffic/NetPPM data SLA: ~96h after Saturday close (4 days to be safe).
+    // Use prior week if current week's Saturday was < 4 days ago.
+    const rawSat = lastCompletedSaturday();
+    const daysSinceSat = Math.round((new Date() - new Date(rawSat + 'T00:00:00Z')) / 86400000);
+    const endDate = daysSinceSat >= 4 ? rawSat : (() => {
+      const d = new Date(rawSat + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
+    })();
+    const endSat = new Date(endDate + 'T00:00:00Z');
+    const startSun = new Date(endSat); startSun.setUTCDate(endSat.getUTCDate() - 6);
+    const startDate = startSun.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
       reportPeriod:     'WEEK',
       // NOTE: distributorView and sellingProgram are NOT supported for traffic/netPPM reports
@@ -451,9 +429,15 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 4. Vendor Net PPM (WEEK grain, Sun→Sat aligned) ─────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT...');
-    // Same alignment rules as traffic report
-    const endDate   = lastCompletedSaturday();
-    const startDate = lastCompletedSunday();
+    // Same 96h lag rule as traffic report
+    const rawSat2 = lastCompletedSaturday();
+    const daysSinceSat2 = Math.round((new Date() - new Date(rawSat2 + 'T00:00:00Z')) / 86400000);
+    const endDate = daysSinceSat2 >= 4 ? rawSat2 : (() => {
+      const d = new Date(rawSat2 + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
+    })();
+    const endSat2 = new Date(endDate + 'T00:00:00Z');
+    const startSun2 = new Date(endSat2); startSun2.setUTCDate(endSat2.getUTCDate() - 6);
+    const startDate = startSun2.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
       reportPeriod:     'WEEK',
       // NOTE: distributorView and sellingProgram are NOT supported for netPPM reports
