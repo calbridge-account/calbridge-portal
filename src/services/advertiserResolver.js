@@ -1,7 +1,7 @@
 /**
  * advertiserResolver.js
  *
- * Resolves the effective clientId for data queries when an advertiser has been
+ * Resolves the effective clientId and marketplace for data queries when an advertiser has been
  * explicitly switched in the manager/nav selector.
  *
  * Bridge approach (Phase 3H):
@@ -37,4 +37,16 @@ async function resolveClientId(req) {
   return req.session.clientId;
 }
 
-module.exports = { resolveClientId };
+/**
+ * Resolve the active marketplace for data queries.
+ * Returns the marketplace set in session via POST /manager/set-marketplace,
+ * or 'US' as default. 'all' means no filter should be applied.
+ *
+ * @param {import('express').Request} req
+ * @returns {string}
+ */
+function resolveMarketplace(req) {
+  return req.session.activeMarketplace || 'US';
+}
+
+module.exports = { resolveClientId, resolveMarketplace };

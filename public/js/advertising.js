@@ -55,6 +55,7 @@ let kwTypeChart = null;
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   setupControls();
+  updateSubtitle(); // initialise subtitle to match default activeChannel
   await loadAll();
 });
 
@@ -462,71 +463,78 @@ async function loadChannelBreakdown() {
       return;
     }
 
-    // Filter to active channel if narrowed
-    let visible = rows;
-    if (activeChannel === 'dsp')  visible = rows.filter(r => r.AD_TYPE === 'DSP');
-    else if (activeChannel === 'ads') visible = rows.filter(r => r.AD_TYPE !== 'DSP');
-
     // Update section heading to reflect active channel
     const breakdownHeading = el('channel-breakdown-heading');
     if (breakdownHeading) {
-      if (activeChannel === 'ads') {
-        breakdownHeading.textContent = 'Sponsored Ads Breakdown';
-      } else {
-        breakdownHeading.textContent = 'Channel Breakdown';
-      }
+      if (activeChannel === 'ads') breakdownHeading.textContent = 'Sponsored Ads Breakdown';
+      else if (activeChannel === 'dsp') breakdownHeading.textContent = 'DSP Breakdown';
+      else breakdownHeading.textContent = 'Channel Breakdown';
     }
 
-    // Break-even ROAS threshold — simplistic default (1.0x = "covering spend")
-    const BREAKEVEN_ROAS = 2.0;
+    // Determine which ad types are active vs zeroed for the current channel selection.
+    // All cards remain visible — inactive channels show $0 / muted styling.
+    const isActive = type => {
+      if (activeChannel === 'all') return true;
+      if (activeChannel === 'ads') return type !== 'DSP';
+      if (activeChannel === 'dsp') return type === 'DSP';
+      return true;
+    };
 
+    // Break-even ROAS threshold
+    const BREAKEVEN_ROAS = 2.0;
     const COLORS = { SP: '#1a56db', SB: '#c66a10', SD: '#057a55', DSP: '#6b21e8' };
-    const cols = visible.length === 1 ? 1 : visible.length === 2 ? 2 : visible.length === 3 ? 3 : 4;
+
+    // Always show all 4 columns when all channels present, otherwise dynamic
+    const cols = rows.length === 1 ? 1 : rows.length === 2 ? 2 : rows.length === 3 ? 3 : 4;
     container.style.gridTemplateColumns = `repeat(${Math.min(cols, 4)}, 1fr)`;
 
-    container.innerHTML = visible.map(r => {
-      const type   = r.AD_TYPE;
-      const spend  = Number(r.SPEND       || 0);
-      const sales  = Number(r.SALES       || 0);
-      const impr   = Number(r.IMPRESSIONS || 0);
-      const clicks = Number(r.CLICKS      || 0);
-      const roas   = r.ROAS != null ? Number(r.ROAS) : (spend > 0 ? sales / spend : null);
-      const acos   = r.ACOS != null ? Number(r.ACOS) : (sales > 0 ? spend / sales : null);
-      const isDsp  = type === 'DSP';
-      const color  = COLORS[type] || '#9ca3af';
-      const roasOk = roas != null && roas >= BREAKEVEN_ROAS;
-      const borderColor = roas == null ? 'var(--gray-200)' : (roasOk ? 'var(--success)' : 'var(--danger)');
-      const bgColor     = roas == null ? '' : (roasOk ? 'rgba(45,90,39,.03)' : 'rgba(200,30,30,.03)');
+    container.innerHTML = rows.map(r => {
+      const type    = r.AD_TYPE;
+      const active  = isActive(type);
+      const isDsp   = type === 'DSP';
 
-      return `<div class="kpi-card" style="border-left:3px solid ${borderColor};background:${bgColor || '#fff'}">
+      // Zero out values for inactive channels
+      const spend  = active ? Number(r.SPEND       || 0) : 0;
+      const sales  = active ? Number(r.SALES       || 0) : 0;
+      const impr   = active ? Number(r.IMPRESSIONS || 0) : 0;
+      const clicks = active ? Number(r.CLICKS      || 0) : 0;
+      const roas   = active ? (r.ROAS != null ? Number(r.ROAS) : (spend > 0 ? sales / spend : null)) : null;
+      const acos   = active ? (r.ACOS != null ? Number(r.ACOS) : (sales > 0 ? spend / sales : null)) : null;
+
+      const roasOk      = roas != null && roas >= BREAKEVEN_ROAS;
+      const borderColor = !active ? 'var(--gray-200)' : roas == null ? 'var(--gray-200)' : (roasOk ? 'var(--success)' : 'var(--danger)');
+      const bgColor     = !active ? '#fafafa' : roas == null ? '' : (roasOk ? 'rgba(45,90,39,.03)' : 'rgba(200,30,30,.03)');
+      const mutedStyle  = active ? '' : 'opacity:0.45;';
+
+      return `<div class="kpi-card" style="border-left:3px solid ${borderColor};background:${bgColor || '#fff'};${mutedStyle}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <span class="badge-ad-type badge-${type?.toLowerCase().replace('dsp','dsp-type')}" style="font-size:13px;padding:3px 10px">${escHtml(type)}</span>
-          <span style="font-size:11px;font-weight:600;color:${roasOk ? 'var(--success)' : roas == null ? 'var(--gray-400)' : 'var(--danger)'}">${roas != null ? roas.toFixed(2) + 'x ROAS' : '—'}</span>
+          <span style="font-size:11px;font-weight:600;color:${!active ? 'var(--gray-300)' : roasOk ? 'var(--success)' : roas == null ? 'var(--gray-400)' : 'var(--danger)'}">${active && roas != null ? roas.toFixed(2) + 'x ROAS' : '—'}</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
             <div class="kpi-label">Spend</div>
-            <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(spend)}</div>
+            <div style="font-size:18px;font-weight:700;color:${active ? 'var(--gray-800)' : 'var(--gray-400)'}">${active ? fmt$(spend) : '$0.00'}</div>
           </div>
           <div>
             <div class="kpi-label" title="${isDsp ? 'Total attributed sales (halo effect — all products attributed to DSP impressions, not click-direct only). This is the correct DSP measurement metric.' : 'Ad-attributed sales (30-day click window). Does not equal total revenue.'}">${isDsp ? 'Total Sales ⓘ' : 'Ad-Attr. Sales ⓘ'}</div>
-            <div style="font-size:18px;font-weight:700;color:var(--gray-800)">${fmt$(sales)}</div>
+            <div style="font-size:18px;font-weight:700;color:${active ? 'var(--gray-800)' : 'var(--gray-400)'}">${active ? fmt$(sales) : '$0.00'}</div>
           </div>
           <div>
             <div class="kpi-label">ACoS</div>
-            <div style="font-size:15px;font-weight:600" class="${isDsp ? '' : acos != null ? (acos < 0.20 ? 'cm-positive' : acos > 0.45 ? 'cm-negative' : 'cm-neutral') : ''}">${isDsp ? '—' : acos != null ? (acos * 100).toFixed(1) + '%' : '—'}</div>
+            <div style="font-size:15px;font-weight:600" class="${active && !isDsp && acos != null ? (acos < 0.20 ? 'cm-positive' : acos > 0.45 ? 'cm-negative' : 'cm-neutral') : ''}">${!active || isDsp ? '—' : acos != null ? (acos * 100).toFixed(1) + '%' : '—'}</div>
           </div>
           <div>
             <div class="kpi-label">Impressions</div>
-            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${fmtN(impr)}</div>
+            <div style="font-size:15px;font-weight:600;color:${active ? 'var(--gray-600)' : 'var(--gray-400)'}">${active ? fmtN(impr) : '—'}</div>
           </div>
           <div>
             <div class="kpi-label">Clicks</div>
-            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${fmtN(clicks)}</div>
+            <div style="font-size:15px;font-weight:600;color:${active ? 'var(--gray-600)' : 'var(--gray-400)'}">${active ? fmtN(clicks) : '—'}</div>
           </div>
           <div>
             <div class="kpi-label">CTR</div>
-            <div style="font-size:15px;font-weight:600;color:var(--gray-600)">${isDsp ? '—' : impr > 0 ? (clicks / impr * 100).toFixed(2) + '%' : '—'}</div>
+            <div style="font-size:15px;font-weight:600;color:${active ? 'var(--gray-600)' : 'var(--gray-400)'}">${!active || isDsp ? '—' : impr > 0 ? (clicks / impr * 100).toFixed(2) + '%' : '—'}</div>
           </div>
         </div>
       </div>`;
