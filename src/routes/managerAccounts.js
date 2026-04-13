@@ -972,5 +972,89 @@ agencyRouter.post('/users/invite', async (req, res) => {
   }
 });
 
+// ─── GET /manager/active-advertiser/marketplaces ─────────────────────────────
+// Returns the list of distinct marketplaces for the currently active advertiser,
+// and the currently selected marketplace (from session).
+// Frontend uses this to show/hide the geo selector dropdown.
+
+router.get('/active-advertiser/marketplaces', requireAuth, async (req, res) => {
+  try {
+    const clientId = req.session.clientId;
+    if (!clientId) return res.status(401).json({ error: 'Not authenticated' });
+
+    let marketplaces = [];
+    try {
+      const rows = await query(
+        `SELECT DISTINCT marketplace
+         FROM CALBRIDGE_PROD.APP.client_accounts
+         WHERE client_id = ?
+           AND is_active = TRUE
+           AND marketplace IS NOT NULL
+         ORDER BY marketplace`,
+        [clientId]
+      );
+      marketplaces = rows.map(r => r.MARKETPLACE || r.marketplace).filter(Boolean);
+    } catch (e) {
+      // client_accounts may not have data yet — graceful fallback
+      console.warn('[GET /manager/active-advertiser/marketplaces] Query failed:', e.message);
+    }
+
+    // Default to ['US'] if no marketplace data found
+    if (!marketplaces.length) marketplaces = ['US'];
+
+    const activeMarketplace = req.session.activeMarketplace || marketplaces[0] || 'US';
+
+    return res.json({ marketplaces, activeMarketplace });
+  } catch (err) {
+    console.error('[GET /manager/active-advertiser/marketplaces]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── POST /manager/set-marketplace ────────────────────────────────────────────
+// Sets the active marketplace in session. Validates that the requested marketplace
+// is actually in the list for this client (prevents spoofing).
+// Body: { marketplace: 'CA' }  — use 'all' to remove the filter.
+
+router.post('/set-marketplace', requireAuth, async (req, res) => {
+  try {
+    const clientId = req.session.clientId;
+    if (!clientId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { marketplace } = req.body;
+    if (!marketplace) return res.status(400).json({ error: 'marketplace is required' });
+
+    // 'all' is always valid — removes the filter
+    if (marketplace !== 'all') {
+      // Validate against actual client marketplaces
+      let allowed = [];
+      try {
+        const rows = await query(
+          `SELECT DISTINCT marketplace
+           FROM CALBRIDGE_PROD.APP.client_accounts
+           WHERE client_id = ?
+             AND is_active = TRUE
+             AND marketplace IS NOT NULL`,
+          [clientId]
+        );
+        allowed = rows.map(r => r.MARKETPLACE || r.marketplace).filter(Boolean);
+      } catch (e) {
+        console.warn('[POST /manager/set-marketplace] Validation query failed:', e.message);
+        // On error, allow the request through — don't block the user
+      }
+
+      if (allowed.length && !allowed.includes(marketplace)) {
+        return res.status(400).json({ error: `Invalid marketplace: ${marketplace}` });
+      }
+    }
+
+    req.session.activeMarketplace = marketplace;
+    return res.json({ ok: true, activeMarketplace: marketplace });
+  } catch (err) {
+    console.error('[POST /manager/set-marketplace]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
 module.exports.agencyRouter = agencyRouter;

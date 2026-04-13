@@ -7,7 +7,7 @@ const { syncClient } = require('../jobs/scheduler');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, invalidateClient, DEFAULT_TTL_MS } = require('../services/queryCache');
-const { resolveClientId } = require('../services/advertiserResolver');
+const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
 const { getPlanLimits } = require('../middleware/planGate');
 const { compute: computeMetric } = require('../config/metrics');
 const { responseCache } = require('../middleware/responseCache');
@@ -31,6 +31,16 @@ function dateFilter(col, days, startDate, endDate) {
     return `AND ${col} BETWEEN '${startDate}' AND '${endDate}'`;
   }
   return `AND ${col} >= DATEADD(day, -${Number(days)}, CURRENT_DATE)`;
+}
+
+/**
+ * Build a Snowflake WHERE fragment that filters by marketplace.
+ * marketplace = 'all' → no filter
+ * Defaults to 'US' if no marketplace is set in session.
+ */
+function marketplaceFilter(marketplace) {
+  if (!marketplace || marketplace === 'all') return '';
+  return `AND COALESCE(marketplace, 'US') = '${marketplace.replace(/'/g, "''")}' `;
 }
 
 /**
@@ -131,6 +141,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
 
     // Resolve brand context — attach to response so frontend can show brand name/switcher
     // NOTE: noBrands does NOT block data — sales/ads queries are client-scoped only.
@@ -147,6 +158,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         FROM vendor_purchase_orders
         WHERE client_id = ?
           ${dateFilter("order_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
       `, [clientId]),
 
       // Shipped revenue from vendor_sales (actual invoiced revenue — hits P&L)
@@ -157,12 +169,13 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         FROM vendor_sales
         WHERE client_id = ?
           ${dateFilter("start_date", days, startDate, endDate)}
+          ${marketplaceFilter(marketplace)}
       `, [clientId]),
 
 
       // Ad attributed sales + spend — prefer new granular tables, fall back to ad_performance
       query(`
-        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)})
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)} ${marketplaceFilter(marketplace)})
         SELECT
           COALESCE(SUM(adjusted_spend), 0)   AS total_ad_spend,
           COALESCE(SUM(sales), 0)   AS total_ad_sales,

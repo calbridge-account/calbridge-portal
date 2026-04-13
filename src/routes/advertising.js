@@ -3,7 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
-const { resolveClientId } = require('../services/advertiserResolver');
+const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
 // Cache helper: keyed on clientId + full request URL (includes all query params).
 // Each unique combination of date range, channel, and ad type gets its own cache entry,
 // so switching date ranges or channels always fetches fresh data from Snowflake.
@@ -12,6 +12,20 @@ const { resolveClientId } = require('../services/advertiserResolver');
 function reqCache(clientId, req, fetchFn) {
   const ck = cacheKey(clientId, 'url', req.originalUrl);
   return cachedQuery(ck, DEFAULT_TTL_MS, fetchFn);
+}
+
+/**
+ * Build a Snowflake WHERE fragment that filters by marketplace.
+ * marketplace = 'all' → no filter
+ * marketplace = 'US'  → AND COALESCE(marketplace, 'US') = 'US'
+ * Gracefully handles tables where marketplace column may not exist (filter is skipped on catch).
+ *
+ * @param {string} marketplace - from resolveMarketplace(req)
+ * @returns {string}
+ */
+function marketplaceFilter(marketplace) {
+  if (!marketplace || marketplace === 'all') return '';
+  return `AND COALESCE(marketplace, 'US') = '${marketplace.replace(/'/g, "''")}'`;
 }
 
 /**
@@ -124,7 +138,8 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     const adType    = req.query.adType;
     // Aggregate inside the CTE to avoid Snowflake nested-aggregate error on views
     const clientId = await resolveClientId(req);
-    const ck = cacheKey(clientId, 'summary', days, startDate, endDate, channel, adType);
+    const marketplace = resolveMarketplace(req);
+    const ck = cacheKey(clientId, 'summary', days, startDate, endDate, channel, adType, marketplace);
     const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
       WITH cp AS (
         SELECT
@@ -137,6 +152,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
         ${channelFilter(channel, adType)}
+        ${marketplaceFilter(marketplace)}
       )
       SELECT
         total_impressions, total_clicks, total_spend, total_sales, total_orders, total_units,
@@ -162,6 +178,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const channel = req.query.channel;
     const adType  = req.query.adType;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
@@ -174,6 +191,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
+        ${marketplaceFilter(marketplace)}
         GROUP BY date
       )
       SELECT
@@ -198,6 +216,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
@@ -209,6 +228,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
           SUM(orders)      AS orders
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
+        ${marketplaceFilter(marketplace)}
         GROUP BY ad_type
       )
       SELECT
@@ -236,6 +256,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
     const channel = req.query.channel;
     const adType  = req.query.adType;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
@@ -253,6 +274,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
+        ${marketplaceFilter(marketplace)}
         GROUP BY campaign_id, campaign_name, ad_type, campaign_status, campaign_budget_amount
       )
       SELECT
@@ -285,6 +307,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
     const startDate = req.query.startDate || null;
     const endDate   = req.query.endDate   || null;
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
       WITH cp AS (
         SELECT
@@ -296,6 +319,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
           SUM(orders)      AS orders
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
+        ${marketplaceFilter(marketplace)}
         GROUP BY ad_type
       )
       SELECT

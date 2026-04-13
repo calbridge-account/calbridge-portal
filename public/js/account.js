@@ -46,8 +46,8 @@ async function loadProfile() {
     $('logo-preview-img').style.display = 'block';
     $('logo-placeholder').style.display = 'none';
     $('remove-logo-btn').style.display = 'inline-block';
-    $('sidebar-logo').src = profile.logoUrl;
-    $('sidebar-logo').style.filter = 'none';
+    const sidebarLogoEl = $('brand-logo') || $('sidebar-logo');
+    if (sidebarLogoEl) { sidebarLogoEl.src = profile.logoUrl; sidebarLogoEl.style.filter = 'none'; }
   }
 }
 
@@ -68,8 +68,8 @@ function setupForms() {
       $('logo-preview-img').style.display = 'block';
       $('logo-placeholder').style.display = 'none';
       $('remove-logo-btn').style.display = 'inline-block';
-      $('sidebar-logo').src = data.logoUrl + '?t=' + Date.now();
-      $('sidebar-logo').style.filter = 'none';
+      const sidebarLogoElUp = $('brand-logo') || $('sidebar-logo');
+      if (sidebarLogoElUp) { sidebarLogoElUp.src = data.logoUrl + '?t=' + Date.now(); sidebarLogoElUp.style.filter = 'none'; }
       showStatus('logo-status', '✅ Logo updated', 'success');
     } catch (err) { showStatus('logo-status', `❌ ${err.message}`, 'error'); }
   });
@@ -80,8 +80,8 @@ function setupForms() {
     $('logo-preview-img').style.display = 'none';
     $('logo-placeholder').style.display = 'block';
     $('remove-logo-btn').style.display = 'none';
-    $('sidebar-logo').src = '/images/calbridge-logo.png';
-    $('sidebar-logo').style.filter = '';
+    const sidebarLogoElRm = $('brand-logo') || $('sidebar-logo');
+    if (sidebarLogoElRm) { sidebarLogoElRm.src = '/images/calbridge-logo.png'; sidebarLogoElRm.style.filter = ''; }
     showStatus('logo-status', 'Logo removed', 'info');
   });
 
