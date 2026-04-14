@@ -73,9 +73,6 @@ async function main() {
 
     UNION ALL
 
-    -- DSP: sourced from dsp_line_item_report (flight/line-item grain) — this is the
-    -- authoritative DSP spend source. dsp_campaign_report (order grain) has ingestion
-    -- gaps from April 2026 onward; dsp_line_item_report is complete and deduplicated.
     SELECT client_id, profile_id,
       order_id AS campaign_id, order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
@@ -88,15 +85,15 @@ async function main() {
       NULL::FLOAT AS top_of_search_impression_share,
       new_to_brand_purchases::FLOAT, new_to_brand_product_sales AS new_to_brand_sales,
       NULL::FLOAT AS new_to_brand_units_sold, detail_page_views::FLOAT,
-      add_to_cart::FLOAT, viewability_rate::FLOAT, NULL::FLOAT AS roas_direct,
+      add_to_cart::FLOAT, viewability_rate, NULL::FLOAT AS roas_direct,
       video_ad_complete::FLOAT, video_ad_start::FLOAT,
       viewable_impressions::FLOAT,
-      NULL::FLOAT AS order_budget,
-      NULL::DATE  AS order_start_date,
-      NULL::DATE  AS order_end_date,
+      order_budget::FLOAT AS order_budget,
+      order_start_date::DATE AS order_start_date,
+      order_end_date::DATE AS order_end_date,
       total_purchases::FLOAT AS total_purchases,
       (detail_page_views / NULLIF(impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.APP.dsp_line_item_report
+    FROM CALBRIDGE_PROD.APP.dsp_campaign_report
   `);
 
   // adjusted_campaign_performance
