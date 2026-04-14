@@ -29,6 +29,17 @@ function marketplaceFilter(marketplace) {
 }
 
 /**
+ * Same as marketplaceFilter but safe for tables that may not have a marketplace column.
+ * Returns empty string — used for adjusted_campaign_performance and other pre-aggregated views
+ * that don't carry a marketplace column.
+ */
+function marketplaceFilterSafe(_marketplace) {
+  // adjusted_campaign_performance / campaign_performance have no marketplace column.
+  // All data is effectively US-only at this stage. Return no filter.
+  return '';
+}
+
+/**
  * Build a Snowflake WHERE fragment that filters by channel.
  * channel = 'ads'  → SP + SB + SD
  * channel = 'dsp'  → DSP only
@@ -199,7 +210,7 @@ router.get('/', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
         ${channelFilter(channel, null)}
-        ${marketplaceFilter(marketplace)}
+        ${marketplaceFilterSafe(marketplace)}
         GROUP BY ad_type, DATE_TRUNC('week', date), TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD')
         ORDER BY week_start ASC, ad_type
       `, [clientId]),
@@ -326,7 +337,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
-        ${marketplaceFilter(marketplace)}
+        ${marketplaceFilterSafe(marketplace)}
         GROUP BY date
       )
       SELECT
@@ -363,7 +374,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
           SUM(orders)      AS orders
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-        ${marketplaceFilter(marketplace)}
+        ${marketplaceFilterSafe(marketplace)}
         GROUP BY ad_type
       )
       SELECT
@@ -409,7 +420,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
-        ${marketplaceFilter(marketplace)}
+        ${marketplaceFilterSafe(marketplace)}
         GROUP BY campaign_id, campaign_name, ad_type, campaign_status, campaign_budget_amount
       )
       SELECT
@@ -454,7 +465,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
           SUM(orders)      AS orders
         FROM adjusted_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-        ${marketplaceFilter(marketplace)}
+        ${marketplaceFilterSafe(marketplace)}
         GROUP BY ad_type
       )
       SELECT
