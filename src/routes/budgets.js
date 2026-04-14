@@ -74,6 +74,54 @@ router.get('/campaigns/available', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auto-reconcile budget_campaign_map: find DSP campaigns with spend that match
+// a mapped campaign by name but different ID (64-bit truncation artifacts).
+// Runs inline when budgets are fetched — adds missing variants silently.
+async function reconcileBudgetCampaigns(clientId, budgetIds) {
+  if (!budgetIds || !budgetIds.length) return;
+  try {
+    const monthStart = new Date().toISOString().substring(0, 7) + '-01';
+    for (const budgetId of budgetIds) {
+      const toAdd = await query(`
+        WITH unmapped AS (
+          SELECT DISTINCT p.campaign_id, MAX(p.campaign_name) as campaign_name, p.ad_type
+          FROM \${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE p
+          WHERE p.client_id = ?
+            AND p.ad_type = 'DSP'
+            AND p.date >= ?
+            AND p.campaign_id NOT IN (
+              SELECT campaign_id FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id = ?
+            )
+          GROUP BY p.campaign_id, p.ad_type
+          HAVING SUM(p.adjusted_spend) > 0
+        )
+        SELECT u.campaign_id, u.campaign_name, u.ad_type
+        FROM unmapped u
+        WHERE EXISTS (
+          SELECT 1 FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP m
+          WHERE m.budget_id = ?
+            AND LOWER(TRIM(u.campaign_name)) = LOWER(TRIM(m.campaign_name))
+        )
+      `, [clientId, monthStart, budgetId, budgetId]);
+
+      for (const c of toAdd) {
+        await query(`
+          INSERT INTO \${SCHEMA}.BUDGET_CAMPAIGN_MAP (budget_id, client_id, campaign_id, campaign_name, ad_type)
+          SELECT ?,?,?,?,?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id=? AND campaign_id=?
+          )
+        `, [budgetId, clientId, c.CAMPAIGN_ID||c.campaign_id, c.CAMPAIGN_NAME||c.campaign_name, c.AD_TYPE||c.ad_type, budgetId, c.CAMPAIGN_ID||c.campaign_id]);
+      }
+      if (toAdd.length > 0) {
+        console.log(`[budgets] Auto-mapped \${toAdd.length} DSP campaign variants for budget \${budgetId.substring(0,8)}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[budgets] reconcileBudgetCampaigns failed (non-fatal):', err.message?.substring(0,80));
+  }
+}
+
 // GET /budgets — all budgets with pacing
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -94,6 +142,9 @@ router.get('/', async (req, res) => {
     }
 
     const budgetIds = budgets.map(b => b.BUDGET_ID || b.budget_id);
+
+    // Auto-reconcile: map any new DSP campaign ID variants by name (handles 64-bit truncation)
+    reconcileBudgetCampaigns(clientId, budgetIds).catch(() => {});
 
     // Fetch campaign mappings for all budgets in one query
     const mappings = await query(
