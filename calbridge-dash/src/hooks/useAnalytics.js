@@ -9,6 +9,7 @@ import {
   getInventoryDetail,
   getPoSummary,
   getAdvertising,
+  getAdvertisingTrend,
   getForecasting,
   getForecastShift,
   getAnnualProjection,
@@ -69,6 +70,16 @@ export function useAdvertising(range, channel) {
   return useQuery({
     queryKey: ['advertising', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertising(range, channel, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useAdvertisingTrend(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['advertising-trend', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getAdvertisingTrend(range, channel, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });

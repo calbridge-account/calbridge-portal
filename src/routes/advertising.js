@@ -343,8 +343,9 @@ router.get('/trend', requireAuth, async (req, res, next) => {
       SELECT
         date                                                          AS report_date,
         impressions, clicks, spend, sales, orders,
-        CASE WHEN sales > 0 THEN spend / sales ELSE NULL END         AS acos,
-        CASE WHEN spend > 0 THEN sales / spend ELSE NULL END         AS roas
+        CASE WHEN sales > 0  THEN spend / sales  ELSE NULL END       AS acos,
+        CASE WHEN spend > 0  THEN sales / spend  ELSE NULL END       AS roas,
+        CASE WHEN clicks > 0 THEN spend / clicks ELSE NULL END       AS cpc
       FROM cp
       ORDER BY date ASC
     `, [clientId]));

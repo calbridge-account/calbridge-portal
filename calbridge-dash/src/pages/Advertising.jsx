@@ -4,7 +4,7 @@ import {
   Tooltip, Legend, ResponsiveContainer,
   ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
-import { useAdvertising, useAsinPerformance } from '../hooks/useAnalytics';
+import { useAdvertising, useAsinPerformance, useAdvertisingTrend } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -176,56 +176,41 @@ export default function Advertising() {
   const [activeChannel, setActiveChannel] = useState('all');
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
-  const weekly   = data?.weekly   || {};
 
-  // Build a merged weekly series across all types
-  const allWeeklyMerged = (() => {
-    if (!data) return [];
-    const map = {};
-    for (const type of ['sp', 'sb', 'sd', 'dsp']) {
-      for (const row of (weekly[type] || [])) {
-        if (!map[row.weekStart]) map[row.weekStart] = { week: row.week, weekStart: row.weekStart, spend: 0, sales: 0, clicks: 0 };
-        map[row.weekStart].spend  += row.spend  || 0;
-        map[row.weekStart].sales  += row.sales  || 0;
-        map[row.weekStart].clicks += row.clicks || 0;
-      }
-    }
-    return Object.values(map).sort((a, b) => a.weekStart?.localeCompare(b.weekStart));
-  })();
-
-  // Get weekly data for active channel — enrich with roas/cpc if missing
-  const enrichWeekly = (rows) => rows.map(r => ({
-    ...r,
-    roas: r.roas != null ? r.roas : (r.spend > 0 ? r.sales / r.spend : null),
-    cpc:  r.cpc  != null ? r.cpc  : (r.clicks > 0 ? r.spend / r.clicks : null),
-  }));
-
-  const chartData = enrichWeekly(
-    activeChannel === 'all' ? allWeeklyMerged :
-    activeChannel === 'dsp' ? (weekly['dsp'] || []) :
-    /* ads */ (() => {
-      const map = {};
-      for (const type of ['sp', 'sb', 'sd']) {
-        for (const row of (weekly[type] || [])) {
-          if (!map[row.weekStart]) map[row.weekStart] = { week: row.week, weekStart: row.weekStart, spend: 0, sales: 0, clicks: 0 };
-          map[row.weekStart].spend  += row.spend  || 0;
-          map[row.weekStart].sales  += row.sales  || 0;
-          map[row.weekStart].clicks += row.clicks || 0;
-        }
-      }
-      return Object.values(map).sort((a, b) => a.weekStart?.localeCompare(b.weekStart));
-    })()
-  );
+  // Daily trend data — normalize keys from server (uppercase Snowflake cols → lowercase)
+  const chartData = (trendRows || []).map(r => {
+    const spend  = Number(r.SPEND  ?? r.spend  ?? 0);
+    const sales  = Number(r.SALES  ?? r.sales  ?? 0);
+    const clicks = Number(r.CLICKS ?? r.clicks ?? 0);
+    const dateRaw = r.REPORT_DATE ?? r.report_date ?? '';
+    // Format label: '2026-04-01' → 'Apr 1'
+    const label = (() => {
+      try {
+        const d = new Date(String(dateRaw).substring(0, 10) + 'T00:00:00Z');
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      } catch { return String(dateRaw).substring(0, 10); }
+    })();
+    return {
+      date:  String(dateRaw).substring(0, 10),
+      label,
+      spend,
+      sales,
+      clicks,
+      roas:  spend  > 0 ? sales  / spend  : null,
+      cpc:   clicks > 0 ? spend  / clicks : null,
+      acos:  Number(r.ACOS  ?? r.acos  ?? null),
+    };
+  });
 
   const activeChannelInfo = CHANNELS.find(c => c.key === activeChannel);
 
-  // Trend chart title based on active channel
-  const chartTitle = activeChannel === 'all' ? 'Full Channel Trend'
-    : activeChannel === 'ads' ? 'Sponsored Ads Trend'
-    : 'DSP Trend';
+  const chartTitle = activeChannel === 'all' ? 'All Channels'
+    : activeChannel === 'ads' ? 'Sponsored Ads'
+    : 'DSP';
 
   // ASIN table data — sorted by spend desc
   const tableAsins = (asinData?.asins || []).sort((a, b) => (b.spend || 0) - (a.spend || 0));
@@ -303,15 +288,16 @@ export default function Advertising() {
         })}
       </div>
 
-      {/* Weekly trend + Spend Mix side by side */}
+      {/* Daily trend + Spend Mix side by side */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        {/* Weekly chart — 2/3 width */}
+        {/* Daily chart — 2/3 width */}
         <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-1">
-            Weekly Spend vs Sales — {chartTitle}
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">{activeChannelInfo?.description}</p>
-          {isLoading ? (
+          <div className="flex items-baseline justify-between mb-1">
+            <h3 className="text-sm font-semibold text-gray-700">Daily Spend &amp; Sales — {chartTitle}</h3>
+            <span className="text-xs text-gray-400">{activeChannelInfo?.description}</span>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">Spend · Sales · ROAS · CPC per day</p>
+          {trendLoading ? (
             <div className="h-64 bg-gray-100 rounded animate-pulse" />
           ) : chartData.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
@@ -319,7 +305,14 @@ export default function Advertising() {
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10 }}
+                  interval={Math.max(0, Math.floor(chartData.length / 10) - 1)}
+                  angle={chartData.length > 20 ? -35 : 0}
+                  textAnchor={chartData.length > 20 ? 'end' : 'middle'}
+                  height={chartData.length > 20 ? 45 : 20}
+                />
                 <YAxis
                   yAxisId="left"
                   tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -328,16 +321,19 @@ export default function Advertising() {
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(1)}x` : ''}
+                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(2)}x` : ''}
                   tick={{ fontSize: 11 }}
                 />
                 <Tooltip
+                  labelFormatter={(label) => label}
                   formatter={(v, name) => {
+                    if (v == null) return ['—', name];
                     if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
                     if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
                     return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
                   }}
                   labelStyle={{ fontWeight: 600 }}
+                  contentStyle={{ fontSize: 12 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line yAxisId="left"  type="monotone" dataKey="spend" name="Spend" stroke={activeChannelInfo?.chartColor || '#6366f1'} strokeWidth={2} dot={false} />
