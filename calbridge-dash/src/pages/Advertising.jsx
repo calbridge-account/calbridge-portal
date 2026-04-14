@@ -272,8 +272,8 @@ export default function Advertising() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
         <MetricCard title="Total Spend" value={combined.totalSpend} format="currency" highlight loading={isLoading} />
         <MetricCard title="Total Sales (attributed)" value={combined.totalSales} format="currency" loading={isLoading} />
-        <MetricCard title="Blended ACoS" value={combined.blendedAcos} format="percent" sub="Across all ad types" loading={isLoading} />
-        <MetricCard title="Blended ROAS" value={combined.blendedRoas} format="roas" sub="Total sales / total spend" loading={isLoading} />
+        <MetricCard title="Blended ACoS" value={combined.acos} format="percent" sub={activeChannel === "all" ? "Across all ad types" : activeChannel === "ads" ? "Sponsored Ads only" : "DSP only"} loading={isLoading} />
+        <MetricCard title="Blended ROAS" value={combined.roas} format="roas" sub={activeChannel === "all" ? "Total sales / total spend" : activeChannel === "ads" ? "Sponsored Ads ROAS" : "DSP ROAS"} loading={isLoading} />
       </div>
 
       {/* Combined KPI cards — row 2 */}
