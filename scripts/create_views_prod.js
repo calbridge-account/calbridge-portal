@@ -73,6 +73,7 @@ async function main() {
 
     UNION ALL
 
+    -- DSP order-grain (SparkX + legacy): has attributed sales, may have zero spend post-Apr-1
     SELECT client_id, profile_id,
       order_id AS campaign_id, order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
@@ -94,6 +95,30 @@ async function main() {
       total_purchases::FLOAT AS total_purchases,
       (detail_page_views / NULLIF(impressions, 0))::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+
+    UNION ALL
+
+    -- DSP flight-grain (Calbridge-managed profile): has spend, different profile_id from above
+    -- dsp_line_item_report keyed on (client_id, profile_id, date, order_name) — no duplicates
+    SELECT client_id, profile_id,
+      order_id AS campaign_id, order_name AS campaign_name,
+      'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
+      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, date,
+      total_cost AS spend, impressions, clicks,
+      COALESCE(total_sales, sales) AS sales,
+      COALESCE(total_purchases, purchases) AS orders,
+      NULL::FLOAT AS units_sold,
+      NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
+      NULL::FLOAT AS top_of_search_impression_share,
+      new_to_brand_purchases::FLOAT, new_to_brand_product_sales AS new_to_brand_sales,
+      NULL::FLOAT AS new_to_brand_units_sold, detail_page_views::FLOAT,
+      add_to_cart::FLOAT, NULL::FLOAT AS viewability_rate, NULL::FLOAT AS roas_direct,
+      video_ad_complete::FLOAT, video_ad_start::FLOAT,
+      viewable_impressions::FLOAT,
+      NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
+      total_purchases::FLOAT AS total_purchases,
+      (detail_page_views / NULLIF(impressions, 0))::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.dsp_line_item_report
   `);
 
   // adjusted_campaign_performance
