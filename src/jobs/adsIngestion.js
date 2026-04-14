@@ -2000,7 +2000,11 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
   }));
   return batchMerge({
     table: 'dsp_line_item_report',
-    keyColumns:  ['client_id', 'profile_id', 'date', 'order_id'],
+    // Key on order_name (not order_id) — same 64-bit truncation issue as dsp_campaign_report.
+    // Amazon DSP order IDs exceed Number.MAX_SAFE_INTEGER; JSON.parse truncates them
+    // differently on each download, producing multiple order_id variants for the same
+    // campaign. order_name is stable and unique per campaign.
+    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name'],
     dataColumns: [
       'advertiser_id', 'order_name', 'advertiser_name',
       'impressions', 'clicks', 'total_cost',
