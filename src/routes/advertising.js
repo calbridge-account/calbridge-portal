@@ -144,9 +144,7 @@ function withCache(ttlMs, handler) {
  */
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const days      = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const channel   = req.query.channel;
     const clientId  = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
@@ -281,13 +279,10 @@ router.get('/', requireAuth, async (req, res, next) => {
  */
 router.get('/summary', requireAuth, async (req, res, next) => {
   try {
-    const days      = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const channel   = req.query.channel;
     const adType    = req.query.adType;
-    // Aggregate inside the CTE to avoid Snowflake nested-aggregate error on views
-    const clientId = await resolveClientId(req);
+    const clientId  = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const ck = cacheKey(clientId, 'summary', days, startDate, endDate, channel, adType, marketplace);
     // Build mart date filter for summary route
@@ -325,9 +320,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
  */
 router.get('/trend', requireAuth, async (req, res, next) => {
   try {
-    const days    = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const channel = req.query.channel;
     const adType  = req.query.adType;
     const clientId = await resolveClientId(req);
@@ -365,9 +358,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
  */
 router.get('/by-channel', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
@@ -402,9 +393,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
  */
 router.get('/campaigns', requireAuth, async (req, res, next) => {
   try {
-    const days    = Number(req.query.days)  || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const limit   = Number(req.query.limit) || 200;
     const channel = req.query.channel;
     const adType  = req.query.adType;
@@ -456,9 +445,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
  */
 router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
@@ -493,9 +480,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
  */
 router.get('/roas-by-type', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
 
     const [roasRows, salesRow] = await reqCache(clientId, req, () => Promise.all([
@@ -653,9 +638,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
  */
 router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
   try {
-    const days     = Number(req.query.days)  || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 10;
     const clientId = await resolveClientId(req);
 
@@ -709,9 +692,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
  */
 router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
   try {
-    const days      = Number(req.query.days)  || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const limit     = Number(req.query.limit) || 500;
     const adType    = req.query.adType || null;  // 'SP' | 'SB' | null (all)
     const clientId  = await resolveClientId(req);
@@ -816,9 +797,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
  */
 router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
   try {
-    const days      = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId  = await resolveClientId(req);
 
     // Normalize Amazon match_type values to 4 display buckets
@@ -914,9 +893,7 @@ router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
  */
 router.get('/dsp-summary', requireAuth, async (req, res, next) => {
   try {
-    const days     = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
 
     const rows = await reqCache(clientId, req, () => query(`
@@ -975,9 +952,7 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
  */
 router.get('/dsp-orders', requireAuth, async (req, res, next) => {
   try {
-    const days     = Number(req.query.days)  || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 200;
     const clientId = await resolveClientId(req);
 
@@ -1041,9 +1016,7 @@ router.get('/dsp-orders', requireAuth, async (req, res, next) => {
  */
 router.get('/keyword-type-breakdown', requireAuth, async (req, res, next) => {
   try {
-    const days      = Number(req.query.days) || 30;
-    const startDate = req.query.startDate || null;
-    const endDate   = req.query.endDate   || null;
+    const { days, startDate, endDate } = parseRange(req);
     const clientId  = await resolveClientId(req);
 
     const rows = await reqCache(clientId, req, () => query(`
