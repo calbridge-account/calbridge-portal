@@ -50,10 +50,20 @@ export const getVendorAsins       = (range, marketplace) => {
 };
 export const getInventoryDetail   = ()      => fetchJSON('/inventory-detail');
 export const getPoSummary         = ()      => fetchJSON('/po-summary');
+// Advertising API uses /advertising base (not /vendor-analytics)
+async function fetchAdvertisingJSON(path) {
+  const res = await fetch(path, { credentials: 'include' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export const getAdvertising       = (range, channel, marketplace) => {
   const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
   const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
-  return fetchJSON(`/advertising${rangeParams(range)}${channelParam}${mp}`);
+  return fetchAdvertisingJSON(`/advertising${rangeParams(range)}${channelParam}${mp}`);
 };
 export const getForecasting       = (range) => fetchJSON(`/forecasting${rangeParams(range)}`);
 export const getForecastShift     = (asin)  => fetchJSON(`/forecast-shift${asin ? `?asin=${asin}` : ''}`);
