@@ -163,14 +163,16 @@ router.get('/', requireAuth, async (req, res, next) => {
     // Run summary + by-channel + weekly in parallel
     const [summaryRows, channelRows, weeklyRows] = await Promise.all([
       // Combined KPI summary — from mart_advertising_daily
+      // NOTE: COALESCE(SUM(col), 0) causes "nested aggregate" error on this Snowflake incremental model;
+      // use SUM() directly — nulls don't occur in pre-aggregated mart rows.
       query(`
         SELECT
-          COALESCE(SUM(impressions), 0)     AS total_impressions,
-          COALESCE(SUM(clicks), 0)          AS total_clicks,
-          COALESCE(SUM(spend), 0)           AS total_spend,
-          COALESCE(SUM(sales), 0)           AS total_sales,
-          COALESCE(SUM(orders), 0)          AS total_orders,
-          0                                 AS total_units,
+          SUM(impressions)     AS total_impressions,
+          SUM(clicks)          AS total_clicks,
+          SUM(spend)           AS total_spend,
+          SUM(sales)           AS total_sales,
+          SUM(orders)          AS total_orders,
+          0                    AS total_units,
           CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)            ELSE NULL END AS acos,
           CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
@@ -184,18 +186,18 @@ router.get('/', requireAuth, async (req, res, next) => {
       query(`
         SELECT
           ad_type,
-          COALESCE(SUM(impressions), 0) AS impressions,
-          COALESCE(SUM(clicks), 0)      AS clicks,
-          COALESCE(SUM(spend), 0)       AS spend,
-          COALESCE(SUM(sales), 0)       AS sales,
-          COALESCE(SUM(orders), 0)      AS orders,
+          SUM(impressions) AS impressions,
+          SUM(clicks)      AS clicks,
+          SUM(spend)       AS spend,
+          SUM(sales)       AS sales,
+          SUM(orders)      AS orders,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
         WHERE client_id = ?
           ${martDateFilter()}
         GROUP BY ad_type
-        ORDER BY SUM(spend) DESC
+        ORDER BY spend DESC
       `, [clientId]),
       // Weekly trend per type
       query(`
@@ -294,12 +296,12 @@ router.get('/summary', requireAuth, async (req, res, next) => {
     }
     const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
       SELECT
-        COALESCE(SUM(impressions), 0)  AS total_impressions,
-        COALESCE(SUM(clicks), 0)       AS total_clicks,
-        COALESCE(SUM(spend), 0)        AS total_spend,
-        COALESCE(SUM(sales), 0)        AS total_sales,
-        COALESCE(SUM(orders), 0)       AS total_orders,
-        0                              AS total_units,
+        SUM(impressions)  AS total_impressions,
+        SUM(clicks)       AS total_clicks,
+        SUM(spend)        AS total_spend,
+        SUM(sales)        AS total_sales,
+        SUM(orders)       AS total_orders,
+        0                 AS total_units,
         CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)            ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
