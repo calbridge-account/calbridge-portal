@@ -85,12 +85,12 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
       const toAdd = await query(`
         WITH unmapped AS (
           SELECT DISTINCT p.campaign_id, MAX(p.campaign_name) as campaign_name, p.ad_type
-          FROM \${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE p
+          FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE p
           WHERE p.client_id = ?
             AND p.ad_type = 'DSP'
             AND p.date >= ?
             AND p.campaign_id NOT IN (
-              SELECT campaign_id FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id = ?
+              SELECT campaign_id FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id = ?
             )
           GROUP BY p.campaign_id, p.ad_type
           HAVING SUM(p.adjusted_spend) > 0
@@ -98,7 +98,7 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
         SELECT u.campaign_id, u.campaign_name, u.ad_type
         FROM unmapped u
         WHERE EXISTS (
-          SELECT 1 FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP m
+          SELECT 1 FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP m
           WHERE m.budget_id = ?
             AND LOWER(TRIM(u.campaign_name)) = LOWER(TRIM(m.campaign_name))
         )
@@ -106,15 +106,15 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
 
       for (const c of toAdd) {
         await query(`
-          INSERT INTO \${SCHEMA}.BUDGET_CAMPAIGN_MAP (budget_id, client_id, campaign_id, campaign_name, ad_type)
+          INSERT INTO ${SCHEMA}.BUDGET_CAMPAIGN_MAP (budget_id, client_id, campaign_id, campaign_name, ad_type)
           SELECT ?,?,?,?,?
           WHERE NOT EXISTS (
-            SELECT 1 FROM \${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id=? AND campaign_id=?
+            SELECT 1 FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP WHERE budget_id=? AND campaign_id=?
           )
         `, [budgetId, clientId, c.CAMPAIGN_ID||c.campaign_id, c.CAMPAIGN_NAME||c.campaign_name, c.AD_TYPE||c.ad_type, budgetId, c.CAMPAIGN_ID||c.campaign_id]);
       }
       if (toAdd.length > 0) {
-        console.log(`[budgets] Auto-mapped \${toAdd.length} DSP campaign variants for budget \${budgetId.substring(0,8)}`);
+        console.log(`[budgets] Auto-mapped ${toAdd.length} DSP campaign variants for budget ${budgetId.substring(0,8)}`);
       }
     }
   } catch (err) {
