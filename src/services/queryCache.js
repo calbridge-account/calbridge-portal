@@ -20,7 +20,7 @@
 
 const cache = new Map();
 
-const DEFAULT_TTL_MS = 60_000; // 60 seconds
+const DEFAULT_TTL_MS = 300_000; // 5 minutes — ad data updates once/day, 60s was too short
 
 /**
  * Build a cache key from an array of values.

@@ -150,6 +150,7 @@ router.get('/', requireAuth, async (req, res, next) => {
     const channel   = req.query.channel;
     const clientId  = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
+    const ck = cacheKey(clientId, 'adv-root', days, startDate, endDate, channel, marketplace);
 
     // Build mart date filter for this route: prefer explicit range, else rolling window
     function martDateFilter() {
@@ -160,7 +161,8 @@ router.get('/', requireAuth, async (req, res, next) => {
       return `AND date >= DATEADD('day', -${Number(days)}, CURRENT_DATE()) AND date <= CURRENT_DATE()`;
     }
 
-    // Run summary + by-channel + weekly in parallel
+    // Run summary + by-channel + weekly in parallel, wrapped in cache
+    const { combined, byType, weekly } = await cachedQuery(ck, DEFAULT_TTL_MS, async () => {
     const [summaryRows, channelRows, weeklyRows] = await Promise.all([
       // Combined KPI summary — from mart_advertising_daily
       // NOTE: COALESCE(SUM(col), 0) causes "nested aggregate" error on this Snowflake incremental model;
@@ -267,6 +269,8 @@ router.get('/', requireAuth, async (req, res, next) => {
       });
     }
 
+    return { combined, byType, weekly };
+    }); // end cachedQuery
     res.json({ combined, byType, weekly });
   } catch (err) { next(err); }
 });
