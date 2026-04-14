@@ -194,7 +194,8 @@ router.get('/', requireAuth, async (req, res, next) => {
         FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
         WHERE client_id = ?
           ${martDateFilter()}
-        ORDER BY spend DESC
+        GROUP BY ad_type
+        ORDER BY SUM(spend) DESC
       `, [clientId]),
       // Weekly trend per type
       query(`
