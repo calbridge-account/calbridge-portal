@@ -73,52 +73,69 @@ async function main() {
 
     UNION ALL
 
-    -- DSP order-grain (SparkX + legacy): has attributed sales, may have zero spend post-Apr-1
-    SELECT client_id, profile_id,
-      order_id AS campaign_id, order_name AS campaign_name,
+    -- DSP: merge campaign-report (attribution source of truth) with line-item-report (spend source of truth)
+    -- Previously both were UNIONed separately, double-counting spend for orders that appear in both tables.
+    -- Fix: LEFT JOIN dsp_line_item_report spend onto dsp_campaign_report rows.
+    --   - If the order exists in dsp_line_item_report on the same date → use line-item spend (Calbridge-managed)
+    --   - Otherwise → fall back to dsp_campaign_report spend (SparkX/legacy orders)
+    -- Attribution columns (sales, DPVs, NTB, viewability) always come from dsp_campaign_report.
+    SELECT
+      c.client_id, c.profile_id,
+      c.order_id AS campaign_id, c.order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
-      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, date,
-      total_cost AS spend, impressions, clicks,
-      COALESCE(total_sales, sales) AS sales,
-      COALESCE(total_purchases, purchases) AS orders,
+      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, c.date,
+      COALESCE(l.total_cost, c.total_cost) AS spend,
+      c.impressions, c.clicks,
+      COALESCE(c.total_sales, c.sales) AS sales,
+      COALESCE(c.total_purchases, c.purchases) AS orders,
       NULL::FLOAT AS units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
       NULL::FLOAT AS top_of_search_impression_share,
-      new_to_brand_purchases::FLOAT, new_to_brand_product_sales AS new_to_brand_sales,
-      NULL::FLOAT AS new_to_brand_units_sold, detail_page_views::FLOAT,
-      add_to_cart::FLOAT, viewability_rate, NULL::FLOAT AS roas_direct,
-      video_ad_complete::FLOAT, video_ad_start::FLOAT,
-      viewable_impressions::FLOAT,
-      order_budget::FLOAT AS order_budget,
-      order_start_date::DATE AS order_start_date,
-      order_end_date::DATE AS order_end_date,
-      total_purchases::FLOAT AS total_purchases,
-      (detail_page_views / NULLIF(impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+      c.new_to_brand_purchases::FLOAT, c.new_to_brand_product_sales AS new_to_brand_sales,
+      NULL::FLOAT AS new_to_brand_units_sold, c.detail_page_views::FLOAT,
+      c.add_to_cart::FLOAT, c.viewability_rate, NULL::FLOAT AS roas_direct,
+      c.video_ad_complete::FLOAT, c.video_ad_start::FLOAT,
+      c.viewable_impressions::FLOAT,
+      c.order_budget::FLOAT AS order_budget,
+      c.order_start_date::DATE AS order_start_date,
+      c.order_end_date::DATE AS order_end_date,
+      c.total_purchases::FLOAT AS total_purchases,
+      (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.dsp_campaign_report c
+    LEFT JOIN (
+      SELECT client_id, order_id, date, SUM(total_cost) AS total_cost
+      FROM CALBRIDGE_PROD.APP.dsp_line_item_report
+      GROUP BY client_id, order_id, date
+    ) l ON l.client_id = c.client_id AND l.order_id = c.order_id AND l.date = c.date
 
     UNION ALL
 
-    -- DSP flight-grain (Calbridge-managed profile): has spend, different profile_id from above
-    -- dsp_line_item_report keyed on (client_id, profile_id, date, order_name) — no duplicates
-    SELECT client_id, profile_id,
-      order_id AS campaign_id, order_name AS campaign_name,
+    -- DSP line-item rows whose order_id does NOT appear in dsp_campaign_report on that date
+    -- (ensures new Calbridge-managed orders with no campaign-report row are still captured)
+    SELECT
+      l.client_id, l.profile_id,
+      l.order_id AS campaign_id, l.order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
-      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, date,
-      total_cost AS spend, impressions, clicks,
-      COALESCE(total_sales, sales) AS sales,
-      COALESCE(total_purchases, purchases) AS orders,
+      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, l.date,
+      l.total_cost AS spend, l.impressions, l.clicks,
+      COALESCE(l.total_sales, l.sales) AS sales,
+      COALESCE(l.total_purchases, l.purchases) AS orders,
       NULL::FLOAT AS units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
       NULL::FLOAT AS top_of_search_impression_share,
-      new_to_brand_purchases::FLOAT, new_to_brand_product_sales AS new_to_brand_sales,
-      NULL::FLOAT AS new_to_brand_units_sold, detail_page_views::FLOAT,
-      add_to_cart::FLOAT, NULL::FLOAT AS viewability_rate, NULL::FLOAT AS roas_direct,
-      video_ad_complete::FLOAT, video_ad_start::FLOAT,
-      viewable_impressions::FLOAT,
+      l.new_to_brand_purchases::FLOAT, l.new_to_brand_product_sales AS new_to_brand_sales,
+      NULL::FLOAT AS new_to_brand_units_sold, l.detail_page_views::FLOAT,
+      l.add_to_cart::FLOAT, NULL::FLOAT AS viewability_rate, NULL::FLOAT AS roas_direct,
+      l.video_ad_complete::FLOAT, l.video_ad_start::FLOAT,
+      l.viewable_impressions::FLOAT,
       NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
-      total_purchases::FLOAT AS total_purchases,
-      (detail_page_views / NULLIF(impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.APP.dsp_line_item_report
+      l.total_purchases::FLOAT AS total_purchases,
+      (l.detail_page_views / NULLIF(l.impressions, 0))::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.dsp_line_item_report l
+    WHERE NOT EXISTS (
+      SELECT 1 FROM CALBRIDGE_PROD.APP.dsp_campaign_report c2
+      WHERE c2.client_id = l.client_id AND c2.order_id = l.order_id AND c2.date = l.date
+    )
   `);
 
   // adjusted_campaign_performance
