@@ -39,6 +39,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('send-invite-btn').addEventListener('click', sendInvite);
   document.getElementById('add-admin-btn')?.addEventListener('click', addAdminUser);
 
+  // Flush Cache button
+  document.getElementById('flush-cache-btn')?.addEventListener('click', async () => {
+    const btn    = document.getElementById('flush-cache-btn');
+    const status = document.getElementById('flush-cache-status');
+    btn.disabled = true; btn.textContent = '⏳ Flushing...';
+    try {
+      const res  = await adminFetch('/admin/cache/flush', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) { status.textContent = `✅ Cleared ${data.entriesRemoved} cache entries`; status.style.color = 'var(--success)'; }
+      else        { status.textContent = `❌ ${data.error || 'Failed'}`; status.style.color = 'var(--danger)'; }
+    } catch { status.textContent = '❌ Request failed'; status.style.color = 'var(--danger)'; }
+    finally  { btn.disabled = false; btn.textContent = '🔄 Flush Cache'; setTimeout(() => { status.textContent = ''; }, 5000); }
+  });
+
   // Weekly Reports button
   document.getElementById('send-weekly-reports-btn')?.addEventListener('click', async () => {
     const btn    = document.getElementById('send-weekly-reports-btn');

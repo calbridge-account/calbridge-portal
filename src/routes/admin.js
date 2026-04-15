@@ -6,6 +6,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../services/snowflakeService');
+const { invalidateClient, stats: cacheStats } = require('../services/queryCache');
 const { Resend } = require('resend');
 const { sendWeeklyReportsToAll } = require('../jobs/weeklyEmailScheduler');
 const { generateAndSend } = require('../services/weeklyReport');
@@ -795,6 +796,38 @@ router.patch('/accounts/:accountId/retire', requireAdmin, async (req, res, next)
     `, [accountId]);
     res.json({ ok: true, accountId });
   } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/cache/flush?clientId=xxx
+ * Flush the in-memory query cache for a specific client (or all clients if no clientId).
+ * Useful after manual data fixes or view changes without restarting the app.
+ */
+router.post('/cache/flush', requireAdmin, (req, res) => {
+  const { clientId } = req.query;
+  const before = cacheStats().size;
+  if (clientId) {
+    invalidateClient(clientId);
+    const after = cacheStats().size;
+    console.log(`[cache] Flushed client ${clientId}: ${before - after} entries removed`);
+    res.json({ ok: true, clientId, entriesRemoved: before - after, remaining: after });
+  } else {
+    // Flush all — import the cache map directly via stats keys
+    const { invalidate } = require('../services/queryCache');
+    const keys = cacheStats().keys;
+    keys.forEach(k => invalidate(k));
+    const after = cacheStats().size;
+    console.log(`[cache] Flushed ALL cache: ${before - after} entries removed`);
+    res.json({ ok: true, clientId: 'ALL', entriesRemoved: before - after, remaining: after });
+  }
+});
+
+/**
+ * GET /admin/cache/stats
+ * Return current cache size and keys (for debugging).
+ */
+router.get('/cache/stats', requireAdmin, (req, res) => {
+  res.json(cacheStats());
 });
 
 module.exports = router;
