@@ -73,21 +73,37 @@ async function main() {
 
     UNION ALL
 
-    -- DSP: merge campaign-report (attribution source of truth) with line-item-report (spend source of truth)
-    -- Previously both were UNIONed separately, double-counting spend for orders that appear in both tables.
-    -- Fix: LEFT JOIN dsp_line_item_report spend onto dsp_campaign_report rows.
-    --   - If the order exists in dsp_line_item_report on the same date → use line-item spend (Calbridge-managed)
-    --   - Otherwise → fall back to dsp_campaign_report spend (SparkX/legacy orders)
-    -- Attribution columns (sales, DPVs, NTB, viewability) always come from dsp_campaign_report.
+    -- DSP: merge campaign-report (attribution metadata) and line-item-report (spend + better sales for SparkX).
+    -- Rule:
+    --   SPEND  : use line-item when available for that date, else campaign-report
+    --   SALES  : use line-item when line-item has spend=0 AND li_sales > cr_sales for that date
+    --            (SparkX orders: spend migrated to Calbridge profile, attribution still in SparkX profile
+    --             line-item; campaign-report has partial attribution for same order_id)
+    --            Otherwise use campaign-report sales (Calbridge-managed orders have sales only there)
+    --   Other  : DPVs, NTB, viewability, order metadata always from campaign-report
     SELECT
       c.client_id, c.profile_id,
       c.order_id AS campaign_id, c.order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
       NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, c.date,
-      COALESCE(l.total_cost, c.total_cost) AS spend,
+      -- Spend: line-item when available (grouped to order+date), else campaign-report
+      COALESCE(ld.total_cost, c.total_cost) AS spend,
       c.impressions, c.clicks,
-      COALESCE(c.total_sales, c.sales) AS sales,
-      COALESCE(c.total_purchases, c.purchases) AS orders,
+      -- Sales: if line-item has higher sales on this date AND line-item spend is effectively zero
+      -- (SparkX: spend migrated away but attribution still flows through SparkX profile),
+      -- prefer line-item sales. Otherwise use campaign-report.
+      CASE
+        WHEN COALESCE(ld.li_sales, 0) > COALESCE(c.total_sales, c.sales, 0)
+          AND COALESCE(ld.total_cost, 0) < 0.01
+          THEN ld.li_sales
+        ELSE COALESCE(c.total_sales, c.sales, 0)
+      END AS sales,
+      CASE
+        WHEN COALESCE(ld.li_purchases, 0) > COALESCE(c.total_purchases, c.purchases, 0)
+          AND COALESCE(ld.total_cost, 0) < 0.01
+          THEN ld.li_purchases
+        ELSE COALESCE(c.total_purchases, c.purchases, 0)
+      END AS orders,
       NULL::FLOAT AS units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
       NULL::FLOAT AS top_of_search_impression_share,
@@ -103,23 +119,26 @@ async function main() {
       (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.dsp_campaign_report c
     LEFT JOIN (
-      SELECT client_id, order_id, date, SUM(total_cost) AS total_cost
+      SELECT client_id, order_id, date,
+        SUM(total_cost)                                  AS total_cost,
+        SUM(COALESCE(total_sales, sales, 0))             AS li_sales,
+        SUM(COALESCE(total_purchases, purchases, 0))     AS li_purchases
       FROM CALBRIDGE_PROD.APP.dsp_line_item_report
       GROUP BY client_id, order_id, date
-    ) l ON l.client_id = c.client_id AND l.order_id = c.order_id AND l.date = c.date
+    ) ld ON ld.client_id = c.client_id AND ld.order_id = c.order_id AND ld.date = c.date
 
     UNION ALL
 
-    -- DSP line-item rows whose order_id does NOT appear in dsp_campaign_report on that date
-    -- (ensures new Calbridge-managed orders with no campaign-report row are still captured)
+    -- Line-item-only orders: in dsp_line_item_report but NOT in dsp_campaign_report at all.
+    -- Covers new Calbridge-managed orders not yet present in campaign-report.
     SELECT
       l.client_id, l.profile_id,
       l.order_id AS campaign_id, l.order_name AS campaign_name,
       'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
       NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, l.date,
       l.total_cost AS spend, l.impressions, l.clicks,
-      COALESCE(l.total_sales, l.sales) AS sales,
-      COALESCE(l.total_purchases, l.purchases) AS orders,
+      COALESCE(l.total_sales, l.sales, 0) AS sales,
+      COALESCE(l.total_purchases, l.purchases, 0) AS orders,
       NULL::FLOAT AS units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
       NULL::FLOAT AS top_of_search_impression_share,
@@ -134,7 +153,7 @@ async function main() {
     FROM CALBRIDGE_PROD.APP.dsp_line_item_report l
     WHERE NOT EXISTS (
       SELECT 1 FROM CALBRIDGE_PROD.APP.dsp_campaign_report c2
-      WHERE c2.client_id = l.client_id AND c2.order_id = l.order_id AND c2.date = l.date
+      WHERE c2.client_id = l.client_id AND c2.order_id = l.order_id
     )
   `);
 
