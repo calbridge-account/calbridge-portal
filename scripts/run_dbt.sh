@@ -7,7 +7,7 @@ set -euo pipefail
 
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DBT_DIR="$WORKSPACE_DIR/calbridge_dbt"
-LOG_FILE="/var/log/calbridge-dbt.log"
+LOG_FILE="/home/azureuser/.openclaw/workspace/logs/dbt.log"
 
 echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Starting dbt run..." | tee -a "$LOG_FILE"
 
