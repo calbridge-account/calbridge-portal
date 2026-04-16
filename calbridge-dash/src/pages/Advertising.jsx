@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useAdvertising, useAsinPerformance, useAdvertisingTrend } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
+import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
@@ -25,6 +26,13 @@ const CHANNELS = [
 ];
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
+function makeFmtCurrency(currency = 'USD') {
+  return function fmtCurrency(n) {
+    if (n == null || isNaN(n)) return '—';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+  };
+}
+// Default USD formatter (used outside component scope e.g. Recharts tooltip)
 function fmtCurrency(n) {
   if (n == null || isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -44,7 +52,7 @@ function fmtX(n) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 // ─── Ad Type Breakdown Card ──────────────────────────────────────────────────
-function AdTypeCard({ type, metrics, muted, loading }) {
+function AdTypeCard({ type, metrics, muted, loading, fmtC = fmtCurrency }) {
   const colorMap = {
     sp:  { border: 'border-t-blue-500',   badge: 'bg-blue-100 text-blue-700' },
     sb:  { border: 'border-t-green-500',  badge: 'bg-green-100 text-green-700' },
@@ -53,8 +61,8 @@ function AdTypeCard({ type, metrics, muted, loading }) {
   };
   const colors = colorMap[type.key] || colorMap.sp;
 
-  const spend = muted ? '—' : fmtCurrency(metrics?.spend);
-  const sales = muted ? '—' : fmtCurrency(metrics?.sales);
+  const spend = muted ? '—' : fmtC(metrics?.spend);
+  const sales = muted ? '—' : fmtC(metrics?.sales);
   const roas  = muted ? '—' : fmtX(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null));
   const acos  = muted ? '—' : (type.key === 'dsp' ? null : fmtPct(metrics?.acos));
 
@@ -99,9 +107,9 @@ function AdTypeCard({ type, metrics, muted, loading }) {
   );
 }
 
-function MetricCard({ title, value, format = 'currency', sub, highlight, loading }) {
+function MetricCard({ title, value, format = 'currency', sub, highlight, loading, fmtC = fmtCurrency }) {
   if (loading) return <SkeletonCard />;
-  const formatted = format === 'currency' ? fmtCurrency(value)
+  const formatted = format === 'currency' ? fmtC(value)
     : format === 'percent' ? fmtPct(value)
     : format === 'roas' ? fmtX(value)
     : format === 'number' ? fmtNum(value)
@@ -115,7 +123,7 @@ function MetricCard({ title, value, format = 'currency', sub, highlight, loading
   );
 }
 
-function AsinTable({ asins, loading }) {
+function AsinTable({ asins, loading, fmtC = fmtCurrency }) {
   if (loading) return <SkeletonTable />;
   if (!asins?.length) return <div className="text-gray-400 text-sm text-center py-8">No ASIN data in this period</div>;
 
@@ -141,8 +149,8 @@ function AsinTable({ asins, loading }) {
               <tr key={a.asin} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                 <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{a.asin}</td>
                 <td className="py-2.5 px-3 text-gray-800 max-w-xs truncate font-medium" title={a.productTitle}>{a.productTitle}</td>
-                <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmtCurrency(a.spend)}</td>
-                <td className="py-2.5 px-3 text-right text-gray-700">{fmtCurrency(a.sales)}</td>
+                <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmtC(a.spend)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-700">{fmtC(a.sales)}</td>
                 <td className={`py-2.5 px-3 text-right font-medium ${acosColor}`}>{fmtPct(a.acos)}</td>
                 <td className="py-2.5 px-3 text-right text-gray-700">{fmtX(a.roas)}</td>
                 <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(a.clicks)}</td>
@@ -173,6 +181,9 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name })
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Advertising() {
   const { range } = useDateRange();
+  const { activeMarketplace } = useMarketplace() ?? { activeMarketplace: 'US' };
+  const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
+  const fmt$ = makeFmtCurrency(currency);
   const [activeChannel, setActiveChannel] = useState('all');
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
@@ -255,8 +266,8 @@ export default function Advertising() {
 
       {/* Combined KPI cards — row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-        <MetricCard title="Total Spend" value={combined.totalSpend} format="currency" highlight loading={isLoading} />
-        <MetricCard title="Total Sales (attributed)" value={combined.totalSales} format="currency" loading={isLoading} />
+        <MetricCard title="Total Spend" value={combined.totalSpend} format="currency" highlight loading={isLoading} fmtC={fmt$} />
+        <MetricCard title="Total Sales (attributed)" value={combined.totalSales} format="currency" loading={isLoading} fmtC={fmt$} />
         <MetricCard title="Blended ACoS" value={combined.acos} format="percent" sub={activeChannel === "all" ? "Across all ad types" : activeChannel === "ads" ? "Sponsored Ads only" : "DSP only"} loading={isLoading} />
         <MetricCard title="Blended ROAS" value={combined.roas} format="roas" sub={activeChannel === "all" ? "Total sales / total spend" : activeChannel === "ads" ? "Sponsored Ads ROAS" : "DSP ROAS"} loading={isLoading} />
       </div>
@@ -283,6 +294,7 @@ export default function Advertising() {
               metrics={byType[type.key]}
               muted={muted}
               loading={isLoading}
+              fmtC={fmt$}
             />
           );
         })}
@@ -372,7 +384,7 @@ export default function Advertising() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value, name) => [fmtCurrency(value), name]}
+                    formatter={(value, name) => [fmt$(value), name]}
                     labelFormatter={() => ''}
                   />
                 </PieChart>
@@ -388,7 +400,7 @@ export default function Advertising() {
                         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: type.color }} />
                         <span className="text-gray-600">{type.abbr}</span>
                       </div>
-                      <span className="text-gray-500">{fmtCurrency(spend)} <span className="text-gray-400">({pct}%)</span></span>
+                      <span className="text-gray-500">{fmt$(spend)} <span className="text-gray-400">({pct}%)</span></span>
                     </div>
                   );
                 })}
@@ -415,7 +427,7 @@ export default function Advertising() {
             sorted by spend — {activeChannel === 'all' ? 'all channels' : activeChannelInfo?.label}
           </span>
         </h3>
-        <AsinTable
+        <AsinTable fmtC={fmt$}
           asins={tableAsins}
           loading={asinLoading}
         />

@@ -1,11 +1,12 @@
 -- Pre-aggregated daily advertising metrics per client
 -- Replaces the hot path in /advertising/summary
-{{ config(materialized='incremental', unique_key=['client_id', 'date', 'ad_type']) }}
+{{ config(materialized='incremental', unique_key=['client_id', 'date', 'ad_type', 'marketplace']) }}
 
 SELECT
   client_id,
   date,
   ad_type,
+  COALESCE(marketplace, 'US') AS marketplace,
   COUNT(DISTINCT campaign_id)     AS active_campaigns,
   SUM(adjusted_spend)             AS spend,
   SUM(sales)                      AS sales,
@@ -19,4 +20,4 @@ FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
 {% if is_incremental() %}
   WHERE date >= (SELECT MAX(date) - 3 FROM {{ this }})  -- reprocess last 3 days for settlement
 {% endif %}
-GROUP BY client_id, date, ad_type
+GROUP BY client_id, date, ad_type, COALESCE(marketplace, 'US')

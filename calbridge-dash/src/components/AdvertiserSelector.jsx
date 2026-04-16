@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAdvertiser } from '../context/AdvertiserContext';
-import { useMarketplace } from '../context/MarketplaceContext';
 
 // Flag emoji map for known marketplaces
 const MARKETPLACE_FLAGS = {
@@ -19,37 +18,8 @@ const MARKETPLACE_FLAGS = {
   BR: '🇧🇷',
 };
 
-function MarketplaceSelector() {
-  const { marketplaces, activeMarketplace, loading, switchMarketplace } = useMarketplace() ?? {};
-
-  // Hidden when 0 or 1 marketplace (all clients are US-only currently)
-  if (loading || !marketplaces || marketplaces.length <= 1) return null;
-
-  function handleChange(e) {
-    const val = e.target.value;
-    if (val !== activeMarketplace) {
-      switchMarketplace(val);
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-1 text-sm">
-      <select
-        value={activeMarketplace}
-        onChange={handleChange}
-        className="text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 cursor-pointer hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-green-600 transition-colors"
-        aria-label="Select marketplace"
-      >
-        <option value="all">🌐 All</option>
-        {marketplaces.map(m => (
-          <option key={m} value={m}>
-            {(MARKETPLACE_FLAGS[m] ?? '🏳️') + ' ' + m}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
+// MarketplaceSelector removed — marketplace is now selected via the account dropdown
+// (e.g. "CyberPower US" vs "CyberPower CA") rather than a separate sub-dropdown.
 
 /**
  * AdvertiserSelector
@@ -102,7 +72,6 @@ export default function AdvertiserSelector() {
             {a.marketplace}
           </span>
         )}
-        <MarketplaceSelector />
       </div>
     );
   }
@@ -200,8 +169,6 @@ export default function AdvertiserSelector() {
           ))}
         </div>
       )}
-      {/* Geo/marketplace selector — hidden when single marketplace */}
-      <MarketplaceSelector />
     </div>
   );
 }

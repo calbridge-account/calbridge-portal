@@ -1765,7 +1765,11 @@ async function loadDspOrderIdCache() {
   if (_dspOrderIdCacheLoaded) return;
   try {
     const rows = await query(`
-      SELECT client_id, order_name, MIN(order_id) AS canonical_order_id
+      SELECT client_id, order_name,
+        -- MAX(order_id) as canonical: safeParse stores full-precision IDs as strings.
+        -- A correct string like '577121841661811234' sorts higher than a truncated
+        -- variant '577121841661811200', so MAX picks the most-precise ID seen.
+        MAX(order_id) AS canonical_order_id
       FROM CALBRIDGE_PROD.APP.dsp_campaign_report
       WHERE order_name IS NOT NULL AND order_name != ''
       GROUP BY client_id, order_name

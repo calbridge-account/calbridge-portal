@@ -22,7 +22,9 @@ async function main() {
   await run('CALBRIDGE_PROD.APP.CAMPAIGN_PERFORMANCE', `
     CREATE OR REPLACE VIEW CALBRIDGE_PROD.APP.CAMPAIGN_PERFORMANCE AS
     SELECT client_id, profile_id, campaign_id, campaign_name, campaign_status,
-      campaign_budget_amount, campaign_budget_currency_code, 'SP' AS ad_type, date,
+      campaign_budget_amount, campaign_budget_currency_code,
+      CASE COALESCE(campaign_budget_currency_code,'USD') WHEN 'CAD' THEN 'CA' ELSE 'US' END AS marketplace,
+      'SP' AS ad_type, date,
       cost AS spend, impressions, clicks,
       sales_30_d AS sales, purchases_30_d AS orders, units_sold_clicks_30_d AS units_sold,
       sales_7_d, purchases_7_d AS orders_7d,
@@ -40,7 +42,9 @@ async function main() {
     UNION ALL
 
     SELECT client_id, profile_id, campaign_id, campaign_name, campaign_status,
-      campaign_budget_amount, campaign_budget_currency_code, 'SB' AS ad_type, report_date AS date,
+      campaign_budget_amount, campaign_budget_currency_code,
+      CASE COALESCE(campaign_budget_currency_code,'USD') WHEN 'CAD' THEN 'CA' ELSE 'US' END AS marketplace,
+      'SB' AS ad_type, report_date AS date,
       cost AS spend, impressions, clicks,
       sales AS sales, purchases AS orders, units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
@@ -57,7 +61,9 @@ async function main() {
     UNION ALL
 
     SELECT client_id, profile_id, campaign_id, campaign_name, campaign_status,
-      campaign_budget_amount, campaign_budget_currency_code, 'SD' AS ad_type, date,
+      campaign_budget_amount, campaign_budget_currency_code,
+      'US' AS marketplace,
+      'SD' AS ad_type, date,
       cost AS spend, impressions, clicks,
       sales, purchases AS orders, units_sold,
       NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
@@ -73,88 +79,89 @@ async function main() {
 
     UNION ALL
 
-    -- DSP: merge campaign-report (attribution metadata) and line-item-report (spend + better sales for SparkX).
-    -- Rule:
-    --   SPEND  : use line-item when available for that date, else campaign-report
-    --   SALES  : use line-item when line-item has spend=0 AND li_sales > cr_sales for that date
-    --            (SparkX orders: spend migrated to Calbridge profile, attribution still in SparkX profile
-    --             line-item; campaign-report has partial attribution for same order_id)
-    --            Otherwise use campaign-report sales (Calbridge-managed orders have sales only there)
-    --   Other  : DPVs, NTB, viewability, order metadata always from campaign-report
+    -- DSP: source sales_30d from RAW.AD_CAMPAIGN (accumulated, settlement-correct, all historical
+    -- windows) and join DSP_CAMPAIGN_REPORT for rich metadata (DPVs, NTB, viewability, order dates).
+    -- SPEND also comes from RAW.AD_CAMPAIGN (cost column) which is populated by stageRawData.
+    --
+    -- Why RAW.AD_CAMPAIGN for sales instead of DSP_CAMPAIGN_REPORT directly:
+    --   DSP_CAMPAIGN_REPORT only holds the most recently ingested window (~30 days back).
+    --   RAW.AD_CAMPAIGN is a MERGE-accumulation table — it retains the best (most recent) value
+    --   for every (client, campaign, date) tuple across all ingest runs, including historical
+    --   SparkX data that predates the current ingest window.
+    --   stageRawData maps DSP_CAMPAIGN_REPORT.total_sales → RAW.AD_CAMPAIGN.sales_30d, so
+    --   sales_30d already equals total_sales (click + view-through attribution, the correct DSP metric).
     SELECT
-      c.client_id, c.profile_id,
-      c.order_id AS campaign_id, c.order_name AS campaign_name,
-      'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
-      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, c.date,
-      -- Spend: line-item when available (grouped to order+date), else campaign-report
-      COALESCE(ld.total_cost, c.total_cost) AS spend,
-      c.impressions, c.clicks,
-      -- Sales: if line-item has higher sales on this date AND line-item spend is effectively zero
-      -- (SparkX: spend migrated away but attribution still flows through SparkX profile),
-      -- prefer line-item sales. Otherwise use campaign-report.
-      CASE
-        WHEN COALESCE(ld.li_sales, 0) > COALESCE(c.total_sales, c.sales, 0)
-          AND COALESCE(ld.total_cost, 0) < 0.01
-          THEN ld.li_sales
-        ELSE COALESCE(c.total_sales, c.sales, 0)
-      END AS sales,
-      CASE
-        WHEN COALESCE(ld.li_purchases, 0) > COALESCE(c.total_purchases, c.purchases, 0)
-          AND COALESCE(ld.total_cost, 0) < 0.01
-          THEN ld.li_purchases
-        ELSE COALESCE(c.total_purchases, c.purchases, 0)
-      END AS orders,
-      NULL::FLOAT AS units_sold,
-      NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-      NULL::FLOAT AS top_of_search_impression_share,
-      c.new_to_brand_purchases::FLOAT, c.new_to_brand_product_sales AS new_to_brand_sales,
-      NULL::FLOAT AS new_to_brand_units_sold, c.detail_page_views::FLOAT,
-      c.add_to_cart::FLOAT, c.viewability_rate, NULL::FLOAT AS roas_direct,
-      c.video_ad_complete::FLOAT, c.video_ad_start::FLOAT,
-      c.viewable_impressions::FLOAT,
-      c.order_budget::FLOAT AS order_budget,
-      c.order_start_date::DATE AS order_start_date,
-      c.order_end_date::DATE AS order_end_date,
-      c.total_purchases::FLOAT AS total_purchases,
+      r.client_id,
+      NULL::VARCHAR                         AS profile_id,
+      r.campaign_id,
+      r.campaign_name,
+      'ACTIVE'                              AS campaign_status,
+      r.daily_budget                        AS campaign_budget_amount,
+      NULL::VARCHAR                         AS campaign_budget_currency_code,
+      'US'                                  AS marketplace,
+      'DSP'                                 AS ad_type,
+      r.date,
+      COALESCE(lir.lir_cost, r.cost)        AS spend,
+      r.impressions,
+      r.clicks,
+      r.sales_30d                           AS sales,
+      r.purchases_30d                       AS orders,
+      NULL::FLOAT                           AS units_sold,
+      NULL::FLOAT                           AS sales_7d,
+      NULL::FLOAT                           AS orders_7d,
+      NULL::FLOAT                           AS top_of_search_impression_share,
+      COALESCE(c.new_to_brand_purchases, 0)::FLOAT   AS new_to_brand_purchases,
+      COALESCE(c.new_to_brand_product_sales, 0)      AS new_to_brand_sales,
+      NULL::FLOAT                           AS new_to_brand_units_sold,
+      c.detail_page_views::FLOAT            AS detail_page_views,
+      c.add_to_cart::FLOAT                  AS add_to_cart,
+      c.viewability_rate                    AS viewability_rate,
+      NULL::FLOAT                           AS roas_direct,
+      c.video_ad_complete::FLOAT            AS video_ad_complete,
+      c.video_ad_start::FLOAT               AS video_ad_start,
+      c.viewable_impressions::FLOAT         AS viewable_impressions,
+      c.order_budget::FLOAT                 AS order_budget,
+      c.order_start_date::DATE              AS order_start_date,
+      c.order_end_date::DATE                AS order_end_date,
+      c.total_purchases::FLOAT              AS total_purchases,
       (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.APP.dsp_campaign_report c
+    -- RAW.AD_CAMPAIGN is keyed by (client_id, campaign_name, campaign_type, date).
+    -- SPEND: LIR (flight grain) when available, else RAW cost.
+    -- SALES: always from RAW.AD_CAMPAIGN.sales_30d.
+    FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
+    -- LIR: aggregate by (client_id, order_id, date) — order_id is a reliable string
+    -- from safeParse, so no truncation variants in production data.
     LEFT JOIN (
-      SELECT client_id, order_id, date,
-        SUM(total_cost)                                  AS total_cost,
-        SUM(COALESCE(total_sales, sales, 0))             AS li_sales,
-        SUM(COALESCE(total_purchases, purchases, 0))     AS li_purchases
+      SELECT client_id, order_id, date, SUM(total_cost) AS lir_cost
       FROM CALBRIDGE_PROD.APP.dsp_line_item_report
       GROUP BY client_id, order_id, date
-    ) ld ON ld.client_id = c.client_id AND ld.order_id = c.order_id AND ld.date = c.date
-
-    UNION ALL
-
-    -- Line-item-only orders: in dsp_line_item_report but NOT in dsp_campaign_report at all.
-    -- Covers new Calbridge-managed orders not yet present in campaign-report.
-    SELECT
-      l.client_id, l.profile_id,
-      l.order_id AS campaign_id, l.order_name AS campaign_name,
-      'ACTIVE' AS campaign_status, NULL::FLOAT AS campaign_budget_amount,
-      NULL::VARCHAR AS campaign_budget_currency_code, 'DSP' AS ad_type, l.date,
-      l.total_cost AS spend, l.impressions, l.clicks,
-      COALESCE(l.total_sales, l.sales, 0) AS sales,
-      COALESCE(l.total_purchases, l.purchases, 0) AS orders,
-      NULL::FLOAT AS units_sold,
-      NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-      NULL::FLOAT AS top_of_search_impression_share,
-      l.new_to_brand_purchases::FLOAT, l.new_to_brand_product_sales AS new_to_brand_sales,
-      NULL::FLOAT AS new_to_brand_units_sold, l.detail_page_views::FLOAT,
-      l.add_to_cart::FLOAT, NULL::FLOAT AS viewability_rate, NULL::FLOAT AS roas_direct,
-      l.video_ad_complete::FLOAT, l.video_ad_start::FLOAT,
-      l.viewable_impressions::FLOAT,
-      NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
-      l.total_purchases::FLOAT AS total_purchases,
-      (l.detail_page_views / NULLIF(l.impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.APP.dsp_line_item_report l
-    WHERE NOT EXISTS (
-      SELECT 1 FROM CALBRIDGE_PROD.APP.dsp_campaign_report c2
-      WHERE c2.client_id = l.client_id AND c2.order_id = l.order_id
-    )
+    ) lir ON lir.client_id = r.client_id
+          AND lir.order_id  = r.campaign_id
+          AND lir.date      = r.date
+    -- DCR: aggregate by (client_id, order_id, date) for metadata (DPVs, NTB etc.)
+    LEFT JOIN (
+      SELECT
+        client_id, order_id, date,
+        MAX(total_purchases)              AS total_purchases,
+        MAX(detail_page_views)            AS detail_page_views,
+        MAX(add_to_cart)                  AS add_to_cart,
+        MAX(viewability_rate)             AS viewability_rate,
+        MAX(video_ad_complete)            AS video_ad_complete,
+        MAX(video_ad_start)               AS video_ad_start,
+        MAX(viewable_impressions)         AS viewable_impressions,
+        MAX(order_budget)                 AS order_budget,
+        MAX(order_start_date)             AS order_start_date,
+        MAX(order_end_date)               AS order_end_date,
+        MAX(new_to_brand_purchases)       AS new_to_brand_purchases,
+        MAX(new_to_brand_product_sales)   AS new_to_brand_product_sales,
+        MAX(impressions)                  AS impressions
+      FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+      GROUP BY client_id, order_id, date
+    ) c
+      ON  c.client_id = r.client_id
+      AND c.order_id  = r.campaign_id
+      AND c.date      = r.date
+    WHERE r.campaign_type = 'DSP'
   `);
 
   // adjusted_campaign_performance

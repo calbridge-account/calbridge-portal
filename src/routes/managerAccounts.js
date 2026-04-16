@@ -120,6 +120,11 @@ router.get('/advertisers/list', async (req, res) => {
     const requestedAdvertiserId = req.query.advertiserId || null;
     if (requestedAdvertiserId) {
       req.session.activeAdvertiserId = requestedAdvertiserId;
+      // Handle marketplace-based advertiser IDs: clientId__CA → set activeMarketplace
+      if (requestedAdvertiserId.includes('__')) {
+        const mp = requestedAdvertiserId.split('__')[1];
+        if (mp) req.session.activeMarketplace = mp;
+      }
     }
 
     // Resolve agency/manager context from migration map
@@ -222,21 +227,41 @@ router.get('/advertisers/list', async (req, res) => {
       }
     }
 
-    // ── Fallback: return the current client as a single-entry list ─────────────
+    // ── Fallback: return one entry per marketplace from client_accounts ──────────
+    // This allows clients like CyberPower to appear as "CyberPower US" and "CyberPower CA"
+    // as separate selectable accounts in the dropdown.
     const fallback = await query(
       'SELECT client_id, name, marketplace FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
       [clientId]
     );
     if (fallback.length) {
-      return res.json([{
-        advertiserId:   fallback[0].CLIENT_ID,
-        advertiserName: fallback[0].NAME,
-        managerName:    fallback[0].NAME,
-        managerId:      fallback[0].CLIENT_ID,
-        marketplace:    fallback[0].MARKETPLACE || 'US',
+      const clientName = fallback[0].NAME;
+      // Get distinct marketplaces from client_accounts
+      let marketplaces = [];
+      try {
+        const mpRows = await query(
+          `SELECT DISTINCT marketplace FROM CALBRIDGE_PROD.APP.client_accounts
+           WHERE client_id = ? AND is_active = TRUE AND marketplace IS NOT NULL
+           ORDER BY marketplace`,
+          [clientId]
+        );
+        marketplaces = mpRows.map(r => r.MARKETPLACE || r.marketplace).filter(Boolean);
+      } catch (e) { /* non-fatal */ }
+      if (!marketplaces.length) marketplaces = ['US'];
+
+      const activeMarketplace = req.session.activeMarketplace || marketplaces[0] || 'US';
+
+      const result = marketplaces.map(mp => ({
+        advertiserId:   `${clientId}__${mp}`,
+        advertiserName: `${clientName} ${mp}`,
+        managerName:    clientName,
+        managerId:      clientId,
+        marketplace:    mp,
         isActive:       true,
-        isCurrent:      true,
-      }]);
+        isCurrent:      mp === activeMarketplace,
+      }));
+      if (!result.some(a => a.isCurrent)) result[0].isCurrent = true;
+      return res.json(result);
     }
 
     // Nothing found at all
@@ -320,7 +345,24 @@ router.get('/active-advertiser', async (req, res) => {
       }
     }
 
-    // Fallback: no active advertiser (agency "all" view or unresolved)
+    // Fallback: return client name + active marketplace (same logic as advertisers/list fallback)
+    const fallback = await query(
+      'SELECT client_id, name FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+      [clientId]
+    ).catch(() => []);
+    if (fallback.length) {
+      const activeMarketplace = req.session.activeMarketplace || 'US';
+      const clientName = fallback[0].NAME;
+      return res.json({
+        advertiserId:   `${clientId}__${activeMarketplace}`,
+        advertiserName: `${clientName} ${activeMarketplace}`,
+        managerName:    clientName,
+        managerId:      clientId,
+        marketplace:    activeMarketplace,
+        logoUrl:        null,
+      });
+    }
+
     return res.json({
       advertiserId:   null,
       advertiserName: null,

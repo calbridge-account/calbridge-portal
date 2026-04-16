@@ -351,6 +351,9 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
     const r = await query(`
       MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
       USING (
+        -- order_id is stored as a string from safeParse (json-bigint), preserving full
+        -- 64-bit precision. One row per (client_id, order_id, date) in DSP_CAMPAIGN_REPORT
+        -- since the MERGE key there is (client_id, profile_id, date, order_name).
         SELECT
           client_id,
           'amazon'                            AS platform,
@@ -396,7 +399,7 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
       AND tgt.campaign_id = src.campaign_id
       AND tgt.ad_product  = src.ad_product
       AND tgt.date        = src.date
-      WHEN MATCHED AND tgt.ingested_at < src.ingested_at THEN UPDATE SET
+      WHEN MATCHED AND (tgt.sales_30d IS NULL OR src.sales_30d > tgt.sales_30d OR tgt.ingested_at < src.ingested_at) THEN UPDATE SET
         ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
         data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
         campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,

@@ -33,10 +33,11 @@ function marketplaceFilter(marketplace) {
  * Returns empty string — used for adjusted_campaign_performance and other pre-aggregated views
  * that don't carry a marketplace column.
  */
-function marketplaceFilterSafe(_marketplace) {
-  // adjusted_campaign_performance / campaign_performance have no marketplace column.
-  // All data is effectively US-only at this stage. Return no filter.
-  return '';
+function marketplaceFilterSafe(marketplace) {
+  // adjusted_campaign_performance / campaign_performance now carry a marketplace column.
+  // Filter to the requested marketplace; default to US if none specified.
+  const mp = marketplace && marketplace !== 'all' ? marketplace : 'US';
+  return `AND COALESCE(marketplace, 'US') = '${mp}'`;
 }
 
 /**
@@ -179,6 +180,7 @@ router.get('/', requireAuth, async (req, res, next) => {
           CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
         FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
         WHERE client_id = ?
+          AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
           ${channelFilter(channel, null)}
       `, [clientId]),
@@ -195,6 +197,7 @@ router.get('/', requireAuth, async (req, res, next) => {
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
         FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
         WHERE client_id = ?
+          AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
         GROUP BY ad_type
         ORDER BY spend DESC
@@ -307,6 +310,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
       FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
       WHERE client_id = ?
+        AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
         ${summaryMartDateFilter()}
         ${channelFilter(channel, adType)}
     `, [clientId]));
