@@ -66,6 +66,12 @@ export const getAdvertisingTrend  = (range, channel, marketplace) => {
   return fetchAdvertisingJSON(`/advertising/trend${rangeParams(range)}${channelParam}${mp}`);
 };
 
+export const getAdvertisingCampaigns = (range, channel, marketplace) => {
+  const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return fetchAdvertisingJSON(`/advertising/campaigns${rangeParams(range)}${channelParam}${mp}&limit=500`);
+};
+
 export const getAdvertising       = (range, channel, marketplace) => {
   const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
   const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';

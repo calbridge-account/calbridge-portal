@@ -10,6 +10,7 @@ import {
   getPoSummary,
   getAdvertising,
   getAdvertisingTrend,
+  getAdvertisingCampaigns,
   getForecasting,
   getForecastShift,
   getAnnualProjection,
@@ -216,6 +217,16 @@ export function useAsinPerformance(range, channel) {
   return useQuery({
     queryKey: ['asin-performance', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAsinPerformance(range, channel, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useAdvertisingCampaigns(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['advertising-campaigns', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getAdvertisingCampaigns(range, channel, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
