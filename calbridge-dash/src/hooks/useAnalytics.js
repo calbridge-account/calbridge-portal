@@ -11,6 +11,7 @@ import {
   getAdvertising,
   getAdvertisingTrend,
   getAdvertisingCampaigns,
+  getSbVideo,
   getForecasting,
   getForecastShift,
   getAnnualProjection,
@@ -227,6 +228,16 @@ export function useAdvertisingCampaigns(range, channel) {
   return useQuery({
     queryKey: ['advertising-campaigns', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertisingCampaigns(range, channel, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useSbVideo(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['sb-video', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getSbVideo(range, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });

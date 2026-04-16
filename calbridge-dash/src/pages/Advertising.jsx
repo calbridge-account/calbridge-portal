@@ -5,7 +5,7 @@ import {
   ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
 import { useState as useStateTab } from 'react';
-import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useAdvertisingCampaigns } from '../hooks/useAnalytics';
+import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useAdvertisingCampaigns, useSbVideo } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
@@ -299,6 +299,7 @@ export default function Advertising() {
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);
   const { data: campaignData, isLoading: campaignLoading } = useAdvertisingCampaigns(range, activeChannel);
+  const { data: sbVideo, isLoading: sbVideoLoading } = useSbVideo(range);
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
@@ -546,6 +547,35 @@ export default function Advertising() {
           )}
         </div>
       </div>
+
+      {/* SB Video Metrics */}
+      {(activeChannel === 'all' || activeChannel === 'ads') && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">
+            Sponsored Brands — Video Performance
+            <span className="ml-2 text-xs font-normal text-gray-400">view-through funnel</span>
+          </h3>
+          {sbVideoLoading ? <SkeletonCard /> : sbVideo && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
+              {[
+                { label: 'Viewable Impr.', value: fmtNum(sbVideo.viewableImpressions), sub: null },
+                { label: '5s Views',       value: fmtNum(sbVideo.v5s),   sub: sbVideo.v5sRate != null ? (sbVideo.v5sRate * 100).toFixed(1) + '% of impr.' : null },
+                { label: '25% Watched',    value: fmtNum(sbVideo.v25),   sub: sbVideo.v5s > 0 ? ((sbVideo.v25 / sbVideo.v5s) * 100).toFixed(0) + '% of 5s' : null },
+                { label: '50% Watched',    value: fmtNum(sbVideo.v50),   sub: sbVideo.v5s > 0 ? ((sbVideo.v50 / sbVideo.v5s) * 100).toFixed(0) + '% of 5s' : null },
+                { label: '75% Watched',    value: fmtNum(sbVideo.v75),   sub: sbVideo.v5s > 0 ? ((sbVideo.v75 / sbVideo.v5s) * 100).toFixed(0) + '% of 5s' : null },
+                { label: 'Completions',    value: fmtNum(sbVideo.v100),  sub: sbVideo.completionRate != null ? (sbVideo.completionRate * 100).toFixed(1) + '% completion' : null },
+                { label: 'Unmutes',        value: fmtNum(sbVideo.unmutes), sub: null },
+              ].map(m => (
+                <div key={m.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500 mb-1">{m.label}</div>
+                  <div className="text-lg font-bold text-gray-900">{m.value}</div>
+                  {m.sub && <div className="text-xs text-gray-400 mt-0.5">{m.sub}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* DSP attribution note */}
       {activeChannel === 'dsp' && (

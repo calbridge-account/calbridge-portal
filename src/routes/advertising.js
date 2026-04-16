@@ -893,6 +893,55 @@ router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
 });
 
 /**
+ /**
+ * GET /advertising/sb-video?days=30
+ * Sponsored Brands video metrics: 5s views, quartiles, completions, viewability
+ */
+router.get('/sb-video', requireAuth, async (req, res, next) => {
+  try {
+    const { days, startDate, endDate } = parseRange(req);
+    const clientId   = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
+    const ck = cacheKey(clientId, 'sb-video', days, startDate, endDate, marketplace);
+    const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
+      SELECT
+        SUM(impressions)                   AS total_impressions,
+        SUM(viewable_impressions)          AS viewable_impressions,
+        SUM(video_5_second_views)          AS v5s,
+        SUM(video_first_quartile_views)    AS v25,
+        SUM(video_midpoint_views)          AS v50,
+        SUM(video_third_quartile_views)    AS v75,
+        SUM(video_complete_views)          AS v100,
+        SUM(video_unmutes)                 AS unmutes,
+        CASE WHEN SUM(impressions) > 0
+          THEN SUM(video_5_second_views)::FLOAT / SUM(impressions) ELSE NULL END AS v5s_rate,
+        CASE WHEN SUM(video_5_second_views) > 0
+          THEN SUM(video_complete_views)::FLOAT / SUM(video_5_second_views) ELSE NULL END AS completion_rate,
+        CASE WHEN SUM(viewable_impressions) > 0
+          THEN SUM(video_complete_views)::FLOAT / SUM(viewable_impressions) ELSE NULL END AS vcr
+      FROM CALBRIDGE_PROD.APP.sb_campaign_report
+      WHERE client_id = ?
+        AND COALESCE(campaign_budget_currency_code, 'USD') = '${(marketplace === 'CA' ? 'CAD' : 'USD')}'
+        ${dateFilter('report_date', days, startDate, endDate)}
+    `, [clientId]));
+    const s = rows[0] || {};
+    res.json({
+      totalImpressions:   Number(s.TOTAL_IMPRESSIONS   || 0),
+      viewableImpressions:Number(s.VIEWABLE_IMPRESSIONS || 0),
+      v5s:                Number(s.V5S  || 0),
+      v25:                Number(s.V25  || 0),
+      v50:                Number(s.V50  || 0),
+      v75:                Number(s.V75  || 0),
+      v100:               Number(s.V100 || 0),
+      unmutes:            Number(s.UNMUTES || 0),
+      v5sRate:            s.V5S_RATE         != null ? Number(s.V5S_RATE)         : null,
+      completionRate:     s.COMPLETION_RATE  != null ? Number(s.COMPLETION_RATE)  : null,
+      vcr:                s.VCR              != null ? Number(s.VCR)              : null,
+    });
+  } catch (err) { next(err); }
+});
+
+/**
  * GET /advertising/dsp-summary?days=30
  * DSP-specific KPIs: DPVs, NTB, viewability, video completions
  */
