@@ -118,6 +118,7 @@ const JOB_HANDLERS = {
   run_quality_checks:           () => stageRawData().runQualityChecks({ triggeredBy: 'cron' }),
   compute_freshness:            () => stageRawData().computeFreshness({ triggeredBy: 'cron' }),
   reconcile_missing_partitions: () => stageRawData().reconcileMissingPartitions({ triggeredBy: 'cron' }),
+  rebuild_mart:                 () => rebuildMart({ triggeredBy: 'cron' }),
 
   // ── Daily early ───────────────────────────────────────────────────────────
   build_canonical_models:    () => buildCanonical().buildCanonicalModels({ triggeredBy: 'cron' }),
@@ -289,6 +290,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'stage_raw_data',
     expr:  SCHEDULE_CRONS['hourly'],
+  },
+  {
+    jobId: 'rebuild_mart',
+    expr:  '5 * * * *',   // 5 min past each hour — after stage_raw_data completes
   },
   {
     jobId: 'run_quality_checks',
