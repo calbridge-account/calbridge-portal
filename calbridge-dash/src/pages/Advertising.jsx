@@ -294,7 +294,7 @@ export default function Advertising() {
   const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
   const fmt$ = makeFmtCurrency(currency);
   const [activeChannel, setActiveChannel] = useState('all');
-  const [bottomTab, setBottomTab] = useState('campaigns'); // 'campaigns' | 'asins'
+  const [pageTab, setPageTab] = useState('overview'); // 'overview' | 'campaigns' | 'products'
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);
@@ -344,6 +344,12 @@ export default function Advertising() {
     color: type.color,
   })).filter(d => d.value > 0);
 
+  const PAGE_TABS = [
+    { key: 'overview',   label: 'Overview'   },
+    { key: 'campaigns',  label: 'Campaigns'  },
+    { key: 'products',   label: 'Products'   },
+  ];
+
   return (
     <div>
       <PageHeader
@@ -353,7 +359,24 @@ export default function Advertising() {
 
       {isError && <ErrorState message={error?.message} />}
 
-      {/* Channel selector — sole filter for all page data */}
+      {/* Top-level page tabs */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200 pb-0">
+        {PAGE_TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setPageTab(tab.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              pageTab === tab.key
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Channel selector — shown on all tabs */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
         {CHANNELS.map(c => (
           <button
@@ -374,6 +397,9 @@ export default function Advertising() {
           </button>
         ))}
       </div>
+
+      {/* ── Overview Tab ─────────────────────────────────────────────── */}
+      {pageTab === 'overview' && <>
 
       {/* Combined KPI cards — row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
@@ -529,35 +555,22 @@ export default function Advertising() {
         </div>
       )}
 
-      {/* Campaign / ASIN drill-down */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        {/* Tab bar */}
-        <div className="flex items-center gap-1 mb-5 border-b border-gray-100 pb-3">
-          {[{key:'campaigns',label:'Campaigns'},{key:'asins',label:'By ASIN'}].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setBottomTab(tab.key)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                bottomTab === tab.key
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-gray-400">
-            {activeChannel === 'all' ? 'all channels' : activeChannelInfo?.label}
-          </span>
-        </div>
+      </> /* end overview tab */}
 
-        {bottomTab === 'campaigns' && (
+      {/* ── Campaigns Tab ──────────────────────────────────────────── */}
+      {pageTab === 'campaigns' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
           <CampaignTable fmtC={fmt$} campaigns={campaignData} loading={campaignLoading} />
-        )}
-        {bottomTab === 'asins' && (
+        </div>
+      )}
+
+      {/* ── Products Tab ───────────────────────────────────────────── */}
+      {pageTab === 'products' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
           <AsinTable fmtC={fmt$} asins={tableAsins} loading={asinLoading} />
-        )}
-      </div>
+        </div>
+      )}
+
     </div>
   );
 }
