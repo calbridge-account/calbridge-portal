@@ -38,6 +38,29 @@ async function main() {
       NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
       NULL::FLOAT AS total_purchases, NULL::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.sp_campaign_report
+    WHERE COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+
+    UNION ALL
+
+    -- CA Sponsored Products (separate account, excluded from default US view)
+    SELECT client_id, profile_id, campaign_id, campaign_name, campaign_status,
+      campaign_budget_amount, campaign_budget_currency_code,
+      'CA' AS marketplace,
+      'SP' AS ad_type, date,
+      cost AS spend, impressions, clicks,
+      sales_30_d AS sales, purchases_30_d AS orders, units_sold_clicks_30_d AS units_sold,
+      sales_7_d, purchases_7_d AS orders_7d,
+      top_of_search_impression_share,
+      NULL::FLOAT AS new_to_brand_purchases, NULL::FLOAT AS new_to_brand_sales,
+      NULL::FLOAT AS new_to_brand_units_sold,
+      NULL::FLOAT AS detail_page_views, NULL::FLOAT AS add_to_cart,
+      NULL::FLOAT AS viewability_rate, NULL::FLOAT AS roas_direct,
+      NULL::FLOAT AS video_ad_complete, NULL::FLOAT AS video_ad_start,
+      NULL::FLOAT AS viewable_impressions,
+      NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
+      NULL::FLOAT AS total_purchases, NULL::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.sp_campaign_report
+    WHERE campaign_budget_currency_code = 'CAD'
 
     UNION ALL
 
@@ -57,6 +80,28 @@ async function main() {
       NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
       NULL::FLOAT AS total_purchases, NULL::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.sb_campaign_report
+    WHERE COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+
+    UNION ALL
+
+    -- CA Sponsored Brands
+    SELECT client_id, profile_id, campaign_id, campaign_name, campaign_status,
+      campaign_budget_amount, campaign_budget_currency_code,
+      'CA' AS marketplace,
+      'SB' AS ad_type, report_date AS date,
+      cost AS spend, impressions, clicks,
+      sales AS sales, purchases AS orders, units_sold,
+      NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
+      top_of_search_impression_share,
+      new_to_brand_purchases::FLOAT, new_to_brand_sales,
+      new_to_brand_units_sold::FLOAT, detail_page_views::FLOAT,
+      add_to_cart::FLOAT, viewability_rate, NULL::FLOAT AS roas_direct,
+      NULL::FLOAT AS video_ad_complete, NULL::FLOAT AS video_ad_start,
+      NULL::FLOAT AS viewable_impressions,
+      NULL::FLOAT AS order_budget, NULL::DATE AS order_start_date, NULL::DATE AS order_end_date,
+      NULL::FLOAT AS total_purchases, NULL::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.sb_campaign_report
+    WHERE campaign_budget_currency_code = 'CAD'
 
     UNION ALL
 
