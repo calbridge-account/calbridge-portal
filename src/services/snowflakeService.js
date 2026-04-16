@@ -9,7 +9,7 @@ snowflake.configure({ logLevel: 'ERROR' });
 // Simple pool: up to MAX_POOL_SIZE connections, with health checking.
 // Prevents the single-connection hang that occurs under concurrent load.
 
-const MAX_POOL_SIZE  = 24; // increased from 16 — pool exhaustion under portal + worker concurrent load
+const MAX_POOL_SIZE  = 32; // raised from 24 — portal + worker can both run heavy jobs concurrently
 const QUERY_TIMEOUT  = 60000; // 60s per query
 const CONNECT_TIMEOUT = 15000; // 15s to establish connection
 
@@ -80,6 +80,7 @@ async function acquireConnection() {
   for (const entry of pool) {
     if (!entry.inUse && isAlive(entry)) {
       entry.inUse = true;
+      entry.acquiredAt = Date.now();
       return entry;
     }
   }
@@ -87,7 +88,7 @@ async function acquireConnection() {
   // Create a new one if pool has space
   if (pool.length < MAX_POOL_SIZE) {
     const conn = await createConnection();
-    const entry = { conn, inUse: true, createdAt: Date.now() };
+    const entry = { conn, inUse: true, createdAt: Date.now(), acquiredAt: Date.now() };
     pool.push(entry);
     return entry;
   }
@@ -102,6 +103,7 @@ async function acquireConnection() {
 
     waitQueue.push((entry) => {
       clearTimeout(timer);
+      entry.acquiredAt = Date.now();
       resolve(entry);
     });
   });
@@ -180,15 +182,36 @@ async function exec(sqlText) {
   return query(sqlText);
 }
 
-// ─── Health check: prune dead connections every 5 min ─────────────────────────
+// ─── Health check: prune dead + leaked connections every 2 min ──────────────────
+// Leaked = in-use for >5 min (query timeout should prevent this, but exception
+// paths can leave connections permanently stuck, exhausting the pool).
+const LEAK_THRESHOLD_MS = 5 * 60 * 1000;
 setInterval(() => {
+  const now = Date.now();
+  let pruned = 0, leaked = 0;
   for (let i = pool.length - 1; i >= 0; i--) {
-    if (!pool[i].inUse && !isAlive(pool[i])) {
-      console.log('[Snowflake] Pruning dead connection');
+    const entry = pool[i];
+    if (!entry.inUse && !isAlive(entry)) {
       pool.splice(i, 1);
+      pruned++;
+      continue;
+    }
+    if (entry.inUse && entry.acquiredAt && (now - entry.acquiredAt) > LEAK_THRESHOLD_MS) {
+      console.warn(`[Snowflake] ⚠️  Leaked connection (held ${Math.round((now - entry.acquiredAt)/1000)}s) — force releasing`);
+      entry.inUse = false;
+      entry.acquiredAt = null;
+      leaked++;
+      if (waitQueue.length > 0) {
+        const next = waitQueue.shift();
+        entry.inUse = true;
+        entry.acquiredAt = Date.now();
+        next(entry);
+      }
     }
   }
-}, 5 * 60 * 1000);
+  if (pruned > 0) console.log(`[Snowflake] Pruned ${pruned} dead connection(s)`);
+  if (leaked > 0) console.log(`[Snowflake] Force-released ${leaked} leaked connection(s)`);
+}, 2 * 60 * 1000);
 
 // ─── Batch Merge Helper ───────────────────────────────────────────────────────
 //
