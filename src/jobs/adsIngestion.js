@@ -2006,7 +2006,7 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
     // campaign. order_name is stable and unique per campaign.
     keyColumns:  ['client_id', 'profile_id', 'date', 'order_name'],
     dataColumns: [
-      'advertiser_id', 'order_name', 'advertiser_name',
+      'advertiser_id', 'order_id', 'advertiser_name',  // order_name is a key column — do NOT repeat here
       'impressions', 'clicks', 'total_cost',
       'viewable_impressions', 'viewability_rate',
       'sales', 'total_sales', 'purchases', 'total_purchases',
