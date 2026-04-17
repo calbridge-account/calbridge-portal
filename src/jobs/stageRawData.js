@@ -361,55 +361,57 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
     const r = await query(`
       MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
       USING (
-        -- order_id is stored as a string from safeParse (json-bigint), preserving full
-        -- 64-bit precision. One row per (client_id, order_id, date) in DSP_CAMPAIGN_REPORT
-        -- since the MERGE key there is (client_id, profile_id, date, order_name).
+        -- Aggregate by (client_id, order_name, date) using MAX(total_sales).
+        -- order_name is the stable dedup key — order_id has 64-bit truncation variants.
+        -- MAX(total_sales) ensures the order-level total always wins over ad-grain subsets.
+        -- This is bulletproof against dspAd rows overwriting dspCampaign totals.
         SELECT
           client_id,
-          'amazon'                            AS platform,
-          'ATVPDKIKX0DER'                     AS marketplace,
-          CURRENT_TIMESTAMP()                 AS ingested_at,
-          profile_id || '_' || order_id || '_DSP_' || TO_VARCHAR(date,'YYYYMMDD') AS report_id,
-          ?                                   AS pipeline_run_id,
-          'preliminary'                       AS data_maturity,
-          CURRENT_TIMESTAMP()                 AS last_refreshed_at,
-          order_id                            AS campaign_id,
+          'amazon'                               AS platform,
+          'ATVPDKIKX0DER'                        AS marketplace,
+          CURRENT_TIMESTAMP()                    AS ingested_at,
+          client_id || '_' || order_name || '_DSP_' || TO_VARCHAR(date,'YYYYMMDD') AS report_id,
+          ?                                      AS pipeline_run_id,
+          'preliminary'                          AS data_maturity,
+          CURRENT_TIMESTAMP()                    AS last_refreshed_at,
+          MAX(order_id)                          AS campaign_id,
           date,
-          order_name                          AS campaign_name,
-          'DSP'                               AS campaign_type,
-          'DSP'                               AS ad_product,
-          'ACTIVE'                            AS status,
-          order_budget                        AS daily_budget,
-          COALESCE(impressions, 0)            AS impressions,
-          COALESCE(clicks, 0)                 AS clicks,
-          COALESCE(total_cost, 0)             AS cost,
-          NULL::FLOAT                         AS purchases_1d,
-          NULL::FLOAT                         AS purchases_7d,
-          purchases_clicks::FLOAT             AS purchases_14d,
-          total_purchases::FLOAT              AS purchases_30d,
-          NULL::FLOAT                         AS sales_1d,
-          NULL::FLOAT                         AS sales_7d,
-          NULL::FLOAT                         AS sales_14d,
-          total_sales::FLOAT                  AS sales_30d,
-          new_to_brand_purchases_clicks::FLOAT  AS ntb_orders_14d,
-          new_to_brand_product_sales::FLOAT     AS ntb_sales_14d,
-          NULL::FLOAT                           AS ntb_units_14d,
-          NULL::FLOAT                         AS impression_share,
-          NULL::FLOAT                         AS impression_share_lost_budget,
-          NULL::FLOAT                         AS impression_share_lost_rank,
-          NULL::FLOAT                         AS video_views_25pct,
-          NULL::FLOAT                         AS video_views_50pct,
-          NULL::FLOAT                         AS video_views_75pct,
-          video_ad_complete::FLOAT            AS video_views_100pct,
-          viewable_impressions::FLOAT         AS viewable_impressions
+          order_name                             AS campaign_name,
+          'DSP'                                  AS campaign_type,
+          'DSP'                                  AS ad_product,
+          'ACTIVE'                               AS status,
+          MAX(order_budget)                      AS daily_budget,
+          SUM(COALESCE(impressions, 0))          AS impressions,
+          SUM(COALESCE(clicks, 0))               AS clicks,
+          SUM(COALESCE(total_cost, 0))           AS cost,
+          NULL::FLOAT                            AS purchases_1d,
+          NULL::FLOAT                            AS purchases_7d,
+          MAX(purchases_clicks)::FLOAT           AS purchases_14d,
+          MAX(total_purchases)::FLOAT            AS purchases_30d,
+          NULL::FLOAT                            AS sales_1d,
+          NULL::FLOAT                            AS sales_7d,
+          NULL::FLOAT                            AS sales_14d,
+          MAX(total_sales)::FLOAT                AS sales_30d,  -- MAX wins: order-grain > ad-grain
+          MAX(new_to_brand_purchases_clicks)::FLOAT AS ntb_orders_14d,
+          MAX(new_to_brand_product_sales)::FLOAT    AS ntb_sales_14d,
+          NULL::FLOAT                            AS ntb_units_14d,
+          NULL::FLOAT                            AS impression_share,
+          NULL::FLOAT                            AS impression_share_lost_budget,
+          NULL::FLOAT                            AS impression_share_lost_rank,
+          NULL::FLOAT                            AS video_views_25pct,
+          NULL::FLOAT                            AS video_views_50pct,
+          NULL::FLOAT                            AS video_views_75pct,
+          SUM(video_ad_complete)::FLOAT          AS video_views_100pct,
+          SUM(viewable_impressions)::FLOAT       AS viewable_impressions
         FROM CALBRIDGE_PROD.APP.DSP_CAMPAIGN_REPORT
         WHERE client_id = ?
+        GROUP BY client_id, order_name, date
       ) src
       ON  tgt.client_id   = src.client_id
-      AND tgt.campaign_id = src.campaign_id
+      AND tgt.campaign_name = src.campaign_name
       AND tgt.ad_product  = src.ad_product
       AND tgt.date        = src.date
-      WHEN MATCHED AND (tgt.sales_30d IS NULL OR src.sales_30d > tgt.sales_30d OR tgt.ingested_at < src.ingested_at) THEN UPDATE SET
+      WHEN MATCHED THEN UPDATE SET
         ingested_at = src.ingested_at, last_refreshed_at = src.last_refreshed_at,
         data_maturity = src.data_maturity, pipeline_run_id = src.pipeline_run_id,
         campaign_name = src.campaign_name, status = src.status, daily_budget = src.daily_budget,

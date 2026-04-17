@@ -124,80 +124,48 @@ async function main() {
 
     UNION ALL
 
-    -- DSP: source sales_30d from RAW.AD_CAMPAIGN (accumulated, settlement-correct, all historical
-    -- windows) and join DSP_CAMPAIGN_REPORT for rich metadata (DPVs, NTB, viewability, order dates).
-    -- SPEND also comes from RAW.AD_CAMPAIGN (cost column) which is populated by stageRawData.
-    --
-    -- Why RAW.AD_CAMPAIGN for sales instead of DSP_CAMPAIGN_REPORT directly:
-    --   DSP_CAMPAIGN_REPORT only holds the most recently ingested window (~30 days back).
-    --   RAW.AD_CAMPAIGN is a MERGE-accumulation table — it retains the best (most recent) value
-    --   for every (client, campaign, date) tuple across all ingest runs, including historical
-    --   SparkX data that predates the current ingest window.
-    --   stageRawData maps DSP_CAMPAIGN_REPORT.total_sales → RAW.AD_CAMPAIGN.sales_30d, so
-    --   sales_30d already equals total_sales (click + view-through attribution, the correct DSP metric).
+    -- DSP: query dsp_campaign_report DIRECTLY — no RAW.AD_CAMPAIGN hop.
+    -- Aggregate by (client_id, order_name, date) using MAX() to get order-level totals.
+    -- order_name is the stable dedup key (order_id has 64-bit truncation variants).
+    -- total_sales = click + view-through attribution — the correct DSP metric.
+    -- This eliminates the stageRawData intermediary that caused repeated data corruption.
     SELECT
-      r.client_id,
-      NULL::VARCHAR                         AS profile_id,
-      r.campaign_id,
-      r.campaign_name,
+      d.client_id,
+      d.profile_id,
+      MAX(d.order_id)                       AS campaign_id,
+      d.order_name                          AS campaign_name,
       'ACTIVE'                              AS campaign_status,
-      r.daily_budget                        AS campaign_budget_amount,
+      MAX(d.order_budget)::FLOAT            AS campaign_budget_amount,
       NULL::VARCHAR                         AS campaign_budget_currency_code,
       'US'                                  AS marketplace,
       'DSP'                                 AS ad_type,
-      r.date,
-      r.cost                                AS spend,  -- RAW.AD_CAMPAIGN.cost = dsp_campaign_report.total_cost via stageRawData
-      r.impressions,
-      r.clicks,
-      r.sales_30d                           AS sales,
-      r.purchases_30d                       AS orders,
+      d.date,
+      SUM(d.total_cost)                     AS spend,
+      SUM(d.impressions)                    AS impressions,
+      SUM(d.clicks)                         AS clicks,
+      MAX(d.total_sales)                    AS sales,   -- MAX: order-grain row has the correct total; ad-grain rows are lower subsets
+      MAX(d.total_purchases)::FLOAT         AS orders,
       NULL::FLOAT                           AS units_sold,
       NULL::FLOAT                           AS sales_7d,
       NULL::FLOAT                           AS orders_7d,
       NULL::FLOAT                           AS top_of_search_impression_share,
-      COALESCE(c.new_to_brand_purchases, 0)::FLOAT   AS new_to_brand_purchases,
-      COALESCE(c.new_to_brand_product_sales, 0)      AS new_to_brand_sales,
+      MAX(d.new_to_brand_purchases)::FLOAT  AS new_to_brand_purchases,
+      MAX(d.new_to_brand_product_sales)     AS new_to_brand_sales,
       NULL::FLOAT                           AS new_to_brand_units_sold,
-      c.detail_page_views::FLOAT            AS detail_page_views,
-      c.add_to_cart::FLOAT                  AS add_to_cart,
-      c.viewability_rate                    AS viewability_rate,
+      SUM(d.detail_page_views)::FLOAT       AS detail_page_views,
+      SUM(d.add_to_cart)::FLOAT             AS add_to_cart,
+      MAX(d.viewability_rate)               AS viewability_rate,
       NULL::FLOAT                           AS roas_direct,
-      c.video_ad_complete::FLOAT            AS video_ad_complete,
-      c.video_ad_start::FLOAT               AS video_ad_start,
-      c.viewable_impressions::FLOAT         AS viewable_impressions,
-      c.order_budget::FLOAT                 AS order_budget,
-      c.order_start_date::DATE              AS order_start_date,
-      c.order_end_date::DATE                AS order_end_date,
-      c.total_purchases::FLOAT              AS total_purchases,
-      (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
-    -- RAW.AD_CAMPAIGN: keyed by (client_id, campaign_name, campaign_type, date).
-    -- cost comes from dsp_campaign_report.total_cost via stageRawData (no LIR join needed).
-    -- sales_30d = dsp_campaign_report.total_sales (full view-through attribution).
-    FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
-    -- DCR: aggregate by (client_id, order_id, date) for metadata (DPVs, NTB etc.)
-    LEFT JOIN (
-      SELECT
-        client_id, order_id, date,
-        MAX(total_purchases)              AS total_purchases,
-        MAX(detail_page_views)            AS detail_page_views,
-        MAX(add_to_cart)                  AS add_to_cart,
-        MAX(viewability_rate)             AS viewability_rate,
-        MAX(video_ad_complete)            AS video_ad_complete,
-        MAX(video_ad_start)               AS video_ad_start,
-        MAX(viewable_impressions)         AS viewable_impressions,
-        MAX(order_budget)                 AS order_budget,
-        MAX(order_start_date)             AS order_start_date,
-        MAX(order_end_date)               AS order_end_date,
-        MAX(new_to_brand_purchases)       AS new_to_brand_purchases,
-        MAX(new_to_brand_product_sales)   AS new_to_brand_product_sales,
-        MAX(impressions)                  AS impressions
-      FROM CALBRIDGE_PROD.APP.dsp_campaign_report
-      GROUP BY client_id, order_id, date
-    ) c
-      ON  c.client_id = r.client_id
-      AND c.order_id  = r.campaign_id
-      AND c.date      = r.date
-    WHERE r.campaign_type = 'DSP'
+      SUM(d.video_ad_complete)::FLOAT       AS video_ad_complete,
+      SUM(d.video_ad_start)::FLOAT          AS video_ad_start,
+      SUM(d.viewable_impressions)::FLOAT    AS viewable_impressions,
+      MAX(d.order_budget)::FLOAT            AS order_budget,
+      MAX(d.order_start_date)::DATE         AS order_start_date,
+      MAX(d.order_end_date)::DATE           AS order_end_date,
+      MAX(d.total_purchases)::FLOAT         AS total_purchases,
+      (SUM(d.detail_page_views) / NULLIF(SUM(d.impressions), 0))::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.dsp_campaign_report d
+    GROUP BY d.client_id, d.profile_id, d.order_name, d.date
   `);
 
   // adjusted_campaign_performance
