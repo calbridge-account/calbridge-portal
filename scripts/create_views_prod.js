@@ -124,66 +124,51 @@ async function main() {
 
     UNION ALL
 
-    -- DSP: source from RAW.AD_CAMPAIGN which is the stable accumulation table.
-    -- It retains all historical windows including campaigns no longer in the 30-day
-    -- dsp_campaign_report window. stageRawData populates it with correct spend and
-    -- MAX(total_sales). Exclude Acer campaigns that leaked into CyberPower RAW.
+    -- DSP: join dsp_raw_flight (spend incl. agency fees, per source_platform)
+    -- with dsp_raw_campaign (attributed sales) on (client_id, source_platform, order_name, date).
+    -- This gives correct total_cost per Amazon console + correct total_sales attribution.
+    -- No translations — data exactly as Amazon returns it.
     SELECT
-      r.client_id,
-      NULL::VARCHAR                         AS profile_id,
-      r.campaign_id,
-      r.campaign_name,
+      f.client_id,
+      f.profile_id,
+      f.order_id                            AS campaign_id,
+      f.order_name                          AS campaign_name,
       'ACTIVE'                              AS campaign_status,
-      r.daily_budget                        AS campaign_budget_amount,
+      c.order_budget::FLOAT                 AS campaign_budget_amount,
       NULL::VARCHAR                         AS campaign_budget_currency_code,
       'US'                                  AS marketplace,
       'DSP'                                 AS ad_type,
-      r.date,
-      r.cost                                AS spend,
-      r.impressions,
-      r.clicks,
-      r.sales_30d                           AS sales,
-      r.purchases_30d                       AS orders,
+      f.date,
+      f.total_cost                          AS spend,
+      f.impressions,
+      f.clicks,
+      COALESCE(c.total_sales, f.total_sales) AS sales,
+      c.total_purchases::FLOAT              AS orders,
       NULL::FLOAT                           AS units_sold,
       NULL::FLOAT                           AS sales_7d,
       NULL::FLOAT                           AS orders_7d,
       NULL::FLOAT                           AS top_of_search_impression_share,
-      COALESCE(c.new_to_brand_purchases, 0)::FLOAT   AS new_to_brand_purchases,
-      COALESCE(c.new_to_brand_product_sales, 0)      AS new_to_brand_sales,
+      c.new_to_brand_purchases::FLOAT       AS new_to_brand_purchases,
+      c.new_to_brand_product_sales          AS new_to_brand_sales,
       NULL::FLOAT                           AS new_to_brand_units_sold,
       c.detail_page_views::FLOAT            AS detail_page_views,
       c.add_to_cart::FLOAT                  AS add_to_cart,
-      c.viewability_rate                    AS viewability_rate,
+      f.viewability_rate                    AS viewability_rate,
       NULL::FLOAT                           AS roas_direct,
-      c.video_ad_complete::FLOAT            AS video_ad_complete,
-      c.video_ad_start::FLOAT               AS video_ad_start,
-      c.viewable_impressions::FLOAT         AS viewable_impressions,
+      f.video_ad_complete::FLOAT            AS video_ad_complete,
+      f.video_ad_start::FLOAT               AS video_ad_start,
+      f.viewable_impressions::FLOAT         AS viewable_impressions,
       c.order_budget::FLOAT                 AS order_budget,
       c.order_start_date::DATE              AS order_start_date,
       c.order_end_date::DATE                AS order_end_date,
       c.total_purchases::FLOAT              AS total_purchases,
-      (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
-    FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
-    LEFT JOIN (
-      SELECT client_id, order_id, date,
-        MAX(total_purchases)              AS total_purchases,
-        MAX(detail_page_views)            AS detail_page_views,
-        MAX(add_to_cart)                  AS add_to_cart,
-        MAX(viewability_rate)             AS viewability_rate,
-        MAX(video_ad_complete)            AS video_ad_complete,
-        MAX(video_ad_start)               AS video_ad_start,
-        MAX(viewable_impressions)         AS viewable_impressions,
-        MAX(order_budget)                 AS order_budget,
-        MAX(order_start_date)             AS order_start_date,
-        MAX(order_end_date)               AS order_end_date,
-        MAX(new_to_brand_purchases)       AS new_to_brand_purchases,
-        MAX(new_to_brand_product_sales)   AS new_to_brand_product_sales,
-        MAX(impressions)                  AS impressions
-      FROM CALBRIDGE_PROD.APP.dsp_campaign_report
-      GROUP BY client_id, order_id, date
-    ) c ON c.client_id = r.client_id AND c.order_id = r.campaign_id AND c.date = r.date
-    WHERE r.campaign_type = 'DSP'
-      AND r.campaign_name NOT LIKE 'Acer%'
+      (f.detail_page_views / NULLIF(f.impressions, 0))::FLOAT AS dpv_rate
+    FROM CALBRIDGE_PROD.APP.dsp_raw_flight f
+    LEFT JOIN CALBRIDGE_PROD.APP.dsp_raw_campaign c
+      ON  c.client_id        = f.client_id
+      AND c.source_platform  = f.source_platform
+      AND c.order_name       = f.order_name
+      AND c.date             = f.date
   `);
 
   // adjusted_campaign_performance
