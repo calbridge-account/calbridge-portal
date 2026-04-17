@@ -164,11 +164,25 @@ async function main() {
       c.total_purchases::FLOAT              AS total_purchases,
       (f.detail_page_views / NULLIF(f.impressions, 0))::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.dsp_raw_flight f
-    LEFT JOIN CALBRIDGE_PROD.APP.dsp_raw_campaign c
-      ON  c.client_id        = f.client_id
-      AND c.source_platform  = f.source_platform
-      AND c.order_name       = f.order_name
-      AND c.date             = f.date
+    LEFT JOIN (
+      -- Aggregate campaign data by (client_id, order_name, date) to collapse any
+      -- multiple order_id variants (64-bit truncation) into one canonical row.
+      SELECT client_id, order_name, date,
+             MAX(total_sales)             AS total_sales,
+             MAX(total_purchases)         AS total_purchases,
+             MAX(new_to_brand_purchases)  AS new_to_brand_purchases,
+             MAX(new_to_brand_product_sales) AS new_to_brand_product_sales,
+             MAX(detail_page_views)       AS detail_page_views,
+             MAX(add_to_cart)             AS add_to_cart,
+             MAX(order_budget)            AS order_budget,
+             MAX(order_start_date)        AS order_start_date,
+             MAX(order_end_date)          AS order_end_date
+      FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
+      GROUP BY client_id, order_name, date
+    ) c
+      ON  c.client_id  = f.client_id
+      AND c.order_name = f.order_name
+      AND c.date       = f.date
   `);
 
   // adjusted_campaign_performance

@@ -1950,7 +1950,7 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
   // Excluding advertiser_id from the PK ensures a second write for the same
   // order+date is an UPDATE (not a second INSERT), preventing double-counting.
   // advertiser_id is still written/updated via dataColumns.
-  return batchMerge({
+  const result = await batchMerge({
     table: 'dsp_campaign_report',
     // Key on order_name instead of order_id — 64-bit DSP IDs get truncated by JS Number,
     // causing the same campaign to appear under multiple order_ids. Using order_name as
@@ -1970,7 +1970,8 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date', 'order_start_date', 'order_end_date'],
     rows: mapped,
   });
-  writeDspRawCampaign(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
+  await writeDspRawCampaign(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
+  return result;
 }
 
 // ── DSP Flight Report (line-item grain) ──────────────────────────────────────
@@ -2003,7 +2004,7 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
     detail_page_views:          r.detailPageViews || null,
     add_to_cart:                r.addToCart       || null,
   }));
-  return batchMerge({
+  const result = await batchMerge({
     table: 'dsp_line_item_report',
     // Key on order_name (not order_id) — same 64-bit truncation issue as dsp_campaign_report.
     // Amazon DSP order IDs exceed Number.MAX_SAFE_INTEGER; JSON.parse truncates them
@@ -2022,7 +2023,8 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date'],
     rows: mapped,
   });
-  writeDspRawFlight(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_flight] write failed:', e.message));
+  await writeDspRawFlight(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_flight] write failed:', e.message));
+  return result;
 }
 
 // ── DSP Ad Report (ad grain) ─────────────────────────────────────────────────
@@ -2056,7 +2058,7 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     video_ad_start:                 r.videoAdStart              || null,
     video_ad_complete:              r.videoAdComplete           || null,
   }));
-  return batchMerge({
+  const result = await batchMerge({
     // Key includes line_item_id so ad-grain rows don't overwrite campaign-grain (order-level) rows.
     // Campaign-grain rows from writeDspCampaignReport have the correct order-level total_sales.
     // Ad-grain rows are per line-item and must NOT clobber those order-level totals.
@@ -2074,7 +2076,8 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date'],
     rows: mapped,
   });
-  writeDspRawAd(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_ad] write failed:', e.message));
+  await writeDspRawAd(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_ad] write failed:', e.message));
+  return result;
 }
 
 // ── DSP Creative Report ──────────────────────────────────────────────────────
