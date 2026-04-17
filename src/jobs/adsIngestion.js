@@ -1970,6 +1970,7 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date', 'order_start_date', 'order_end_date'],
     rows: mapped,
   });
+  writeDspRawCampaign(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
 }
 
 // ── DSP Flight Report (line-item grain) ──────────────────────────────────────
@@ -2021,6 +2022,7 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date'],
     rows: mapped,
   });
+  writeDspRawFlight(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_flight] write failed:', e.message));
 }
 
 // ── DSP Ad Report (ad grain) ─────────────────────────────────────────────────
@@ -2072,6 +2074,7 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date'],
     rows: mapped,
   });
+  writeDspRawAd(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_ad] write failed:', e.message));
 }
 
 // ── DSP Creative Report ──────────────────────────────────────────────────────
@@ -2115,6 +2118,190 @@ async function writeDspCreativeReport(clientId, profileId, reportDate, rows) {
  * This is the source for "total sales" in Amazon's native DSP console.
  * Keyed on (client_id, profile_id, date, order_name, asin) to handle ID truncation.
  */
+
+// ── DSP Raw Tables (v2) ───────────────────────────────────────────────────────
+// Store data exactly as Amazon returns it — no translations, no renaming.
+// advertiser_id and order_id preserved as strings (safeParse ensures no truncation).
+// source_platform derived from platform_profile_id for easy filtering.
+
+// Known platform profile IDs → source platform label
+const DSP_PLATFORM_MAP = {
+  '590465275620100345': 'sparkx',       // CyberPower SparkX
+  '591210185781978252': 'calbridge',    // CyberPower Calbridge-managed
+  '577089618135015300': 'acer',         // Acer US DSP
+  '3252964120201':      'acer',         // Acer America
+};
+function dspSourcePlatform(advertiserId) {
+  return DSP_PLATFORM_MAP[String(advertiserId)] || 'unknown';
+}
+
+async function writeDspRawCampaign(clientId, profileId, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const platform = dspSourcePlatform(advertiserId);
+  const mapped = rows.map(r => ({
+    advertiser_id:              String(r.advertiserId || advertiserId),
+    profile_id:                 String(realProfileId),
+    client_id:                  clientId,
+    source_platform:            platform,
+    date:                       String(r.date || '').substring(0, 10),
+    order_id:                   String(r.orderId || ''),
+    order_name:                 r.orderName             || null,
+    advertiser_name:            r.advertiserName        || null,
+    order_budget:               r.orderBudget           ?? null,
+    order_start_date:           r.orderStartDate ? String(r.orderStartDate).substring(0, 10) : null,
+    order_end_date:             r.orderEndDate   ? String(r.orderEndDate).substring(0, 10)   : null,
+    order_currency:             r.orderCurrency         || null,
+    entity_id:                  String(r.entityId || '') || null,
+    impressions:                r.impressions           ?? null,
+    clicks:                     r.clicks                ?? null,
+    total_cost:                 r.totalCost             ?? null,
+    viewable_impressions:       r.viewableImpressions   ?? null,
+    viewability_rate:           r.viewabilityRate       ?? null,
+    detail_page_views:          r.detailPageViews       ?? null,
+    detail_page_view_clicks:    r.detailPageViewClicks  ?? null,
+    add_to_cart:                r.addToCart             ?? null,
+    add_to_cart_clicks:         r.addToCartClicks       ?? null,
+    purchases:                  r.purchases             ?? null,
+    purchases_clicks:           r.purchasesClicks       ?? null,
+    total_purchases:            r.totalPurchases        ?? null,
+    total_purchases_clicks:     r.totalPurchasesClicks  ?? null,
+    sales:                      r.sales                 ?? null,
+    total_sales:                r.totalSales            ?? null,
+    new_to_brand_purchases:     r.newToBrandPurchases   ?? null,
+    new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks ?? null,
+    new_to_brand_product_sales: r.newToBrandProductSales ?? null,
+  }));
+  return batchMerge({
+    table: 'dsp_raw_campaign',
+    keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
+    dataColumns: ['order_name','advertiser_name','order_budget','order_start_date','order_end_date',
+      'order_currency','entity_id','impressions','clicks','total_cost','viewable_impressions',
+      'viewability_rate','detail_page_views','detail_page_view_clicks','add_to_cart','add_to_cart_clicks',
+      'purchases','purchases_clicks','total_purchases','total_purchases_clicks','sales','total_sales',
+      'new_to_brand_purchases','new_to_brand_purchases_clicks','new_to_brand_product_sales','synced_at'],
+    dateColumns: ['date', 'order_start_date', 'order_end_date'],
+    rows: mapped,
+  });
+}
+
+async function writeDspRawFlight(clientId, profileId, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const platform = dspSourcePlatform(advertiserId);
+  const mapped = rows.map(r => ({
+    advertiser_id:              String(r.advertiserId || advertiserId),
+    profile_id:                 String(realProfileId),
+    client_id:                  clientId,
+    source_platform:            platform,
+    date:                       String(r.date || '').substring(0, 10),
+    order_id:                   String(r.orderId || ''),
+    order_name:                 r.orderName             || null,
+    advertiser_name:            r.advertiserName        || null,
+    impressions:                r.impressions           ?? null,
+    clicks:                     r.clicks                ?? null,
+    total_cost:                 r.totalCost             ?? null,
+    viewable_impressions:       r.viewableImpressions   ?? null,
+    viewability_rate:           r.viewabilityRate       ?? null,
+    detail_page_views:          r.detailPageViews       ?? null,
+    add_to_cart:                r.addToCart             ?? null,
+    purchases:                  r.purchases             ?? null,
+    total_purchases:            r.totalPurchases        ?? null,
+    sales:                      r.sales                 ?? null,
+    total_sales:                r.totalSales            ?? null,
+    new_to_brand_purchases:     r.newToBrandPurchases   ?? null,
+    new_to_brand_product_sales: r.newToBrandProductSales ?? null,
+    video_ad_start:             r.videoAdStart          ?? null,
+    video_ad_complete:          r.videoAdComplete       ?? null,
+  }));
+  return batchMerge({
+    table: 'dsp_raw_flight',
+    keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
+    dataColumns: ['order_name','advertiser_name','impressions','clicks','total_cost',
+      'viewable_impressions','viewability_rate','detail_page_views','add_to_cart',
+      'purchases','total_purchases','sales','total_sales',
+      'new_to_brand_purchases','new_to_brand_product_sales',
+      'video_ad_start','video_ad_complete','synced_at'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+async function writeDspRawAd(clientId, profileId, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const platform = dspSourcePlatform(advertiserId);
+  const mapped = rows.map(r => ({
+    advertiser_id:              String(r.advertiserId || advertiserId),
+    profile_id:                 String(realProfileId),
+    client_id:                  clientId,
+    source_platform:            platform,
+    date:                       String(r.date || '').substring(0, 10),
+    order_id:                   String(r.orderId || ''),
+    order_name:                 r.orderName             || null,
+    advertiser_name:            r.advertiserName        || null,
+    impressions:                r.impressions           ?? null,
+    clicks:                     r.clicks                ?? null,
+    total_cost:                 r.totalCost             ?? null,
+    viewable_impressions:       r.viewableImpressions   ?? null,
+    viewability_rate:           r.viewabilityRate       ?? null,
+    detail_page_views:          r.detailPageViews       ?? null,
+    add_to_cart:                r.addToCart             ?? null,
+    purchases:                  r.purchases             ?? null,
+    total_purchases:            r.totalPurchases        ?? null,
+    sales:                      r.sales                 ?? null,
+    total_sales:                r.totalSales            ?? null,
+    new_to_brand_purchases:     r.newToBrandPurchases   ?? null,
+    new_to_brand_product_sales: r.newToBrandProductSales ?? null,
+    video_ad_start:             r.videoAdStart          ?? null,
+    video_ad_complete:          r.videoAdComplete       ?? null,
+  }));
+  return batchMerge({
+    table: 'dsp_raw_ad',
+    keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
+    dataColumns: ['order_name','advertiser_name','impressions','clicks','total_cost',
+      'viewable_impressions','viewability_rate','detail_page_views','add_to_cart',
+      'purchases','total_purchases','sales','total_sales',
+      'new_to_brand_purchases','new_to_brand_product_sales',
+      'video_ad_start','video_ad_complete','synced_at'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+async function writeDspRawCreative(clientId, profileId, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const platform = dspSourcePlatform(advertiserId);
+  const mapped = rows.map(r => ({
+    advertiser_id:              String(r.advertiserId || advertiserId),
+    profile_id:                 String(realProfileId),
+    client_id:                  clientId,
+    source_platform:            platform,
+    date:                       String(r.date || '').substring(0, 10),
+    order_id:                   String(r.orderId || ''),
+    order_name:                 r.orderName             || null,
+    advertiser_name:            r.advertiserName        || null,
+    impressions:                r.impressions           ?? null,
+    clicks:                     r.clicks                ?? null,
+    total_cost:                 r.totalCost             ?? null,
+    viewable_impressions:       r.viewableImpressions   ?? null,
+    viewability_rate:           r.viewabilityRate       ?? null,
+    video_ad_start:             r.videoAdStart          ?? null,
+    video_ad_midpoint:          r.videoAdMidpoint       ?? null,
+    video_ad_complete:          r.videoAdComplete       ?? null,
+  }));
+  return batchMerge({
+    table: 'dsp_raw_creative',
+    keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
+    dataColumns: ['order_name','advertiser_name','impressions','clicks','total_cost',
+      'viewable_impressions','viewability_rate',
+      'video_ad_start','video_ad_midpoint','video_ad_complete','synced_at'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
 async function writeDspProductReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const [advertiserId, realProfileId] = profileId.includes('|')
