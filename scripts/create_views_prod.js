@@ -146,7 +146,7 @@ async function main() {
       'US'                                  AS marketplace,
       'DSP'                                 AS ad_type,
       r.date,
-      COALESCE(lir.lir_cost, r.cost)        AS spend,
+      r.cost                                AS spend,  -- RAW.AD_CAMPAIGN.cost = dsp_campaign_report.total_cost via stageRawData
       r.impressions,
       r.clicks,
       r.sales_30d                           AS sales,
@@ -170,19 +170,10 @@ async function main() {
       c.order_end_date::DATE                AS order_end_date,
       c.total_purchases::FLOAT              AS total_purchases,
       (c.detail_page_views / NULLIF(c.impressions, 0))::FLOAT AS dpv_rate
-    -- RAW.AD_CAMPAIGN is keyed by (client_id, campaign_name, campaign_type, date).
-    -- SPEND: LIR (flight grain) when available, else RAW cost.
-    -- SALES: always from RAW.AD_CAMPAIGN.sales_30d.
+    -- RAW.AD_CAMPAIGN: keyed by (client_id, campaign_name, campaign_type, date).
+    -- cost comes from dsp_campaign_report.total_cost via stageRawData (no LIR join needed).
+    -- sales_30d = dsp_campaign_report.total_sales (full view-through attribution).
     FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
-    -- LIR: aggregate by (client_id, order_id, date) — order_id is a reliable string
-    -- from safeParse, so no truncation variants in production data.
-    LEFT JOIN (
-      SELECT client_id, order_id, date, SUM(total_cost) AS lir_cost
-      FROM CALBRIDGE_PROD.APP.dsp_line_item_report
-      GROUP BY client_id, order_id, date
-    ) lir ON lir.client_id = r.client_id
-          AND lir.order_id  = r.campaign_id
-          AND lir.date      = r.date
     -- DCR: aggregate by (client_id, order_id, date) for metadata (DPVs, NTB etc.)
     LEFT JOIN (
       SELECT
