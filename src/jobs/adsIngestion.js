@@ -2055,9 +2055,11 @@ async function writeDspAdReport(clientId, profileId, reportDate, rows) {
     video_ad_complete:              r.videoAdComplete           || null,
   }));
   return batchMerge({
-    // Key on order_name (not order_id) to handle 64-bit truncation across reports
-    table: 'dsp_campaign_report',  // ad grain shares campaign_report table (no separate ad table)
-    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name'],
+    // Key includes line_item_id so ad-grain rows don't overwrite campaign-grain (order-level) rows.
+    // Campaign-grain rows from writeDspCampaignReport have the correct order-level total_sales.
+    // Ad-grain rows are per line-item and must NOT clobber those order-level totals.
+    table: 'dsp_campaign_report',
+    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name', 'line_item_id'],
     dataColumns: [
       'advertiser_id', 'order_id', 'advertiser_name',
       'impressions', 'clicks', 'total_cost',
