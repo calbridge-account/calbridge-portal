@@ -165,10 +165,9 @@ async function main() {
       (f.detail_page_views / NULLIF(f.impressions, 0))::FLOAT AS dpv_rate
     FROM CALBRIDGE_PROD.APP.dsp_raw_flight f
     LEFT JOIN (
-      -- Aggregate campaign data by (client_id, profile_id, order_name, date).
-      -- profile_id is required to avoid cross-profile sales contamination when
-      -- SparkX and Calbridge run campaigns with the same order_name.
-      SELECT client_id, profile_id, order_name, date,
+      -- Key on (client_id, profile_id, order_id, date) — exact ID match, no name ambiguity.
+      -- All rows now have canonical order_ids from the backfill and live ingestion.
+      SELECT client_id, profile_id, order_id, order_name, date,
              MAX(total_sales)             AS total_sales,
              MAX(total_purchases)         AS total_purchases,
              MAX(new_to_brand_purchases)  AS new_to_brand_purchases,
@@ -179,11 +178,11 @@ async function main() {
              MAX(order_start_date)        AS order_start_date,
              MAX(order_end_date)          AS order_end_date
       FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
-      GROUP BY client_id, profile_id, order_name, date
+      GROUP BY client_id, profile_id, order_id, order_name, date
     ) c
       ON  c.client_id  = f.client_id
       AND c.profile_id = f.profile_id
-      AND c.order_name = f.order_name
+      AND c.order_id   = f.order_id
       AND c.date       = f.date
   `);
 
