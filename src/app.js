@@ -163,6 +163,7 @@ app.use('/', navConfigRoutes);
 app.use('/manager', managerRoutes);
 app.use('/manager', managerAccountRoutes);
 app.use('/agency', agencyRouter);
+app.use('/upload', require('./routes/upload'));
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>
