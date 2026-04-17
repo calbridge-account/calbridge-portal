@@ -348,6 +348,16 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
 
   // ── DSP ──
   try {
+    // Safety check: skip DSP RAW update if DCR looks abnormally small (< 100 rows for this client).
+    // Prevents a bad/partial DCR state from overwriting good RAW history.
+    const dcrCount = await query(
+      'SELECT COUNT(*) as cnt FROM CALBRIDGE_PROD.APP.DSP_CAMPAIGN_REPORT WHERE client_id = ?',
+      [clientId]
+    );
+    const dcrRows = Number(dcrCount[0]?.CNT || dcrCount[0]?.cnt || 0);
+    if (dcrRows < 100) {
+      console.warn(`[stageAdCampaignRaw] Skipping DSP RAW update for ${clientId} — DCR only has ${dcrRows} rows (expected ≥100). DCR may be incomplete.`);
+    } else {
     const r = await query(`
       MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
       USING (
@@ -433,6 +443,7 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
     const rows = Array.isArray(r) ? r.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
     totalRows += rows;
     if (rows > 0) console.log('[stageAdCampaignRaw] DSP:', rows, 'rows for', clientId);
+    } // end else (dcrRows >= 100)
 
     // NOTE: The advertiser_id dedup DELETE was removed 2026-04-16.
     // It was causing data loss by deleting valid SparkX and Calbridge rows whose
