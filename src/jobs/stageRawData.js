@@ -381,9 +381,20 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
           'DSP'                                  AS ad_product,
           'ACTIVE'                               AS status,
           MAX(order_budget)                      AS daily_budget,
-          SUM(COALESCE(impressions, 0))          AS impressions,
-          SUM(COALESCE(clicks, 0))               AS clicks,
-          SUM(COALESCE(total_cost, 0))           AS cost,
+          -- Use order-grain (line_item_id IS NULL) when it has spend; else ad-grain.
+          -- Prevents doubling for SparkX (both grains) while keeping Calbridge Apr+ (ad-grain only).
+          CASE WHEN SUM(CASE WHEN line_item_id IS NULL THEN total_cost ELSE 0 END) > 0
+            THEN SUM(CASE WHEN line_item_id IS NULL THEN COALESCE(impressions,0) ELSE 0 END)
+            ELSE SUM(CASE WHEN line_item_id IS NOT NULL THEN COALESCE(impressions,0) ELSE 0 END)
+          END AS impressions,
+          CASE WHEN SUM(CASE WHEN line_item_id IS NULL THEN total_cost ELSE 0 END) > 0
+            THEN SUM(CASE WHEN line_item_id IS NULL THEN COALESCE(clicks,0) ELSE 0 END)
+            ELSE SUM(CASE WHEN line_item_id IS NOT NULL THEN COALESCE(clicks,0) ELSE 0 END)
+          END AS clicks,
+          CASE WHEN SUM(CASE WHEN line_item_id IS NULL THEN total_cost ELSE 0 END) > 0
+            THEN SUM(CASE WHEN line_item_id IS NULL THEN COALESCE(total_cost,0) ELSE 0 END)
+            ELSE SUM(CASE WHEN line_item_id IS NOT NULL THEN COALESCE(total_cost,0) ELSE 0 END)
+          END AS cost,
           NULL::FLOAT                            AS purchases_1d,
           NULL::FLOAT                            AS purchases_7d,
           MAX(purchases_clicks)::FLOAT           AS purchases_14d,
