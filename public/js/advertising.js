@@ -77,12 +77,14 @@ async function checkAuth() {
       }
     } catch (_) {}
 
-    // Redirect if no ads connection
+    // Redirect if no ads connection (skip for admin accounts)
     try {
-      const connRes = await fetch('/amazon/status', { credentials: 'include' });
-      const conn = await connRes.json();
-      if (!conn.ads?.connected && !conn.dsp?.connected) {
-        window.location.href = '/account.html';
+      if (client.role !== 'superadmin' && client.role !== 'admin') {
+        const connRes = await fetch('/amazon/status', { credentials: 'include' });
+        const conn = await connRes.json();
+        if (!conn.ads?.connected && !conn.dsp?.connected) {
+          window.location.href = '/account.html';
+        }
       }
     } catch (_) {}
   } catch (e) {
