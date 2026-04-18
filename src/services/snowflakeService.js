@@ -128,17 +128,24 @@ function removeConnection(entry) {
 
 // ─── Query ────────────────────────────────────────────────────────────────────
 
-async function query(sqlText, binds = []) {
-  let entry;
-  try {
-    entry = await acquireConnection();
-  } catch (err) {
-    throw new Error(`[Snowflake] Pool error: ${err.message}`);
-  }
+// Errors that indicate the connection is dead and we should retry with a fresh one
+const TERMINATED_PATTERNS = [
+  'terminated connection',
+  'connection is terminated',
+  'unable to perform operation using terminated connection',
+  'network error',
+  'connection was closed',
+];
 
+function isTerminatedError(err) {
+  if (!err || !err.message) return false;
+  const msg = err.message.toLowerCase();
+  return TERMINATED_PATTERNS.some(p => msg.includes(p));
+}
+
+async function _executeQuery(entry, sqlText, binds) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      // Connection timed out — remove it from pool and reject
       removeConnection(entry);
       reject(new Error(`[Snowflake] Query timeout (${QUERY_TIMEOUT}ms): ${sqlText.substring(0, 100)}`));
     }, QUERY_TIMEOUT);
@@ -148,12 +155,8 @@ async function query(sqlText, binds = []) {
       binds,
       complete: (err, stmt, rows) => {
         clearTimeout(timer);
-        releaseConnection(entry);
-
         if (err) {
-          // If connection is dead, remove it from pool
-          if (!isAlive(entry)) removeConnection(entry);
-
+          removeConnection(entry); // always evict on error — may be dead
           // Surface schema errors clearly
           if (err.message?.includes('invalid identifier')) {
             const match = err.message.match(/invalid identifier '([^']+)'/i);
@@ -163,10 +166,37 @@ async function query(sqlText, binds = []) {
           }
           return reject(err);
         }
+        releaseConnection(entry);
         resolve(rows);
       }
     });
   });
+}
+
+async function query(sqlText, binds = []) {
+  let entry;
+  try {
+    entry = await acquireConnection();
+  } catch (err) {
+    throw new Error(`[Snowflake] Pool error: ${err.message}`);
+  }
+
+  try {
+    return await _executeQuery(entry, sqlText, binds);
+  } catch (err) {
+    // If the connection was terminated, retry once with a fresh connection
+    if (isTerminatedError(err)) {
+      console.warn('[Snowflake] ⚠️  Terminated connection detected — retrying with fresh connection');
+      let retryEntry;
+      try {
+        retryEntry = await acquireConnection();
+      } catch (poolErr) {
+        throw new Error(`[Snowflake] Pool error on retry: ${poolErr.message}`);
+      }
+      return await _executeQuery(retryEntry, sqlText, binds);
+    }
+    throw err;
+  }
 }
 
 // ─── Legacy compatibility ─────────────────────────────────────────────────────
