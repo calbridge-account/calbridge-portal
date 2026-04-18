@@ -332,6 +332,7 @@ export default function Advertising() {
   const fmt$ = makeFmtCurrency(currency);
   const [activeChannel, setActiveChannel] = useState('all');
   const [trendGranularity, setTrendGranularity] = useState('daily'); // 'daily' | 'weekly' | 'monthly'
+  const [pageTab, setPageTab] = useState('overview'); // 'overview' | 'campaigns' | 'products'
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);

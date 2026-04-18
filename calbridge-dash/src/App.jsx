@@ -1,4 +1,27 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Component } from 'react';
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '40px', fontFamily: 'monospace', background: '#fff1f2', minHeight: '100vh' }}>
+          <h2 style={{ color: '#b91c1c' }}>⚠️ App Error</h2>
+          <p style={{ color: '#374151' }}>Something crashed. Error details:</p>
+          <pre style={{ background: '#fee2e2', padding: '16px', borderRadius: '8px', overflow: 'auto', fontSize: '13px' }}>
+            {this.state.error.toString()}
+            {'\n\n'}
+            {this.state.error.stack}
+          </pre>
+          <button onClick={() => window.location.reload()} style={{ marginTop: '16px', padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateRangeProvider } from './context/DateRangeContext';
 import { UserProvider } from './context/UserContext';
@@ -31,6 +54,7 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <DateRangeProvider>
       <UserProvider>
@@ -61,5 +85,6 @@ export default function App() {
       </UserProvider>
       </DateRangeProvider>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
