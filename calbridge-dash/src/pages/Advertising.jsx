@@ -4,7 +4,7 @@ import {
   Tooltip, Legend, ResponsiveContainer,
   ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
-import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useAdvertisingCampaigns, useSbVideo } from '../hooks/useAnalytics';
+import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useSbVideo } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
@@ -126,112 +126,6 @@ function MetricCard({ title, value, format = 'currency', sub, highlight, loading
   );
 }
 
-const AD_TYPE_COLORS = { SP: 'bg-blue-100 text-blue-700', SB: 'bg-green-100 text-green-700', SD: 'bg-amber-100 text-amber-700', DSP: 'bg-purple-100 text-purple-700' };
-const STATUS_COLORS  = { ENABLED: 'text-green-600', PAUSED: 'text-amber-500', ARCHIVED: 'text-gray-400' };
-
-function CampaignTable({ campaigns, loading, fmtC = fmtCurrency }) {
-  const [sort, setSort] = useStateTab({ col: 'spend', dir: 'desc' });
-  const [search, setSearch] = useStateTab('');
-
-  if (loading) return <SkeletonTable />;
-  if (!campaigns?.length) return <div className="text-gray-400 text-sm text-center py-8">No campaign data in this period</div>;
-
-  const normalize = r => ({
-    campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
-    campaign_name: r.CAMPAIGN_NAME || r.campaign_name || '—',
-    ad_type:       r.AD_TYPE       || r.ad_type       || '—',
-    status:        r.STATUS        || r.status        || '—',
-    spend:         Number(r.SPEND  || r.spend  || 0),
-    sales:         Number(r.SALES  || r.sales  || 0),
-    orders:        Number(r.ORDERS || r.orders || 0),
-    impressions:   Number(r.IMPRESSIONS || r.impressions || 0),
-    clicks:        Number(r.CLICKS || r.clicks || 0),
-    acos:          r.ACOS  != null ? Number(r.ACOS)  : r.acos  != null ? Number(r.acos)  : null,
-    roas:          r.ROAS  != null ? Number(r.ROAS)  : r.roas  != null ? Number(r.roas)  : null,
-    ctr:           r.CTR   != null ? Number(r.CTR)   : r.ctr   != null ? Number(r.ctr)   : null,
-    cpc:           r.CPC   != null ? Number(r.CPC)   : r.cpc   != null ? Number(r.cpc)   : null,
-  });
-
-  const rows = campaigns.map(normalize)
-    .filter(r => !search || r.campaign_name.toLowerCase().includes(search.toLowerCase()) || r.ad_type.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const av = a[sort.col] ?? -Infinity;
-      const bv = b[sort.col] ?? -Infinity;
-      return sort.dir === 'desc' ? bv - av : av - bv;
-    });
-
-  function Th({ col, label, right }) {
-    const active = sort.col === col;
-    return (
-      <th
-        className={`py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 ${right ? 'text-right' : 'text-left'}`}
-        onClick={() => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }))}
-      >
-        {label} {active ? (sort.dir === 'desc' ? '▾' : '▴') : ''}
-      </th>
-    );
-  }
-
-  const acosColor = v => v == null ? '' : v > 0.4 ? 'text-red-600' : v < 0.2 ? 'text-green-700' : 'text-gray-900';
-
-  return (
-    <div>
-      <div className="mb-3">
-        <input
-          type="text"
-          placeholder="Search campaigns…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-blue-400"
-        />
-        <span className="ml-3 text-xs text-gray-400">{rows.length} campaigns</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>
-              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-              <Th col="spend"       label="Spend"    right />
-              <Th col="sales"       label="Sales"    right />
-              <Th col="roas"        label="ROAS"     right />
-              <Th col="acos"        label="ACoS"     right />
-              <Th col="orders"      label="Orders"   right />
-              <Th col="clicks"      label="Clicks"   right />
-              <Th col="impressions" label="Impr."    right />
-              <Th col="ctr"         label="CTR"      right />
-              <Th col="cpc"         label="CPC"      right />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.campaign_id || i} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                <td className="py-2 px-3 text-gray-800 max-w-xs font-medium" title={r.campaign_name}>
-                  <span className="block truncate max-w-[280px]">{r.campaign_name}</span>
-                </td>
-                <td className="py-2 px-3">
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${AD_TYPE_COLORS[r.ad_type] || 'bg-gray-100 text-gray-600'}`}>{r.ad_type}</span>
-                </td>
-                <td className={`py-2 px-3 text-xs font-medium ${STATUS_COLORS[r.status] || 'text-gray-500'}`}>{r.status}</td>
-                <td className="py-2 px-3 text-right font-medium text-gray-900">{fmtC(r.spend)}</td>
-                <td className="py-2 px-3 text-right text-gray-700">{fmtC(r.sales)}</td>
-                <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? r.roas.toFixed(2) + 'x' : '—'}</td>
-                <td className={`py-2 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{r.orders.toLocaleString()}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{r.ctr != null ? (r.ctr * 100).toFixed(2) + '%' : '—'}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{r.cpc != null ? fmtC(r.cpc) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function AsinTable({ asins, loading, fmtC = fmtCurrency }) {
   if (loading) return <SkeletonTable />;
   if (!asins?.length) return <div className="text-gray-400 text-sm text-center py-8">No ASIN data in this period</div>;
@@ -332,7 +226,6 @@ export default function Advertising() {
   const fmt$ = makeFmtCurrency(currency);
   const [activeChannel, setActiveChannel] = useState('all');
   const [trendGranularity, setTrendGranularity] = useState('daily'); // 'daily' | 'weekly' | 'monthly'
-  const [pageTab, setPageTab] = useState('overview'); // 'overview' | 'campaigns' | 'products'
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);
@@ -614,21 +507,7 @@ export default function Advertising() {
         </div>
       )}
 
-      </> {/* end overview tab */}
-
-      {/* ── Campaigns Tab ──────────────────────────────────────────── */}
-      {pageTab === 'campaigns' && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-          <CampaignTable fmtC={fmt$} campaigns={campaignData} loading={campaignLoading} />
-        </div>
-      )}
-
-      {/* ── Products Tab ───────────────────────────────────────────── */}
-      {pageTab === 'products' && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-          <AsinTable fmtC={fmt$} asins={tableAsins} loading={asinLoading} />
-        </div>
-      )}
+      </> {/* end overview */}
 
     </div>
   );
