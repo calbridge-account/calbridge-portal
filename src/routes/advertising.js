@@ -202,21 +202,23 @@ router.get('/', requireAuth, async (req, res, next) => {
         GROUP BY ad_type
         ORDER BY spend DESC
       `, [clientId]),
-      // Weekly trend per type
+      // Weekly trend per type — use mart_advertising_daily (pre-aggregated, faster than
+      // hitting adjusted_campaign_performance directly during heavy ingest windows)
       query(`
         SELECT
           ad_type,
           DATE_TRUNC('week', date) AS week_start,
           TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD') AS week_label,
-          SUM(adjusted_spend) AS spend,
-          SUM(sales) AS sales,
-          SUM(clicks) AS clicks,
+          SUM(spend)       AS spend,
+          SUM(sales)       AS sales,
+          SUM(clicks)      AS clicks,
           SUM(impressions) AS impressions,
-          SUM(orders) AS orders
-        FROM adjusted_campaign_performance
-        WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)}
-        ${channelFilter(channel, null)}
-        ${marketplaceFilterSafe(marketplace)}
+          SUM(orders)      AS orders
+        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        WHERE client_id = ?
+          AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
+          ${martDateFilter()}
+          ${channelFilter(channel, null)}
         GROUP BY ad_type, DATE_TRUNC('week', date), TO_VARCHAR(DATE_TRUNC('week', date), 'Mon DD')
         ORDER BY week_start ASC, ad_type
       `, [clientId]),
@@ -329,28 +331,19 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const adType  = req.query.adType;
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
+    // Use mart_advertising_daily (pre-aggregated) — faster and avoids contention with ingest jobs
     const rows = await reqCache(clientId, req, () => query(`
-      WITH cp AS (
-        SELECT
-          date,
-          SUM(impressions) AS impressions,
-          SUM(clicks)      AS clicks,
-          SUM(adjusted_spend)  AS spend,
-          SUM(sales)       AS sales,
-          SUM(orders)      AS orders
-        FROM adjusted_campaign_performance
-        WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-        ${channelFilter(channel, adType)}
-        ${marketplaceFilterSafe(marketplace)}
-        GROUP BY date
-      )
       SELECT
         date                                                          AS report_date,
         impressions, clicks, spend, sales, orders,
-        CASE WHEN sales > 0  THEN spend / sales  ELSE NULL END       AS acos,
-        CASE WHEN spend > 0  THEN sales / spend  ELSE NULL END       AS roas,
+        acos,
+        roas,
         CASE WHEN clicks > 0 THEN spend / clicks ELSE NULL END       AS cpc
-      FROM cp
+      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      WHERE client_id = ?
+        AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
+        ${dateFilter('date', days, startDate, endDate)}
+        ${channelFilter(channel, adType)}
       ORDER BY date ASC
     `, [clientId]));
     res.json(rows);
@@ -366,26 +359,22 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
     const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
+    // Use mart_advertising_daily (pre-aggregated) — faster and avoids contention with ingest jobs
     const rows = await reqCache(clientId, req, () => query(`
-      WITH cp AS (
-        SELECT
-          ad_type,
-          SUM(impressions) AS impressions,
-          SUM(clicks)      AS clicks,
-          SUM(adjusted_spend)  AS spend,
-          SUM(sales)       AS sales,
-          SUM(orders)      AS orders
-        FROM adjusted_campaign_performance
-        WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-        ${marketplaceFilterSafe(marketplace)}
-        GROUP BY ad_type
-      )
       SELECT
         ad_type,
-        impressions, clicks, spend, sales, orders,
-        CASE WHEN sales > 0 THEN spend / sales ELSE NULL END AS acos,
-        CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
-      FROM cp
+        SUM(impressions) AS impressions,
+        SUM(clicks)      AS clicks,
+        SUM(spend)       AS spend,
+        SUM(sales)       AS sales,
+        SUM(orders)      AS orders,
+        CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
+      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      WHERE client_id = ?
+        AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
+        ${dateFilter('date', days, startDate, endDate)}
+      GROUP BY ad_type
       ORDER BY spend DESC
     `, [clientId]));
     res.json(rows.filter(r => Number(r.SPEND || 0) > 0));
