@@ -331,19 +331,26 @@ router.get('/trend', requireAuth, async (req, res, next) => {
     const adType  = req.query.adType;
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
-    // Use mart_advertising_daily (pre-aggregated) — faster and avoids contention with ingest jobs
+    // Use mart_advertising_daily (pre-aggregated) — faster and avoids contention with ingest jobs.
+    // Must GROUP BY date: mart has one row per (client_id, date, ad_type, marketplace),
+    // so without aggregation "all channels" returns 4 rows per date instead of 1.
     const rows = await reqCache(clientId, req, () => query(`
       SELECT
-        date                                                          AS report_date,
-        impressions, clicks, spend, sales, orders,
-        acos,
-        roas,
-        CASE WHEN clicks > 0 THEN spend / clicks ELSE NULL END       AS cpc
+        date                                                                    AS report_date,
+        SUM(impressions)                                                        AS impressions,
+        SUM(clicks)                                                             AS clicks,
+        SUM(spend)                                                              AS spend,
+        SUM(sales)                                                              AS sales,
+        SUM(orders)                                                             AS orders,
+        CASE WHEN SUM(sales)  > 0 THEN SUM(spend)  / SUM(sales)  ELSE NULL END AS acos,
+        CASE WHEN SUM(spend)  > 0 THEN SUM(sales)  / SUM(spend)  ELSE NULL END AS roas,
+        CASE WHEN SUM(clicks) > 0 THEN SUM(spend)  / SUM(clicks) ELSE NULL END AS cpc
       FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
       WHERE client_id = ?
         AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
         ${dateFilter('date', days, startDate, endDate)}
         ${channelFilter(channel, adType)}
+      GROUP BY date
       ORDER BY date ASC
     `, [clientId]));
     res.json(rows);
