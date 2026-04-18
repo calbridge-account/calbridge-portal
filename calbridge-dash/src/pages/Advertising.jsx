@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
-import { useState as useStateTab } from 'react';
 import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useAdvertisingCampaigns, useSbVideo } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
+import AdvertisingSubNav from './advertising/AdvertisingSubNav';
 
 // ─── Ad type color map ───────────────────────────────────────────────────────
 const AD_TYPES = [
@@ -287,6 +287,43 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name })
   );
 }
 
+// ─── Trend aggregation helpers ────────────────────────────────────────────────
+function isoWeek(dateStr) {
+  // Returns 'YYYY-Www' ISO week string
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const weekNum = Math.ceil(((d - jan4) / 86400000 + jan4.getUTCDay() + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function aggregateTrend(rows, granularity) {
+  if (granularity === 'daily') return rows;
+
+  const buckets = new Map();
+  for (const r of rows) {
+    const key = granularity === 'weekly'
+      ? isoWeek(r.date)
+      : r.date.substring(0, 7); // YYYY-MM
+    if (!buckets.has(key)) buckets.set(key, { key, spend: 0, sales: 0, clicks: 0, count: 0 });
+    const b = buckets.get(key);
+    b.spend  += r.spend;
+    b.sales  += r.sales;
+    b.clicks += r.clicks;
+    b.count  += 1;
+  }
+
+  return Array.from(buckets.values()).map(b => ({
+    date:   b.key,
+    label:  b.key,
+    spend:  b.spend,
+    sales:  b.sales,
+    clicks: b.clicks,
+    roas:   b.spend  > 0 ? b.sales  / b.spend  : null,
+    cpc:    b.clicks > 0 ? b.spend  / b.clicks : null,
+    acos:   b.sales  > 0 ? b.spend  / b.sales  : null,
+  }));
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Advertising() {
   const { range } = useDateRange();
@@ -294,40 +331,36 @@ export default function Advertising() {
   const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
   const fmt$ = makeFmtCurrency(currency);
   const [activeChannel, setActiveChannel] = useState('all');
-  const [pageTab, setPageTab] = useState('overview'); // 'overview' | 'campaigns' | 'products'
+  const [trendGranularity, setTrendGranularity] = useState('daily'); // 'daily' | 'weekly' | 'monthly'
   const { data, isLoading, isError, error } = useAdvertising(range, activeChannel);
   const { data: asinData, isLoading: asinLoading } = useAsinPerformance(range, activeChannel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, activeChannel);
-  const { data: campaignData, isLoading: campaignLoading } = useAdvertisingCampaigns(range, activeChannel);
   const { data: sbVideo, isLoading: sbVideoLoading } = useSbVideo(range);
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
 
   // Daily trend data — normalize keys from server (uppercase Snowflake cols → lowercase)
-  const chartData = (trendRows || []).map(r => {
+  const dailyData = useMemo(() => (trendRows || []).map(r => {
     const spend  = Number(r.SPEND  ?? r.spend  ?? 0);
     const sales  = Number(r.SALES  ?? r.sales  ?? 0);
     const clicks = Number(r.CLICKS ?? r.clicks ?? 0);
     const dateRaw = r.REPORT_DATE ?? r.report_date ?? '';
-    // Format label: '2026-04-01' → 'Apr 1'
+    const dateStr = String(dateRaw).substring(0, 10);
     const label = (() => {
       try {
-        const d = new Date(String(dateRaw).substring(0, 10) + 'T00:00:00Z');
+        const d = new Date(dateStr + 'T00:00:00Z');
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-      } catch { return String(dateRaw).substring(0, 10); }
+      } catch { return dateStr; }
     })();
-    return {
-      date:  String(dateRaw).substring(0, 10),
-      label,
-      spend,
-      sales,
-      clicks,
-      roas:  spend  > 0 ? sales  / spend  : null,
-      cpc:   clicks > 0 ? spend  / clicks : null,
-      acos:  Number(r.ACOS  ?? r.acos  ?? null),
+    return { date: dateStr, label, spend, sales, clicks,
+      roas: spend  > 0 ? sales  / spend  : null,
+      cpc:  clicks > 0 ? spend  / clicks : null,
+      acos: Number(r.ACOS ?? r.acos ?? null),
     };
-  });
+  }), [trendRows]);
+
+  const chartData = useMemo(() => aggregateTrend(dailyData, trendGranularity), [dailyData, trendGranularity]);
 
   const activeChannelInfo = CHANNELS.find(c => c.key === activeChannel);
 
@@ -345,12 +378,6 @@ export default function Advertising() {
     color: type.color,
   })).filter(d => d.value > 0);
 
-  const PAGE_TABS = [
-    { key: 'overview',   label: 'Overview'   },
-    { key: 'campaigns',  label: 'Campaigns'  },
-    { key: 'products',   label: 'Products'   },
-  ];
-
   return (
     <div>
       <PageHeader
@@ -360,24 +387,10 @@ export default function Advertising() {
 
       {isError && <ErrorState message={error?.message} />}
 
-      {/* Top-level page tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200 pb-0">
-        {PAGE_TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setPageTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              pageTab === tab.key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Sub-navigation */}
+      <AdvertisingSubNav />
 
-      {/* Channel selector — shown on all tabs */}
+      {/* Channel selector */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
         {CHANNELS.map(c => (
           <button
@@ -399,8 +412,8 @@ export default function Advertising() {
         ))}
       </div>
 
-      {/* ── Overview Tab ─────────────────────────────────────────────── */}
-      {pageTab === 'overview' && <>
+      {/* Overview content */}
+      <>
 
       {/* Combined KPI cards — row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
@@ -438,19 +451,34 @@ export default function Advertising() {
         })}
       </div>
 
-      {/* Daily trend + Spend Mix side by side */}
+      {/* Trend + Spend Mix side by side */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        {/* Daily chart — 2/3 width */}
+        {/* Trend chart — 2/3 width */}
         <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-baseline justify-between mb-1">
-            <h3 className="text-sm font-semibold text-gray-700">Daily Spend &amp; Sales — {chartTitle}</h3>
-            <span className="text-xs text-gray-400">{activeChannelInfo?.description}</span>
+          <div className="flex items-center justify-between mb-1 gap-4">
+            <h3 className="text-sm font-semibold text-gray-700">Spend &amp; Sales Trend — {chartTitle}</h3>
+            {/* Daily | Weekly | Monthly toggle */}
+            <div className="flex gap-0 border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+              {[{ key: 'daily', label: 'Daily' }, { key: 'weekly', label: 'Weekly' }, { key: 'monthly', label: 'Monthly' }].map(g => (
+                <button
+                  key={g.key}
+                  onClick={() => setTrendGranularity(g.key)}
+                  className={`px-3 py-1 text-xs font-medium transition-colors ${
+                    trendGranularity === g.key
+                      ? 'bg-green-700 text-white'
+                      : 'bg-white text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="text-xs text-gray-400 mb-4">Spend · Sales · ROAS · CPC per day</p>
+          <p className="text-xs text-gray-400 mb-4">Spend · Sales · ROAS · CPC</p>
           {trendLoading ? (
             <div className="h-64 bg-gray-100 rounded animate-pulse" />
           ) : chartData.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data for this period</div>
+            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No trend data for this period</div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={chartData} margin={{ top: 5, right: 60, bottom: 5, left: 10 }}>
@@ -585,7 +613,7 @@ export default function Advertising() {
         </div>
       )}
 
-      </> /* end overview tab */}
+      </> {/* end overview tab */}
 
       {/* ── Campaigns Tab ──────────────────────────────────────────── */}
       {pageTab === 'campaigns' && (

@@ -150,3 +150,29 @@ export const getAsinPerformance = (range, channel, marketplace) => {
   const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
   return advJSON(`/asin-performance${base}${channelParam}${mp}`);
 };
+
+export const getKeywordTargeting = (range, channel, marketplace) => {
+  const base = rangeParams(range);
+  const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return advJSON(`/keyword-targeting${base}${channelParam}${mp}&limit=1000`);
+};
+
+export const getTargetingRollup = (range, channel, marketplace) => {
+  const base = rangeParams(range);
+  const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return advJSON(`/targeting-rollup${base}${channelParam}${mp}`);
+};
+
+export const getDspSummary = (range, marketplace) => {
+  const base = rangeParams(range);
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return advJSON(`/dsp-summary${base}${mp}`);
+};
+
+export const getDspOrders = (range, marketplace) => {
+  const base = rangeParams(range);
+  const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
+  return advJSON(`/dsp-orders${base}${mp}`);
+};

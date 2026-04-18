@@ -9,6 +9,11 @@ import Overview from './pages/Overview';
 import VendorPerformance from './pages/VendorPerformance';
 import Inventory from './pages/Inventory';
 import Advertising from './pages/Advertising';
+import AdvertisingCampaigns from './pages/advertising/AdvertisingCampaigns';
+import AdvertisingKeywords from './pages/advertising/AdvertisingKeywords';
+import AdvertisingProducts from './pages/advertising/AdvertisingProducts';
+import AdvertisingTargeting from './pages/advertising/AdvertisingTargeting';
+import AdvertisingDsp from './pages/advertising/AdvertisingDsp';
 import Forecasting from './pages/Forecasting';
 import Account from './pages/Account';
 import Cogs from './pages/Cogs';
@@ -38,6 +43,11 @@ export default function App() {
             <Route path="/vendor"      element={<VendorPerformance />} />
             <Route path="/inventory"   element={<Inventory />} />
             <Route path="/advertising" element={<Advertising />} />
+            <Route path="/advertising/campaigns" element={<AdvertisingCampaigns />} />
+            <Route path="/advertising/keywords"  element={<AdvertisingKeywords />} />
+            <Route path="/advertising/products"  element={<AdvertisingProducts />} />
+            <Route path="/advertising/targeting" element={<AdvertisingTargeting />} />
+            <Route path="/advertising/dsp"       element={<AdvertisingDsp />} />
             <Route path="/forecasting" element={<Forecasting />} />
             <Route path="/account"     element={<Account />} />
             <Route path="/cogs"        element={<Cogs />} />

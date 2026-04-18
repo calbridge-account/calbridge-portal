@@ -26,6 +26,10 @@ import {
   deleteBudget,
   updateBudgetCampaigns,
   getAsinPerformance,
+  getKeywordTargeting,
+  getTargetingRollup,
+  getDspSummary,
+  getDspOrders,
 } from '../api/client';
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
@@ -238,6 +242,46 @@ export function useSbVideo(range) {
   return useQuery({
     queryKey: ['sb-video', rangeKey(range), activeMarketplace ?? 'US'],
     queryFn: () => getSbVideo(range, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useKeywordTargeting(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['keyword-targeting', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getKeywordTargeting(range, channel, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useTargetingRollup(range, channel) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['targeting-rollup', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getTargetingRollup(range, channel, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useDspSummary(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['dsp-summary', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getDspSummary(range, activeMarketplace),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useDspOrders(range) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  return useQuery({
+    queryKey: ['dsp-orders', rangeKey(range), activeMarketplace ?? 'US'],
+    queryFn: () => getDspOrders(range, activeMarketplace),
     staleTime: STALE_TIME,
     retry: 2,
   });
