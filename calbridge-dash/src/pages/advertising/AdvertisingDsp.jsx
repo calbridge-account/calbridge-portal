@@ -62,36 +62,42 @@ export default function AdvertisingDsp() {
   const handleSort = col => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }));
 
   // Normalize summary metrics
-  const metrics = summary || {};
-  const spend    = Number(metrics.spend     || metrics.SPEND     || 0);
-  const sales    = Number(metrics.sales     || metrics.SALES     || 0);
-  const impr     = Number(metrics.impressions || metrics.IMPRESSIONS || 0);
-  const clicks   = Number(metrics.clicks    || metrics.CLICKS    || 0);
-  const dpv      = Number(metrics.dpv       || metrics.DPV       || metrics.detail_page_views || 0);
-  const ntbOrders= Number(metrics.ntb_orders || metrics.NTB_ORDERS || metrics.newToBrandOrders || 0);
-  const ntbSales = Number(metrics.ntb_sales || metrics.NTB_SALES  || metrics.newToBrandSales  || 0);
-  const viewRate = metrics.viewability_rate || metrics.VIEWABILITY_RATE || metrics.viewabilityRate || null;
-  const roas     = spend > 0 ? sales / spend : null;
+  // API returns camelCase: totalSpend, totalSales, totalImpressions, totalClicks,
+  // totalDpv, totalNtbPurchases, totalNtbSales, totalAtc, viewabilityRate, roas, ctr
+  const metrics  = summary || {};
+  const spend    = Number(metrics.totalSpend       || metrics.spend       || 0);
+  const sales    = Number(metrics.totalSales       || metrics.sales       || 0);
+  const impr     = Number(metrics.totalImpressions || metrics.impressions || 0);
+  const clicks   = Number(metrics.totalClicks      || metrics.clicks      || 0);
+  const dpv      = Number(metrics.totalDpv         || metrics.dpv         || 0);
+  const atc      = Number(metrics.totalAtc         || metrics.atc         || 0);
+  const ntbOrders= Number(metrics.totalNtbPurchases|| metrics.ntbOrders   || 0);
+  const ntbSales = Number(metrics.totalNtbSales    || metrics.ntbSales    || 0);
+  const viewRate = metrics.viewabilityRate         || metrics.viewability_rate || null;
+  const roas     = metrics.roas != null ? Number(metrics.roas) : (spend > 0 ? sales / spend : null);
   const cpm      = impr  > 0 ? (spend / impr) * 1000 : null;
-  const ctr      = impr  > 0 ? clicks / impr : null;
+  const ctr      = metrics.ctr != null ? Number(metrics.ctr) : (impr > 0 ? clicks / impr : null);
   const ntbPct   = sales > 0 ? ntbSales / sales : null;
 
   // Orders table
   const rawOrders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || ordersData?.rows || []);
 
   const normalizeOrder = r => ({
-    orderId:      r.ORDER_ID    || r.order_id    || r.ORDER_NAME || r.order_name || '—',
-    orderName:    r.ORDER_NAME  || r.order_name  || '—',
-    lineItem:     r.LINE_ITEM_NAME || r.line_item_name || '—',
-    spend:        Number(r.SPEND       || r.spend       || 0),
-    sales:        Number(r.SALES       || r.sales       || 0),
-    impressions:  Number(r.IMPRESSIONS || r.impressions || 0),
-    clicks:       Number(r.CLICKS      || r.clicks      || 0),
-    dpv:          Number(r.DPV || r.dpv || 0),
-    ntbOrders:    Number(r.NTB_ORDERS || r.ntb_orders || 0),
-    ntbSales:     Number(r.NTB_SALES  || r.ntb_sales  || 0),
-    viewability:  r.VIEWABILITY_RATE != null ? Number(r.VIEWABILITY_RATE) : r.viewability_rate != null ? Number(r.viewability_rate) : null,
-    roas:         r.ROAS != null ? Number(r.ROAS) : null,
+    orderId:     r.orderId      || r.ORDER_ID    || '—',
+    orderName:   r.orderName    || r.ORDER_NAME  || '—',
+    spend:       Number(r.spend       || r.SPEND       || 0),
+    sales:       Number(r.sales       || r.SALES       || 0),
+    impressions: Number(r.impressions || r.IMPRESSIONS || 0),
+    clicks:      Number(r.clicks      || r.CLICKS      || 0),
+    dpv:         Number(r.dpv         || r.DPV         || 0),
+    atc:         Number(r.atc         || r.ATC         || 0),
+    ntbOrders:   Number(r.ntbPurchases|| r.NTB_ORDERS  || 0),
+    ntbSales:    Number(r.ntbSales    || r.NTB_SALES   || 0),
+    viewability: r.viewabilityRate != null ? Number(r.viewabilityRate) : r.VIEWABILITY_RATE != null ? Number(r.VIEWABILITY_RATE) : null,
+    roas:        r.roas != null ? Number(r.roas) : r.ROAS != null ? Number(r.ROAS) : null,
+    orderBudget: Number(r.orderBudget || 0),
+    orderStart:  r.orderStart  || null,
+    orderEnd:    r.orderEnd    || null,
   });
 
   const orders = rawOrders.map(normalizeOrder)
@@ -120,12 +126,12 @@ export default function AdvertisingDsp() {
           Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
         ) : (
           <>
-            <MetricTile label="Total Spend"   value={fmt$(spend)}                                             purple />
-            <MetricTile label="Attributed Sales" value={fmt$(sales)}                                          purple />
-            <MetricTile label="ROAS"          value={roas != null ? roas.toFixed(2) + 'x' : '—'}             purple />
-            <MetricTile label="Impressions"   value={fmtNum(impr)}  sub={viewRate != null ? `${(viewRate * 100).toFixed(1)}% viewable` : null} />
-            <MetricTile label="Detail Page Views" value={fmtNum(dpv)} sub={impr > 0 ? `${((dpv / impr) * 100).toFixed(2)}% DPV rate` : null} />
-            <MetricTile label="NTB Orders"    value={fmtNum(ntbOrders)} sub={ntbPct != null ? `${(ntbPct * 100).toFixed(1)}% of sales` : null} />
+            <MetricTile label="Total Spend"       value={fmt$(spend)}                                              purple />
+            <MetricTile label="Attributed Sales"   value={fmt$(sales)}                                           purple />
+            <MetricTile label="ROAS"               value={roas != null ? roas.toFixed(2) + 'x' : '—'}            purple />
+            <MetricTile label="Impressions"        value={fmtNum(impr)} sub={viewRate != null ? `${(Number(viewRate) * 100).toFixed(2)}% viewable` : null} />
+            <MetricTile label="Detail Page Views"  value={fmtNum(dpv)}  sub={impr > 0 ? `${((dpv / impr) * 100).toFixed(2)}% DPV rate` : null} />
+            <MetricTile label="NTB Orders"         value={fmtNum(ntbOrders)} sub={ntbPct != null ? `${(ntbPct * 100).toFixed(1)}% of sales NTB` : null} />
           </>
         )}
       </div>
@@ -136,8 +142,8 @@ export default function AdvertisingDsp() {
           <>
             <MetricTile label="Clicks"        value={fmtNum(clicks)} sub={ctr != null ? fmtPct(ctr) + ' CTR' : null} />
             <MetricTile label="CPM"           value={cpm != null ? fmt$(cpm) : '—'} sub="Cost per 1k impressions" />
-            <MetricTile label="NTB Sales"     value={fmt$(ntbSales)} />
-            <MetricTile label="Viewability"   value={viewRate != null ? fmtPct(viewRate) : '—'} />
+            <MetricTile label="NTB Sales"     value={fmt$(ntbSales)} sub={ntbPct != null ? fmtPct(ntbPct) + ' of sales' : null} />
+            <MetricTile label="Add to Cart"   value={fmtNum(atc)} sub={dpv > 0 ? `${((atc / dpv) * 100).toFixed(1)}% ATC rate` : null} />
           </>
         )}
       </div>
@@ -173,6 +179,7 @@ export default function AdvertisingDsp() {
                   <Th col="impressions" label="Impr."       right sort={sort} onSort={handleSort} />
                   <Th col="clicks"      label="Clicks"      right sort={sort} onSort={handleSort} />
                   <Th col="dpv"         label="DPV"         right sort={sort} onSort={handleSort} />
+                  <Th col="atc"         label="Add to Cart" right sort={sort} onSort={handleSort} />
                   <Th col="ntbOrders"   label="NTB Orders"  right sort={sort} onSort={handleSort} />
                   <Th col="ntbSales"    label="NTB Sales"   right sort={sort} onSort={handleSort} />
                   <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Viewability</th>
@@ -193,6 +200,7 @@ export default function AdvertisingDsp() {
                     <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.dpv)}</td>
+                    <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.atc)}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.ntbOrders.toLocaleString()}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{fmt$(r.ntbSales)}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.viewability != null ? fmtPct(r.viewability) : '—'}</td>
