@@ -71,6 +71,10 @@ async function createConnection() {
 }
 
 function isAlive(entry) {
+  // conn.isUp() lies for terminated connections in the Snowflake SDK — it returns true
+  // even after the server closes the connection. We track termination ourselves via
+  // entry.terminated, set whenever a query fails with a terminated-connection error.
+  if (entry.terminated) return false;
   try { return entry.conn && entry.conn.isUp && entry.conn.isUp(); }
   catch { return false; }
 }
@@ -156,7 +160,9 @@ async function _executeQuery(entry, sqlText, binds) {
       complete: (err, stmt, rows) => {
         clearTimeout(timer);
         if (err) {
-          removeConnection(entry); // always evict on error — may be dead
+          // Mark as terminated before evicting so isAlive() catches it going forward
+          if (isTerminatedError(err)) entry.terminated = true;
+          removeConnection(entry);
           // Surface schema errors clearly
           if (err.message?.includes('invalid identifier')) {
             const match = err.message.match(/invalid identifier '([^']+)'/i);
