@@ -63,7 +63,7 @@ class SnowflakeStore extends Store {
       const sess = typeof raw === 'string' ? JSON.parse(raw) : raw;
       cb(null, sess);
     }).catch(err => {
-      console.error('[SnowflakeStore] get error (returning null session):', err.message);
+      console.error('[SnowflakeStore] get error (returning null session):', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
       cb(null, null); // fail open — treat as no session
     });
   }
@@ -79,6 +79,7 @@ class SnowflakeStore extends Store {
     const expiredAt = new Date(Date.now() + maxAge).toISOString();
     const sessJson = JSON.stringify(sess);
 
+    const t = Date.now();
     query(
       `MERGE INTO sessions AS tgt
        USING (SELECT ? AS sid, PARSE_JSON(?) AS sess, ?::TIMESTAMP AS expired_at) AS src
@@ -89,10 +90,11 @@ class SnowflakeStore extends Store {
          INSERT (sid, sess, expired_at) VALUES (src.sid, src.sess, src.expired_at)`,
       [sid, sessJson, expiredAt]
     ).then(() => {
+      console.log('[SnowflakeStore] set OK in', Date.now()-t, 'ms for sid', sid.substring(0,8));
       this._maybeCleanup();
       cb(null);
     }).catch(err => {
-      console.error('[SnowflakeStore] set error (session may not persist):', err.message);
+      console.error('[SnowflakeStore] set error (session may not persist):', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
       cb(null); // fail open — don't propagate to user
     });
   }

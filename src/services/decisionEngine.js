@@ -132,6 +132,7 @@ async function analyze(clientId, days = 30) {
   }
 
   // ── Keyword discovery (search term mining) ──────────────────────────────────
+  let inserted = 0;  // declared here so all insert blocks can use it
   const searchTermRecs = await discoverKeywords(clientId, days, cooldownSet);
   for (const a of searchTermRecs) {
     try {
@@ -198,7 +199,6 @@ async function analyze(clientId, days = 30) {
   }
 
   // ── Insert new actions ──────────────────────────────────────────────────────
-  let inserted = 0;
   for (const a of actions) {
     try {
       await query(`
@@ -347,10 +347,12 @@ async function discoverKeywords(clientId, days, cooldownSet) {
     LIMIT 50
   `, [clientId, days, clientId]);
 
+  const crypto = require('crypto');
   const actions = [];
   for (const r of rows) {
-    // Use search term as entity_id (not a keyword_id — it's a new keyword to be created)
-    const entityId = `new_kw:${r.CAMPAIGN_ID}:${r.AD_GROUP_ID}:${(r.SEARCH_TERM||'').replace(/[^a-z0-9 ]/gi,'').substring(0,50)}`;
+    // Hash entity_id to stay within VARCHAR(64) — use short hash of campaign+adgroup+term
+    const raw = `${r.CAMPAIGN_ID}:${r.AD_GROUP_ID}:${r.SEARCH_TERM||''}`;
+    const entityId = 'kw:' + crypto.createHash('sha1').update(raw).digest('hex').substring(0, 40);
     if (cooldownSet.has(entityId)) continue;
 
     const spend   = Number(r.SPEND  || 0);

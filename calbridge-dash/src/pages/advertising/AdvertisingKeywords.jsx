@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useKeywordTargeting } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
+import CampaignDrawer from '../../components/CampaignDrawer';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -43,29 +45,46 @@ export default function AdvertisingKeywords() {
   const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
   const fmt$ = makeFmtCurrency(currency);
 
+  const [searchParams] = useSearchParams();
   const [channel, setChannel] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ col: 'spend', dir: 'desc' });
-  const [matchTypeFilter, setMatchTypeFilter] = useState('All');
+  // Pre-fill matchType from URL param (e.g. when navigating from Targeting page)
+  const [matchTypeFilter, setMatchTypeFilter] = useState(() => searchParams.get('matchType') || 'All');
+
+  // If URL param changes (e.g. back navigation), sync filter
+  useEffect(() => {
+    const mt = searchParams.get('matchType');
+    if (mt) setMatchTypeFilter(mt);
+  }, [searchParams]);
+
+  // Drawer state
+  const [drawer, setDrawer] = useState({ open: false, keyword: null, matchType: null, adType: null });
+  const closeDrawer = useCallback(() => setDrawer(d => ({ ...d, open: false })), []);
+
+  const openDrawer = useCallback((keyword, matchType, adType) => {
+    setDrawer({ open: true, keyword, matchType, adType });
+  }, []);
 
   const { data, isLoading, isError, error } = useKeywordTargeting(range, channel);
 
   const raw = Array.isArray(data) ? data : (data?.keywords || data?.rows || []);
 
   const normalize = r => ({
-    keyword:    r.KEYWORD    || r.keyword    || r.TARGETING_TEXT || r.targeting_text || '—',
-    matchType:  r.MATCH_TYPE || r.match_type || r.MATCH_TYPE_TEXT || '—',
-    adType:     r.AD_TYPE    || r.ad_type    || '—',
-    campaign:   r.CAMPAIGN_NAME || r.campaign_name || '—',
-    spend:      Number(r.SPEND       || r.spend       || 0),
-    sales:      Number(r.SALES       || r.sales       || 0),
-    clicks:     Number(r.CLICKS      || r.clicks      || 0),
-    impressions:Number(r.IMPRESSIONS || r.impressions || 0),
-    orders:     Number(r.ORDERS      || r.orders      || 0),
-    acos:       r.ACOS != null ? Number(r.ACOS) : r.acos != null ? Number(r.acos) : null,
-    roas:       r.ROAS != null ? Number(r.ROAS) : r.roas != null ? Number(r.roas) : null,
-    cpc:        r.CPC  != null ? Number(r.CPC)  : r.cpc  != null ? Number(r.cpc)  : null,
-    ctr:        r.CTR  != null ? Number(r.CTR)  : r.ctr  != null ? Number(r.ctr)  : null,
+    keyword:       r.KEYWORD    || r.keyword    || r.TARGETING_TEXT || r.targeting_text || '—',
+    matchType:     r.MATCH_TYPE || r.match_type || r.MATCH_TYPE_TEXT || '—',
+    adType:        r.AD_TYPE    || r.ad_type    || '—',
+    campaign:      r.CAMPAIGN_NAME || r.campaign_name || '—',
+    campaignCount: Number(r.CAMPAIGN_COUNT || r.campaignCount || 1),
+    spend:         Number(r.SPEND       || r.spend       || 0),
+    sales:         Number(r.SALES       || r.sales       || 0),
+    clicks:        Number(r.CLICKS      || r.clicks      || 0),
+    impressions:   Number(r.IMPRESSIONS || r.impressions || 0),
+    orders:        Number(r.ORDERS      || r.orders      || 0),
+    acos:          r.ACOS != null ? Number(r.ACOS) : r.acos != null ? Number(r.acos) : null,
+    roas:          r.ROAS != null ? Number(r.ROAS) : r.roas != null ? Number(r.roas) : null,
+    cpc:           r.CPC  != null ? Number(r.CPC)  : r.cpc  != null ? Number(r.cpc)  : null,
+    ctr:           r.CTR  != null ? Number(r.CTR)  : r.ctr  != null ? Number(r.ctr)  : null,
   });
 
   const rows = raw.map(normalize);
@@ -82,6 +101,11 @@ export default function AdvertisingKeywords() {
 
   const handleSort = col => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }));
   const acosColor = v => v == null ? '' : v > 0.4 ? 'text-red-600' : v < 0.2 ? 'text-green-700' : 'text-gray-900';
+
+  // Build drawer endpoint
+  const drawerEndpoint = drawer.keyword
+    ? `/advertising/keyword-campaigns?keyword=${encodeURIComponent(drawer.keyword)}${drawer.matchType && drawer.matchType !== '—' ? `&matchType=${encodeURIComponent(drawer.matchType)}` : ''}&range=${range}`
+    : null;
 
   return (
     <div>
@@ -144,7 +168,10 @@ export default function AdvertisingKeywords() {
           </div>
         ) : (
           <>
-            <div className="text-xs text-gray-400 mb-3">{filtered.length.toLocaleString()} keywords</div>
+            <div className="text-xs text-gray-400 mb-3">
+              {filtered.length.toLocaleString()} keywords
+              <span className="ml-2 text-gray-300">· Click a row to see campaign breakdown</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -152,6 +179,7 @@ export default function AdvertisingKeywords() {
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keyword / Target</th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Match</th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaigns</th>
                     <Th col="spend"       label="Spend"  right sort={sort} onSort={handleSort} />
                     <Th col="sales"       label="Sales"  right sort={sort} onSort={handleSort} />
                     <Th col="acos"        label="ACoS"   right sort={sort} onSort={handleSort} />
@@ -165,7 +193,11 @@ export default function AdvertisingKeywords() {
                 </thead>
                 <tbody>
                   {filtered.map((r, i) => (
-                    <tr key={i} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <tr
+                      key={i}
+                      onClick={() => openDrawer(r.keyword, r.matchType, r.adType)}
+                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                    >
                       <td className="py-2 px-3 max-w-xs" title={r.keyword}>
                         <span className="block truncate max-w-[260px] font-medium text-gray-800">{r.keyword}</span>
                         {r.campaign !== '—' && (
@@ -178,6 +210,11 @@ export default function AdvertisingKeywords() {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-500">{r.adType}</td>
+                      <td className="py-2 px-3 text-right">
+                        <span className={`inline-flex items-center justify-center min-w-[1.5rem] text-xs font-semibold px-1.5 py-0.5 rounded-full ${r.campaignCount > 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {r.campaignCount}
+                        </span>
+                      </td>
                       <td className="py-2 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
                       <td className="py-2 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
                       <td className={`py-2 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
@@ -195,6 +232,15 @@ export default function AdvertisingKeywords() {
           </>
         )}
       </div>
+
+      <CampaignDrawer
+        open={drawer.open}
+        onClose={closeDrawer}
+        title={drawer.keyword || ''}
+        subtitle={[drawer.matchType, drawer.adType].filter(Boolean).join(' · ')}
+        endpoint={drawerEndpoint}
+        currency={currency}
+      />
     </div>
   );
 }

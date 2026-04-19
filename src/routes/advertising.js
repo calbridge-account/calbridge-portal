@@ -556,6 +556,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
           p.advertised_asin                                                       AS asin,
           MAX(pr.sku)                                                             AS model_number,
           COALESCE(MAX(pr.title), p.advertised_asin)                             AS product_title,
+          COUNT(DISTINCT p.campaign_id)                                           AS campaign_count,
           SUM(p.cost)                                                             AS spend,
           SUM(p.clicks)                                                           AS clicks,
           SUM(p.impressions)                                                      AS impressions,
@@ -619,6 +620,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
         asin:         r.ASIN,
         modelNumber:  r.MODEL_NUMBER || null,
         productTitle: r.PRODUCT_TITLE || r.ASIN,
+        campaignCount: Number(r.CAMPAIGN_COUNT || 1),
         spend:        Number(r.SPEND       || 0),
         clicks:       Number(r.CLICKS      || 0),
         impressions:  Number(r.IMPRESSIONS || 0),
@@ -709,6 +711,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
         MAX(ad_group_name)                                                        AS ad_group_name,
         MAX(ad_keyword_status)                                                    AS keyword_status,
         MAX(keyword_bid)                                                          AS keyword_bid,
+        COUNT(DISTINCT campaign_id)                                               AS campaign_count,
         SUM(impressions)                                                          AS impressions,
         SUM(clicks)                                                               AS clicks,
         SUM(cost)                                                                 AS spend,
@@ -735,6 +738,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
         MAX(ad_group_name)                                                        AS ad_group_name,
         MAX(ad_keyword_status)                                                    AS keyword_status,
         MAX(keyword_bid)                                                          AS keyword_bid,
+        COUNT(DISTINCT campaign_id)                                               AS campaign_count,
         SUM(impressions)                                                          AS impressions,
         SUM(clicks)                                                               AS clicks,
         SUM(cost)                                                                 AS spend,
@@ -776,6 +780,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       adGroupName:   r.AD_GROUP_NAME || null,
       keywordStatus: r.KEYWORD_STATUS || null,
       keywordBid:    r.KEYWORD_BID != null ? Number(r.KEYWORD_BID) : null,
+      campaignCount: Number(r.CAMPAIGN_COUNT || 1),
       impressions:   Number(r.IMPRESSIONS || 0),
       clicks:        Number(r.CLICKS      || 0),
       spend:         Number(r.SPEND       || 0),
@@ -1113,6 +1118,215 @@ router.get('/keyword-type-breakdown', requireAuth, async (req, res, next) => {
       ...m,
       acos: m.sales > 0 ? m.spend / m.sales : null,
       roas: m.spend > 0 ? m.sales / m.spend : null
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/keyword-campaigns?keyword=X&matchType=Y&days=30
+ * Per-campaign breakdown for a specific keyword (SP+SB). Used by drill-down drawer.
+ */
+router.get('/keyword-campaigns', requireAuth, async (req, res, next) => {
+  try {
+    const { days, startDate, endDate } = parseRange(req);
+    const clientId  = await resolveClientId(req);
+    const keyword   = req.query.keyword   || '';
+    const matchType = req.query.matchType || null;
+
+    if (!keyword) return res.status(400).json({ error: 'keyword required' });
+
+    const spSql = `
+      SELECT
+        'SP'                                                                      AS ad_type,
+        campaign_id,
+        MAX(campaign_name)                                                        AS campaign_name,
+        MAX(campaign_status)                                                      AS campaign_status,
+        MAX(campaign_budget_amount)                                               AS campaign_budget,
+        MAX(ad_group_name)                                                        AS ad_group_name,
+        COALESCE(match_type, 'AUTO')                                              AS match_type,
+        MAX(ad_keyword_status)                                                    AS keyword_status,
+        MAX(keyword_bid)                                                          AS keyword_bid,
+        SUM(impressions)                                                          AS impressions,
+        SUM(clicks)                                                               AS clicks,
+        SUM(cost)                                                                 AS spend,
+        SUM(purchases_30_d)                                                       AS orders,
+        SUM(sales_30_d)                                                           AS sales,
+        CASE WHEN SUM(sales_30_d) > 0  THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0        THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas,
+        CASE WHEN SUM(clicks) > 0      THEN SUM(cost) / SUM(clicks)    ELSE NULL END AS cpc
+      FROM sp_targeting_keyword_report
+      WHERE client_id = ?
+        ${dateFilter('date', days, startDate, endDate)}
+        AND UPPER(TRIM(COALESCE(keyword, targeting))) = UPPER(TRIM(?))
+        ${matchType ? `AND UPPER(COALESCE(match_type, 'AUTO')) = UPPER('${matchType}')` : ''}
+      GROUP BY campaign_id, COALESCE(match_type, 'AUTO')
+    `;
+
+    const sbSql = `
+      SELECT
+        'SB'                                                                      AS ad_type,
+        campaign_id,
+        MAX(campaign_name)                                                        AS campaign_name,
+        MAX(campaign_status)                                                      AS campaign_status,
+        MAX(campaign_budget_amount)                                               AS campaign_budget,
+        MAX(ad_group_name)                                                        AS ad_group_name,
+        COALESCE(match_type, 'N/A')                                               AS match_type,
+        MAX(ad_keyword_status)                                                    AS keyword_status,
+        MAX(keyword_bid)                                                          AS keyword_bid,
+        SUM(impressions)                                                          AS impressions,
+        SUM(clicks)                                                               AS clicks,
+        SUM(cost)                                                                 AS spend,
+        SUM(purchases)                                                            AS orders,
+        SUM(sales)                                                                AS sales,
+        CASE WHEN SUM(sales) > 0  THEN SUM(cost) / SUM(sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0   THEN SUM(sales) / SUM(cost) ELSE NULL END AS roas,
+        CASE WHEN SUM(clicks) > 0 THEN SUM(cost) / SUM(clicks) ELSE NULL END AS cpc
+      FROM sb_keyword_report
+      WHERE client_id = ?
+        ${dateFilter('report_date', days, startDate, endDate)}
+        AND UPPER(TRIM(COALESCE(keyword_text, targeting_text))) = UPPER(TRIM(?))
+        ${matchType ? `AND UPPER(COALESCE(match_type, 'N/A')) = UPPER('${matchType}')` : ''}
+      GROUP BY campaign_id, COALESCE(match_type, 'N/A')
+    `;
+
+    const [spRows, sbRows] = await Promise.all([
+      query(spSql,  [clientId, keyword]),
+      query(sbSql,  [clientId, keyword]),
+    ]);
+
+    const all = [...spRows, ...sbRows].sort((a, b) => Number(b.SPEND || 0) - Number(a.SPEND || 0));
+
+    res.json(all.map(r => ({
+      adType:         r.AD_TYPE,
+      campaignId:     r.CAMPAIGN_ID,
+      campaignName:   r.CAMPAIGN_NAME    || '—',
+      campaignStatus: r.CAMPAIGN_STATUS  || '—',
+      campaignBudget: r.CAMPAIGN_BUDGET  != null ? Number(r.CAMPAIGN_BUDGET) : null,
+      adGroupName:    r.AD_GROUP_NAME    || '—',
+      matchType:      r.MATCH_TYPE       || '—',
+      keywordStatus:  r.KEYWORD_STATUS   || '—',
+      keywordBid:     r.KEYWORD_BID      != null ? Number(r.KEYWORD_BID) : null,
+      impressions:    Number(r.IMPRESSIONS || 0),
+      clicks:         Number(r.CLICKS     || 0),
+      spend:          Number(r.SPEND      || 0),
+      orders:         Number(r.ORDERS     || 0),
+      sales:          Number(r.SALES      || 0),
+      acos:           r.ACOS != null ? Number(r.ACOS) : null,
+      roas:           r.ROAS != null ? Number(r.ROAS) : null,
+      cpc:            r.CPC  != null ? Number(r.CPC)  : null,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/product-campaigns?asin=X&days=30
+ * Per-campaign breakdown for a specific advertised ASIN.
+ */
+router.get('/product-campaigns', requireAuth, async (req, res, next) => {
+  try {
+    const { days, startDate, endDate } = parseRange(req);
+    const clientId = await resolveClientId(req);
+    const asin     = (req.query.asin || '').trim().toUpperCase();
+
+    if (!asin) return res.status(400).json({ error: 'asin required' });
+
+    const rows = await query(`
+      SELECT
+        campaign_id,
+        MAX(campaign_name)          AS campaign_name,
+        MAX(campaign_status)        AS campaign_status,
+        MAX(campaign_budget_amount) AS campaign_budget,
+        MAX(ad_group_name)          AS ad_group_name,
+        SUM(impressions)            AS impressions,
+        SUM(clicks)                 AS clicks,
+        SUM(cost)                   AS spend,
+        SUM(purchases_30_d)         AS orders,
+        SUM(sales_30_d)             AS sales,
+        CASE WHEN SUM(sales_30_d) > 0  THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(cost) > 0        THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas,
+        CASE WHEN SUM(clicks) > 0      THEN SUM(cost) / SUM(clicks)    ELSE NULL END AS cpc
+      FROM sp_advertised_product_report
+      WHERE client_id = ?
+        ${dateFilter('date', days, startDate, endDate)}
+        AND UPPER(TRIM(advertised_asin)) = ?
+      GROUP BY campaign_id
+      ORDER BY spend DESC
+    `, [clientId, asin]);
+
+    res.json(rows.map(r => ({
+      campaignId:     r.CAMPAIGN_ID,
+      campaignName:   r.CAMPAIGN_NAME    || '—',
+      campaignStatus: r.CAMPAIGN_STATUS  || '—',
+      campaignBudget: r.CAMPAIGN_BUDGET  != null ? Number(r.CAMPAIGN_BUDGET) : null,
+      adGroupName:    r.AD_GROUP_NAME    || '—',
+      impressions:    Number(r.IMPRESSIONS || 0),
+      clicks:         Number(r.CLICKS     || 0),
+      spend:          Number(r.SPEND      || 0),
+      orders:         Number(r.ORDERS     || 0),
+      sales:          Number(r.SALES      || 0),
+      acos:           r.ACOS != null ? Number(r.ACOS) : null,
+      roas:           r.ROAS != null ? Number(r.ROAS) : null,
+      cpc:            r.CPC  != null ? Number(r.CPC)  : null,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /advertising/target-campaigns?target=X&days=30
+ * Per-campaign breakdown for a specific SD/ASIN target.
+ */
+router.get('/target-campaigns', requireAuth, async (req, res, next) => {
+  try {
+    const { days, startDate, endDate } = parseRange(req);
+    const clientId = await resolveClientId(req);
+    const target   = (req.query.target || '').trim();
+
+    if (!target) return res.status(400).json({ error: 'target required' });
+
+    // Check SD target report columns
+    let rows = [];
+    try {
+      rows = await query(`
+        SELECT
+          campaign_id,
+          MAX(campaign_name)          AS campaign_name,
+          MAX(campaign_status)        AS campaign_status,
+          MAX(campaign_budget_amount) AS campaign_budget,
+          MAX(ad_group_name)          AS ad_group_name,
+          SUM(impressions)            AS impressions,
+          SUM(clicks)                 AS clicks,
+          SUM(cost)                   AS spend,
+          SUM(purchases_30_d)         AS orders,
+          SUM(sales_30_d)             AS sales,
+          CASE WHEN SUM(sales_30_d) > 0  THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
+          CASE WHEN SUM(cost) > 0        THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas,
+          CASE WHEN SUM(clicks) > 0      THEN SUM(cost) / SUM(clicks)    ELSE NULL END AS cpc
+        FROM sd_target_report
+        WHERE client_id = ?
+          ${dateFilter('date', days, startDate, endDate)}
+          AND UPPER(TRIM(COALESCE(targeting_text, targeting_expression, targeting))) = UPPER(TRIM(?))
+        GROUP BY campaign_id
+        ORDER BY spend DESC
+      `, [clientId, target]);
+    } catch (e) {
+      // SD table may not exist or column names differ — return empty
+      rows = [];
+    }
+
+    res.json(rows.map(r => ({
+      campaignId:     r.CAMPAIGN_ID,
+      campaignName:   r.CAMPAIGN_NAME    || '—',
+      campaignStatus: r.CAMPAIGN_STATUS  || '—',
+      campaignBudget: r.CAMPAIGN_BUDGET  != null ? Number(r.CAMPAIGN_BUDGET) : null,
+      adGroupName:    r.AD_GROUP_NAME    || '—',
+      impressions:    Number(r.IMPRESSIONS || 0),
+      clicks:         Number(r.CLICKS     || 0),
+      spend:          Number(r.SPEND      || 0),
+      orders:         Number(r.ORDERS     || 0),
+      sales:          Number(r.SALES      || 0),
+      acos:           r.ACOS != null ? Number(r.ACOS) : null,
+      roas:           r.ROAS != null ? Number(r.ROAS) : null,
+      cpc:            r.CPC  != null ? Number(r.CPC)  : null,
     })));
   } catch (err) { next(err); }
 });

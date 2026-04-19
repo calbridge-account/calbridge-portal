@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTargetingRollup } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
@@ -48,6 +50,12 @@ export default function AdvertisingTargeting() {
   const { activeMarketplace } = useMarketplace() ?? { activeMarketplace: 'US' };
   const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
   const fmt$ = makeFmtCurrency(currency);
+  const navigate = useNavigate();
+
+  // Clicking a match type row navigates to Keywords page pre-filtered to that match type
+  const handleRowClick = useCallback((matchType) => {
+    navigate(`/advertising/keywords?matchType=${encodeURIComponent(matchType)}`);
+  }, [navigate]);
 
   const { data, isLoading, isError, error } = useTargetingRollup(range);
 
@@ -88,7 +96,10 @@ export default function AdvertisingTargeting() {
 
       {/* By Match Type table */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Performance by Targeting Type</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">Performance by Targeting Type</h3>
+          <span className="text-xs text-gray-400">Click a row to see keywords →</span>
+        </div>
         {isLoading ? (
           <SkeletonTable />
         ) : rows.length === 0 ? (
@@ -116,7 +127,12 @@ export default function AdvertisingTargeting() {
                 {rows.map((r, i) => {
                   const spendPct = totalSpend > 0 ? (r.spend / totalSpend * 100).toFixed(1) : '—';
                   return (
-                    <tr key={i} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <tr
+                      key={i}
+                      onClick={() => handleRowClick(r.matchType)}
+                      title={`View ${r.matchType} keywords →`}
+                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                    >
                       <td className="py-3 px-3">
                         <span className={`text-xs font-bold px-2 py-1 rounded ${MATCH_TYPE_COLORS[r.matchType] || 'bg-gray-100 text-gray-600'}`}>
                           {r.matchType}

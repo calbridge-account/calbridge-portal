@@ -4,7 +4,7 @@ module.exports = {
       name: 'calbridge-portal',
       script: 'src/server.js',
       instances: 1,
-      exec_mode: 'cluster',
+      exec_mode: 'fork',
       env: { NODE_ENV: 'production' },
       max_memory_restart: '512M',
     },
