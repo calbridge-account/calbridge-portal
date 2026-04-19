@@ -1178,9 +1178,10 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
 
         UNION ALL
 
-        -- ── DSP: sourced from dsp_raw_campaign (order-level, view-through sales) ──
+        -- ── DSP: sourced from dsp_campaign_report (all advertisers, view-through sales) ──
+        -- dsp_campaign_report covers both SparkX-managed (historical) and Calbridge-managed DSP.
         -- RAW.AD_CAMPAIGN.sales_14d is NULL for DSP — DSP uses view-through attribution.
-        -- total_sales from dsp_raw_campaign is the canonical DSP revenue figure.
+        -- total_sales from dsp_campaign_report is the canonical DSP revenue figure.
         SELECT
           client_id,
           date,
@@ -1199,14 +1200,14 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
           CASE WHEN SUM(impressions) > 0
             THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END  AS ctr
         FROM (
-          -- Deduplicate dsp_raw_campaign: keep latest ingested row per order+date
+          -- Deduplicate: keep latest ingested row per order+date across all advertisers
           SELECT client_id, order_id, date,
             MAX(total_cost)       AS total_cost,
             MAX(total_sales)      AS total_sales,
             MAX(total_purchases)  AS total_purchases,
             MAX(clicks)           AS clicks,
             MAX(impressions)      AS impressions
-          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
+          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
           GROUP BY client_id, order_id, date
         ) dsp_deduped
