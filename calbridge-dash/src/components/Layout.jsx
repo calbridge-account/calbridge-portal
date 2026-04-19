@@ -65,18 +65,44 @@ function useNavConfig() {
 // ─── Billing plan hook ────────────────────────────────────────────────────────
 
 function useBillingPlan() {
-  const [plan, setPlan] = useState(null);
+  const [billingData, setBillingData] = useState({ plan: null, trialEndsAt: null, canUpgrade: false });
   useEffect(() => {
     let cancelled = false;
     fetch('/billing/status', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (!cancelled && data?.plan) setPlan(data.plan);
+        if (!cancelled && data?.plan) {
+          setBillingData({
+            plan: data.plan,
+            trialEndsAt: data.trialEndsAt || null,
+            canUpgrade: data.canUpgrade || false,
+          });
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
-  return plan;
+  return billingData;
+}
+
+function TrialBanner({ trialEndsAt }) {
+  const navigate = useNavigate();
+  if (!trialEndsAt) return null;
+  const daysRemaining = Math.ceil((new Date(trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24));
+  if (daysRemaining <= 0) return null;
+  return (
+    <div className="w-full bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center justify-center gap-3 text-sm">
+      <span className="text-yellow-800">
+        🎉 You're on a free trial — <strong>{daysRemaining} day{daysRemaining !== 1 ? 's' : ''}</strong> remaining.
+      </span>
+      <button
+        onClick={() => navigate('/analytics/pricing')}
+        className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold rounded-full text-xs transition-colors"
+      >
+        Upgrade Now →
+      </button>
+    </div>
+  );
 }
 
 function getInitials(name = '') {
@@ -103,7 +129,7 @@ function usePageTitle() {
 function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const billingPlan = useBillingPlan();
+  const { plan: billingPlan } = useBillingPlan();
   const showUpgrade = billingPlan === 'free' || billingPlan === 'starter';
   const clientName = user?.companyName || user?.clientName || user?.name || 'Client';
   const logoUrl = user?.logoUrl || null;
@@ -307,9 +333,14 @@ export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
   const { hasRole, user } = useUser() || { hasRole: () => true, user: null };
   const navConfig = useNavConfig();
+  const { plan, trialEndsAt } = useBillingPlan();
+  const showTrialBanner = plan === 'free' && trialEndsAt !== null;
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Trial banner — full-width, above everything */}
+      {showTrialBanner && <TrialBanner trialEndsAt={trialEndsAt} />}
+
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(c => !c)}

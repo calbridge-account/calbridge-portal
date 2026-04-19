@@ -358,5 +358,17 @@
   </div><!-- /.onboarding-card -->
 
   <script src="/js/onboarding.js?v=ea8d993"></script>
+  <script>
+    // Show welcome banner if ?welcome=1 is in URL
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('welcome') === '1') {
+        var banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#fef9c3;border-bottom:2px solid #fde047;padding:10px 20px;text-align:center;font-size:14px;font-weight:500;color:#713f12;box-shadow:0 2px 8px rgba(0,0,0,0.08)';
+        banner.innerHTML = '&#127881; Welcome to Calbridge! Your 14-day free trial has started. <button onclick="this.parentNode.remove()" style="margin-left:12px;background:none;border:none;cursor:pointer;font-size:16px;color:#713f12;">&times;</button>';
+        document.body.insertBefore(banner, document.body.firstChild);
+      }
+    })();
+  </script>
 </body>
 </html>

@@ -49,7 +49,7 @@ form.addEventListener('submit', async (e) => {
           const connData = connRes.ok ? await connRes.json() : {};
           const hasConnections = Object.values(connData).some(c => c.connected);
           if (!hasConnections) {
-            window.location.href = '/onboarding.html';
+            window.location.href = '/onboarding.html?welcome=1';
             return;
           }
         } catch {

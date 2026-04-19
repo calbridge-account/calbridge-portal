@@ -241,7 +241,8 @@ router.get('/status', requireAuth, async (req, res, next) => {
  *
  * Phase 3I: Reads/writes stripe_customer_id to manager_accounts (with dual-write to clients).
  */
-router.post('/create-checkout', requireAuth, async (req, res, next) => {
+// Named handler so we can register on both /create-checkout and /checkout
+async function handleCreateCheckout(req, res, next) {
 
   try {
     const { planId } = req.body;
@@ -316,7 +317,11 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
 
     res.json({ checkoutUrl: session.url });
   } catch (err) { next(err); }
-});
+}
+
+// Register checkout handler on both path names
+router.post('/create-checkout', requireAuth, handleCreateCheckout);
+router.post('/checkout',        requireAuth, handleCreateCheckout);
 
 /**
  * GET /billing/success
