@@ -34,6 +34,7 @@ const T = {
 };
 
 const { resolveClientId } = require('../services/advertiserResolver');
+const { requirePlan } = require('../middleware/requirePlan');
 
 /**
  * Resolve client ID — resolves via advertiserId → client_migration_map if an
@@ -119,7 +120,7 @@ function weekCutoff(weeks) {
 }
 
 // ─── GET /vendor-analytics/overview ──────────────────────────────────────────
-router.get('/overview', async (req, res, next) => {
+router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
@@ -454,7 +455,7 @@ router.get('/overview', async (req, res, next) => {
 });
 
 // ─── GET /vendor-analytics/vendor ────────────────────────────────────────────
-router.get('/vendor', async (req, res, next) => {
+router.get('/vendor', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
@@ -549,7 +550,7 @@ router.get('/vendor', async (req, res, next) => {
 });
 
 // ─── GET /vendor-analytics/vendor/asins ──────────────────────────────────────
-router.get('/vendor/asins', async (req, res, next) => {
+router.get('/vendor/asins', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
@@ -648,7 +649,7 @@ router.get('/vendor/asins', async (req, res, next) => {
 
 // ─── GET /vendor-analytics/advertising ───────────────────────────────────────
 // Returns combined metrics + per-type breakdown for SP, SB, SD, DSP
-router.get('/advertising', async (req, res, next) => {
+router.get('/advertising', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
@@ -1002,7 +1003,7 @@ router.get('/advertising', async (req, res, next) => {
 });
 
 // ─── GET /vendor-analytics/forecasting ───────────────────────────────────────
-router.get('/forecasting', async (req, res, next) => {
+router.get('/forecasting', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
@@ -1087,7 +1088,7 @@ router.get('/forecasting', async (req, res, next) => {
 
 // ─── GET /vendor-analytics/forecast-shift ────────────────────────────────────
 // Returns how Amazon's forecast has changed over time per ASIN (by FORECAST_GENERATION_DATE)
-router.get('/forecast-shift', async (req, res, next) => {
+router.get('/forecast-shift', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const asinParam = req.query.asin || null; // optional: filter to single ASIN
@@ -1217,7 +1218,7 @@ router.get('/forecast-shift', async (req, res, next) => {
 
 // ─── GET /vendor-analytics/annual-projection ──────────────────────────────────
 // Returns YTD actuals + projected remaining weeks = full-year revenue projection
-router.get('/annual-projection', async (req, res, next) => {
+router.get('/annual-projection', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
     const currentYear = new Date().getUTCFullYear();
@@ -1341,7 +1342,7 @@ router.get('/annual-projection', async (req, res, next) => {
 // ─── GET /vendor-analytics/inventory-detail ─────────────────────────────────
 // Returns per-ASIN inventory snapshot (latest week) joined to products for title.
 // weeks_of_cover = sellable_units / avg_weekly_shipped (trailing 4 weeks)
-router.get('/inventory-detail', requireAuth, async (req, res, next) => {
+router.get('/inventory-detail', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
 
@@ -1427,7 +1428,7 @@ router.get('/inventory-detail', requireAuth, async (req, res, next) => {
 // ─── GET /vendor-analytics/po-summary ────────────────────────────────────────
 // Returns per-ASIN purchase order summary: totals, open units, last order date,
 // and avg lead time computed from PO data directly.
-router.get('/po-summary', requireAuth, async (req, res, next) => {
+router.get('/po-summary', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
 

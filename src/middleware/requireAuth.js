@@ -1,5 +1,11 @@
 const { query } = require('../services/snowflakeService');
 
+// Plan cache TTL: 5 minutes
+const PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Known valid plans — anything else defaults to 'free'
+const VALID_PLANS = new Set(['free', 'starter', 'growth', 'pro']);
+
 /**
  * Middleware: require an authenticated session.
  * Attach to any route that needs a logged-in client.
@@ -7,6 +13,8 @@ const { query } = require('../services/snowflakeService');
  * Phase 3F: Also lazy-loads agencyId/managerId/advertiserId from client_migration_map
  * for sessions that have clientId but not yet the new account context.
  * clientId remains primary — this is backward compatible.
+ *
+ * Plan lookup: Attaches req.userPlan with a 5-minute session cache.
  */
 async function requireAuth(req, res, next) {
   if (!req.session || !req.session.clientId) {
@@ -29,6 +37,26 @@ async function requireAuth(req, res, next) {
     } catch (e) {
       // Non-fatal — clientId-based auth still works for all existing routes
     }
+  }
+
+  // Plan lookup with 5-minute session cache
+  try {
+    const cache = req.session.planCache;
+    if (cache && cache.plan && (Date.now() - cache.fetchedAt) < PLAN_CACHE_TTL_MS) {
+      req.userPlan = cache.plan;
+    } else {
+      const rows = await query(
+        'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+        [req.session.clientId]
+      );
+      const raw  = rows[0]?.SUBSCRIPTION_PLAN || rows[0]?.subscription_plan || null;
+      const plan = VALID_PLANS.has(raw) ? raw : 'free';
+      req.session.planCache = { plan, fetchedAt: Date.now() };
+      req.userPlan = plan;
+    }
+  } catch (e) {
+    // Non-fatal — default to most restrictive plan on DB error
+    req.userPlan = req.session.planCache?.plan || 'free';
   }
 
   next();

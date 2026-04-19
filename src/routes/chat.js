@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
+const { requirePlan } = require('../middleware/requirePlan');
 const { buildChatContext } = require('../services/chatContextService');
 
 const MAX_HISTORY = 10; // keep last 10 message pairs
@@ -11,7 +12,7 @@ const MAX_HISTORY = 10; // keep last 10 message pairs
  * Body: { message: string }
  * Returns: { reply: string }
  */
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requirePlan('aiChat'), async (req, res, next) => {
   if (!process.env.OPENROUTER_API_KEY) {
     return res.status(503).json({ error: 'Chat not configured' });
   }
