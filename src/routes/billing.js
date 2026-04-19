@@ -4,59 +4,117 @@ const crypto = require('crypto');
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 
-// TODO: Initialize Stripe when key is available
-// const Stripe = require('stripe');
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// ─── Stripe client (lazy — only initialised when STRIPE_SECRET_KEY is set) ────
+let _stripe = null;
+function stripe() {
+  if (!_stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+    const Stripe = require('stripe');
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' });
+  }
+  return _stripe;
+}
 
 /**
  * Plan definitions — single source of truth
  */
 const PLANS = {
-  starter: {
-    id:          'starter',
-    name:        'Starter',
-    price:       149,
-    priceMonthly: '$149/mo',
-    description: 'Perfect for emerging Amazon sellers',
+  free: {
+    id:           'free',
+    name:         'Free',
+    price:        0,
+    priceMonthly: 'Free',
+    description:  'See your Amazon data. No credit card required.',
     features: [
-      'Up to 1,000 ASINs',
-      'Amazon Ads & SP-API integration',
-      'Contribution margin dashboards',
-      'Email support'
+      '1 Amazon connection',
+      '30-day data window',
+      'Advertising & sales dashboard',
+      'Read-only analytics',
     ],
-    // TODO: Set real Stripe price IDs after creating products in Stripe dashboard
-    stripePriceId: process.env.STRIPE_PRICE_STARTER || 'price_TODO_starter'
+    stripePriceId: null,
+    limits: {
+      connections:     1,
+      dataWindowDays:  30,
+      decisions:       false,
+      aiChat:          false,
+      vendorReports:   false,
+      teamSeats:       1,
+      whiteLabel:      false,
+    },
+  },
+  starter: {
+    id:           'starter',
+    name:         'Starter',
+    price:        99,
+    priceMonthly: '$99/mo',
+    description:  'Full analytics for growing Amazon brands.',
+    features: [
+      '2 Amazon connections',
+      '90-day data history',
+      'Full advertising dashboard (SP, SB, SBV, SD, DSP)',
+      'Vendor analytics & COGS tracking',
+      'Email support',
+    ],
+    stripePriceId: process.env.STRIPE_PRICE_STARTER,
+    limits: {
+      connections:     2,
+      dataWindowDays:  90,
+      decisions:       false,
+      aiChat:          false,
+      vendorReports:   true,
+      teamSeats:       1,
+      whiteLabel:      false,
+    },
   },
   growth: {
-    id:          'growth',
-    name:        'Growth',
-    price:       299,
-    priceMonthly: '$299/mo',
-    description: 'For growing brands scaling on Amazon',
+    id:           'growth',
+    name:         'Growth',
+    price:        249,
+    priceMonthly: '$249/mo',
+    description:  'AI-powered optimization for serious sellers.',
     features: [
-      'Up to 10,000 ASINs',
-      'All Starter features',
-      'DSP advertising analytics',
-      'COGS bulk import',
-      'Priority support'
+      '5 Amazon connections',
+      '1-year data history',
+      'Everything in Starter',
+      'AI bid optimization & automated decisions',
+      '3 team seats',
     ],
-    stripePriceId: process.env.STRIPE_PRICE_GROWTH || 'price_TODO_growth'
+    stripePriceId: process.env.STRIPE_PRICE_GROWTH,
+    limits: {
+      connections:     5,
+      dataWindowDays:  365,
+      decisions:       true,
+      aiChat:          true,
+      vendorReports:   true,
+      teamSeats:       3,
+      whiteLabel:      false,
+    },
   },
   pro: {
-    id:          'pro',
-    name:        'Pro',
-    price:       499,
+    id:           'pro',
+    name:         'Pro',
+    price:        499,
     priceMonthly: '$499/mo',
-    description: 'Enterprise-grade for high-volume sellers',
+    description:  'Unlimited scale with white-label branding.',
     features: [
-      'Unlimited ASINs',
-      'All Growth features',
-      'Custom reporting',
-      'Dedicated account manager',
-      'SLA guarantee'
+      'Unlimited connections',
+      '2-year data history',
+      'Everything in Growth',
+      'Unlimited team seats',
+      'White-label branding',
+      'Dedicated support',
     ],
-    stripePriceId: process.env.STRIPE_PRICE_PRO || 'price_TODO_pro'
-  }
+    stripePriceId: process.env.STRIPE_PRICE_PRO,
+    limits: {
+      connections:     999,
+      dataWindowDays:  730,
+      decisions:       true,
+      aiChat:          true,
+      vendorReports:   true,
+      teamSeats:       999,
+      whiteLabel:      true,
+    },
+  },
 };
 
 // ─── Phase 3I: Manager context helpers ───────────────────────────────────────
@@ -143,7 +201,9 @@ router.get('/status', requireAuth, async (req, res, next) => {
           subscriptionEndsAt: mgr.SUBSCRIPTION_ENDS_AT || null,
           hasCustomer:        !!mgr.STRIPE_CUSTOMER_ID,
           hasSubscription:    !!mgr.STRIPE_SUBSCRIPTION_ID,
-          source:             'manager_accounts'
+          limits:             (PLANS[mgr.SUBSCRIPTION_PLAN || 'free'] || PLANS.free).limits,
+          canUpgrade:         (mgr.SUBSCRIPTION_PLAN || 'free') !== 'pro',
+          source:             'manager_accounts',
         });
       }
     }
@@ -157,15 +217,19 @@ router.get('/status', requireAuth, async (req, res, next) => {
 
     if (!rows.length) return res.status(404).json({ error: 'Client not found' });
     const r = rows[0];
+    const _planId  = r.SUBSCRIPTION_PLAN || 'free';
+    const _planDef = PLANS[_planId] || PLANS.free;
 
     res.json({
-      plan:               r.SUBSCRIPTION_PLAN    || null,
-      status:             r.SUBSCRIPTION_STATUS  || 'none',
+      plan:               _planId,
+      status:             r.SUBSCRIPTION_STATUS  || 'active',
       trialEndsAt:        r.TRIAL_ENDS_AT        || null,
       subscriptionEndsAt: r.SUBSCRIPTION_ENDS_AT || null,
       hasCustomer:        !!r.STRIPE_CUSTOMER_ID,
       hasSubscription:    !!r.STRIPE_SUBSCRIPTION_ID,
-      source:             'clients'
+      limits:             _planDef.limits,
+      canUpgrade:         _planId !== 'pro',
+      source:             'clients',
     });
   } catch (err) { next(err); }
 });
@@ -178,10 +242,6 @@ router.get('/status', requireAuth, async (req, res, next) => {
  * Phase 3I: Reads/writes stripe_customer_id to manager_accounts (with dual-write to clients).
  */
 router.post('/create-checkout', requireAuth, async (req, res, next) => {
-  // Guard: billing not configured
-  if (!process.env.STRIPE_SECRET_KEY) {
-    return res.status(503).json({ error: 'Billing not configured' });
-  }
 
   try {
     const { planId } = req.body;
@@ -241,8 +301,7 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
 
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 
-    // TODO: Create Stripe checkout session
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe().checkout.sessions.create({
       customer:   customerId,
       mode:       'subscription',
       line_items: [{ price: plan.stripePriceId, quantity: 1 }],
@@ -275,11 +334,7 @@ router.get('/success', requireAuth, async (req, res, next) => {
     const { session_id } = req.query;
     if (!session_id) return res.redirect('/billing.html?status=error');
 
-    // TODO: Retrieve checkout session from Stripe and update subscription
-    const Stripe = require('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-    const session = await stripe.checkout.sessions.retrieve(session_id, {
+    const session = await stripe().checkout.sessions.retrieve(session_id, {
       expand: ['subscription']
     });
 
@@ -357,10 +412,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   let event;
 
   try {
-    const Stripe = require('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    // TODO: Verify webhook signature
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    event = stripe().webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error('[Billing] Webhook signature verification failed:', err.message);
     return res.status(400).json({ error: `Webhook error: ${err.message}` });
@@ -493,6 +545,50 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     console.error('[Billing] Webhook handler error:', err.message);
     res.status(500).json({ error: 'Webhook handler failed' });
   }
+});
+
+
+/**
+ * POST /billing/portal
+ * Create a Stripe customer portal session so users can manage their subscription.
+ */
+router.post('/portal', requireAuth, async (req, res, next) => {
+  try {
+    const clientId = req.session.clientId;
+
+    // Find stripe_customer_id — try manager_accounts first
+    let customerId = null;
+    const managerId = await getManagerId(clientId);
+    if (managerId) {
+      const mgrRows = await query(
+        'SELECT stripe_customer_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
+        [managerId]
+      );
+      customerId = mgrRows[0]?.STRIPE_CUSTOMER_ID || null;
+    }
+    if (!customerId) {
+      const rows = await query(
+        'SELECT stripe_customer_id FROM clients WHERE client_id = ?',
+        [clientId]
+      );
+      customerId = rows[0]?.STRIPE_CUSTOMER_ID || null;
+    }
+
+    if (!customerId) {
+      return res.status(400).json({ error: 'No billing account found. Please subscribe first.' });
+    }
+
+    const returnUrl = process.env.APP_URL
+      ? `${process.env.APP_URL}/account`
+      : `${req.protocol}://${req.get('host')}/account`;
+
+    const session = await stripe().billingPortal.sessions.create({
+      customer:   customerId,
+      return_url: returnUrl,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

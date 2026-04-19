@@ -29,13 +29,18 @@ async function signup({ email, password, name, companyName }) {
   try {
     const orgName = (companyName || name).trim();
 
-    // 1. Create manager_account
+    // 1. Create manager_account — starts on free plan
     const managerId = uuidv4();
     await query(`
       INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
-        (manager_id, name, agency_id, subscription_plan, created_at)
-      VALUES (?, ?, NULL, 'starter', CURRENT_TIMESTAMP)
+        (manager_id, name, agency_id, subscription_plan, subscription_status, created_at)
+      VALUES (?, ?, NULL, 'free', 'active', CURRENT_TIMESTAMP)
     `, [managerId, orgName]);
+
+    // Also set free plan on the clients row
+    await query(`
+      UPDATE clients SET subscription_plan='free', subscription_status='active' WHERE client_id=?
+    `, [id]).catch(() => {}); // non-fatal if column doesn't exist yet
 
     // 2. Create user row
     const userId = uuidv4();

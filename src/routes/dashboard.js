@@ -183,6 +183,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
         FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
         WHERE client_id = ?
+          AND COALESCE(marketplace, 'US') = '${(marketplace || 'US').replace(/'/g, "''")}'
           ${dateFilter('date', days, startDate, endDate)}
       `, [clientId])
     ]);
