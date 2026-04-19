@@ -498,6 +498,131 @@ function BudgetsTab({ showToast }) {
   );
 }
 
+// ─── Plan badge colours ─────────────────────────────────────────────────────
+const PLAN_BADGE = {
+  free:    { bg: 'bg-gray-100',   text: 'text-gray-600'   },
+  starter: { bg: 'bg-blue-100',   text: 'text-blue-700'   },
+  growth:  { bg: 'bg-indigo-100', text: 'text-indigo-700' },
+  pro:     { bg: 'bg-purple-100', text: 'text-purple-700' },
+};
+
+const PLAN_LIMITS_SUMMARY = {
+  free:    { connections: '1 connection',       dataWindow: '30-day data',   extras: 'Read-only analytics' },
+  starter: { connections: '2 connections',      dataWindow: '90-day data',   extras: 'Vendor analytics, COGS' },
+  growth:  { connections: '5 connections',      dataWindow: '1-year data',   extras: 'AI bids, 3 team seats' },
+  pro:     { connections: 'Unlimited',          dataWindow: '2-year data',   extras: 'Unlimited seats, white-label' },
+};
+
+// ─── Billing Section ─────────────────────────────────────────────────────────
+function BillingSection({ showToast }) {
+  const [billing, setBilling]       = useState(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [portalLoading, setPortalLoading]   = useState(false);
+
+  useEffect(() => {
+    fetch('/billing/status', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setBilling(data); setBillingLoading(false); })
+      .catch(() => setBillingLoading(false));
+  }, []);
+
+  async function openPortal() {
+    setPortalLoading(true);
+    try {
+      const res = await fetch('/billing/portal', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Portal unavailable');
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No portal URL returned');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+      setPortalLoading(false);
+    }
+  }
+
+  if (billingLoading) {
+    return (
+      <div className="space-y-3">
+        {[1,2,3].map(i => <div key={i} className="h-9 bg-gray-100 rounded-lg animate-pulse" />)}
+      </div>
+    );
+  }
+
+  const planId    = billing?.plan || 'free';
+  const planName  = planId.charAt(0).toUpperCase() + planId.slice(1);
+  const badge     = PLAN_BADGE[planId] || PLAN_BADGE.free;
+  const limits    = PLAN_LIMITS_SUMMARY[planId] || PLAN_LIMITS_SUMMARY.free;
+  const isPaid    = ['starter', 'growth', 'pro'].includes(planId) && billing?.hasSubscription;
+
+  // Trial days remaining
+  let trialDaysLeft = null;
+  if (billing?.trialEndsAt) {
+    const diff = new Date(billing.trialEndsAt) - Date.now();
+    trialDaysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Plan badge + name */}
+      <div className="flex items-center gap-3">
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${badge.bg} ${badge.text}`}>
+          {planName}
+        </span>
+        {billing?.status === 'trialing' && trialDaysLeft !== null && (
+          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
+            Trial: {trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} left
+          </span>
+        )}
+        {billing?.status === 'past_due' && (
+          <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full font-medium">
+            ⚠️ Payment past due
+          </span>
+        )}
+      </div>
+
+      {/* Limits summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-400 mb-0.5">Connections</p>
+          <p className="text-sm font-semibold text-gray-800">{limits.connections}</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-400 mb-0.5">Data Window</p>
+          <p className="text-sm font-semibold text-gray-800">{limits.dataWindow}</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-400 mb-0.5">Features</p>
+          <p className="text-sm font-semibold text-gray-800 text-xs leading-tight">{limits.extras}</p>
+        </div>
+      </div>
+
+      {/* CTA */}
+      {isPaid ? (
+        <button
+          onClick={openPortal}
+          disabled={portalLoading}
+          className="px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {portalLoading ? 'Opening…' : 'Manage Billing'}
+        </button>
+      ) : (
+        <a
+          href="/analytics/pricing"
+          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          ⬆️ Upgrade Plan
+        </a>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Account() {
   const [activeTab, setActiveTab]     = useState('profile');
@@ -679,6 +804,7 @@ export default function Account() {
 
   const TABS = [
     { id: 'profile', label: 'Profile & Team' },
+    { id: 'billing', label: '💳 Billing' },
     { id: 'budgets', label: '💰 Budgets' },
   ];
 
@@ -702,6 +828,13 @@ export default function Account() {
           </button>
         ))}
       </div>
+
+      {/* ── Billing tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'billing' && (
+        <Section title="💳 Billing & Plan">
+          <BillingSection showToast={showToast} />
+        </Section>
+      )}
 
       {/* ── Budgets tab ──────────────────────────────────────────────────── */}
       {activeTab === 'budgets' && (

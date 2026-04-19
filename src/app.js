@@ -170,6 +170,9 @@ ensureCampaignActionsTable().catch(err =>
   console.warn('[Campaigns] Could not create campaign_actions table:', err.message)
 );
 
+// Public pricing redirect — no auth required
+app.get('/pricing', (req, res) => res.redirect('/landing#pricing'));
+
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 

@@ -233,8 +233,8 @@ export default function Pricing() {
         throw new Error(err.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
       } else {
         throw new Error('No checkout URL returned');
       }
