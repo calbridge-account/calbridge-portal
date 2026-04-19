@@ -46,6 +46,7 @@ async function adsClient(clientId, profileId) {
       'Amazon-Advertising-API-ClientId':  process.env.LWA_CLIENT_ID,
       'Amazon-Advertising-API-Scope':     profileId,
       'Content-Type':                     'application/json',
+      'Accept':                           'application/json',
     },
     timeout: 30000,
   });
@@ -480,16 +481,16 @@ async function executeAction(actionId, clientId, executedBy) {
   try {
     if (action.ACTION_TYPE === 'bid_decrease' || action.ACTION_TYPE === 'bid_increase') {
       if (action.AD_TYPE === 'SP') {
-        // SP API v3: PATCH /sp/keywords with keyword object array
-        const res = await client.patch('/sp/keywords', {
-          keywords: [{ keywordId: String(action.ENTITY_ID), bid: Number(action.PROPOSED_VALUE) }]
-        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
+        // SP API v3: PUT /sp/keywords
+        const res = await client.put('/sp/keywords', {
+          keywords: [{ keywordId: String(action.ENTITY_ID), bid: Number(action.PROPOSED_VALUE), state: 'ENABLED' }]
+        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
         result = res.data;
       } else if (action.AD_TYPE === 'SB') {
         // SB API v4: PUT /sb/v4/keywords
         const res = await client.put('/sb/v4/keywords', {
-          keywords: [{ keywordId: String(action.ENTITY_ID), bid: { bidValue: Number(action.PROPOSED_VALUE), bidAdjustment: null } }]
-        });
+          keywords: [{ keywordId: String(action.ENTITY_ID), bid: { bidValue: Number(action.PROPOSED_VALUE) } }]
+        }, { headers: { 'Content-Type': 'application/vnd.sbKeyword.v4+json', 'Accept': 'application/vnd.sbKeyword.v4+json' } });
         result = res.data;
       } else {
         throw new Error(`Bid update not supported for ad type: ${action.AD_TYPE}`);
@@ -506,20 +507,20 @@ async function executeAction(actionId, clientId, executedBy) {
           bid:         Number(action.PROPOSED_VALUE),
           state:       'ENABLED',
         }]
-      }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
+      }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
       result = res.data;
     } else if (action.ACTION_TYPE === 'budget_increase' || action.ACTION_TYPE === 'budget_decrease') {
       // SP API v3: PUT /sp/campaigns
       const res = await client.put('/sp/campaigns', {
         campaigns: [{ campaignId: String(action.ENTITY_ID), budget: { budgetType: 'DAILY', budget: Number(action.PROPOSED_VALUE) } }]
-      }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json' } });
+      }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
       result = res.data;
     } else if (action.ACTION_TYPE === 'pause_keyword') {
       if (action.AD_TYPE === 'SP') {
-        // SP API v3: PATCH /sp/keywords to set state
-        const res = await client.patch('/sp/keywords', {
+        // SP API v3: PUT /sp/keywords to set state
+        const res = await client.put('/sp/keywords', {
           keywords: [{ keywordId: String(action.ENTITY_ID), state: 'PAUSED' }]
-        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
+        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
         result = res.data;
       } else {
         throw new Error('Pause not yet implemented for non-SP keywords');
