@@ -1107,7 +1107,115 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
   return { gaps };
 }
 
-// ─── Job 5: expire_stale_actions ─────────────────────────────────────────────
+// ─── Job 5: rebuild_mart ────────────────────────────────────────────────────
+
+/**
+ * Rebuild MART_ADVERTISING_DAILY from RAW.AD_CAMPAIGN.
+ * Runs hourly at :05 after stage_raw_data completes.
+ *
+ * SBV detection: SB campaigns with 'Video' in the campaign name are classified
+ * as ad_type='SBV' so they appear as a separate card on the advertising overview.
+ */
+async function rebuildMart({ triggeredBy = 'cron' } = {}) {
+  const startMs = Date.now();
+  try {
+    const result = await query(`
+      MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
+      USING (
+        -- Two-level aggregation: first normalize marketplace + classify ad_type,
+        -- then aggregate to prevent duplicate source keys in MERGE.
+        SELECT
+          client_id,
+          date,
+          marketplace,
+          ad_type,
+          COUNT(DISTINCT campaign_id)                       AS active_campaigns,
+          SUM(cost)                                         AS spend,
+          SUM(sales_14d)                                    AS sales,
+          SUM(purchases_14d)                                AS orders,
+          SUM(clicks)                                       AS clicks,
+          SUM(impressions)                                  AS impressions,
+          CASE WHEN SUM(sales_14d) > 0
+            THEN SUM(cost) / SUM(sales_14d) ELSE NULL END   AS acos,
+          CASE WHEN SUM(cost) > 0
+            THEN SUM(sales_14d) / SUM(cost) ELSE NULL END   AS roas,
+          CASE WHEN SUM(impressions) > 0
+            THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END AS ctr
+        FROM (
+          SELECT
+            client_id,
+            campaign_id,
+            date,
+            CASE marketplace
+              WHEN 'ATVPDKIKX0DER' THEN 'US'
+              WHEN 'A2EUQ1WTGCTBG2' THEN 'CA'
+              WHEN 'A1AM78C64UM0Y8' THEN 'MX'
+              WHEN 'A1RKKUPIHCS9HS' THEN 'GB'
+              WHEN 'A1PA6795UKMFR9' THEN 'DE'
+              WHEN 'APJ6JRA9NG5V4'  THEN 'IT'
+              WHEN 'A13V1IB3VIYZZH' THEN 'FR'
+              WHEN 'A1805IZSGTT6HS' THEN 'NL'
+              WHEN 'A2VIGQ35RCS4UG' THEN 'AE'
+              WHEN 'A21TJRUUN4KGV'  THEN 'IN'
+              WHEN 'A39IBJ37TRP1C6' THEN 'AU'
+              WHEN 'A1VC38T7YXB528' THEN 'JP'
+              ELSE COALESCE(marketplace, 'US')
+            END AS marketplace,
+            CASE
+              WHEN ad_product = 'SPONSORED_BRANDS' AND UPPER(campaign_name) LIKE '%VIDEO%' THEN 'SBV'
+              WHEN ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
+              WHEN ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
+              WHEN ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
+              WHEN ad_product = 'DSP'                THEN 'DSP'
+              ELSE UPPER(ad_product)
+            END AS ad_type,
+            -- For duped rows (same campaign_id+date), keep highest ingested_at
+            MAX(cost)         AS cost,
+            MAX(sales_14d)    AS sales_14d,
+            MAX(purchases_14d) AS purchases_14d,
+            MAX(clicks)       AS clicks,
+            MAX(impressions)  AS impressions
+          FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          GROUP BY client_id, campaign_id, date, marketplace, ad_type
+        ) deduped
+        GROUP BY client_id, date, marketplace, ad_type
+      ) src
+      ON  tgt.client_id   = src.client_id
+      AND tgt.date        = src.date
+      AND tgt.marketplace = src.marketplace
+      AND tgt.ad_type     = src.ad_type
+      WHEN MATCHED THEN UPDATE SET
+        active_campaigns = src.active_campaigns,
+        spend            = src.spend,
+        sales            = src.sales,
+        orders           = src.orders,
+        clicks           = src.clicks,
+        impressions      = src.impressions,
+        acos             = src.acos,
+        roas             = src.roas,
+        ctr              = src.ctr
+      WHEN NOT MATCHED THEN INSERT (
+        client_id, date, marketplace, ad_type,
+        active_campaigns, spend, sales, orders, clicks, impressions, acos, roas, ctr
+      ) VALUES (
+        src.client_id, src.date, src.marketplace, src.ad_type,
+        src.active_campaigns, src.spend, src.sales, src.orders,
+        src.clicks, src.impressions, src.acos, src.roas, src.ctr
+      )
+    `);
+    const updated  = result?.[0]?.['number of rows updated']  ?? 0;
+    const inserted = result?.[0]?.['number of rows inserted'] ?? 0;
+    const elapsedS = ((Date.now() - startMs) / 1000).toFixed(1);
+    console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
+    return { inserted, updated };
+  } catch (err) {
+    console.error('[rebuildMart] Failed:', err.message);
+    throw err;
+  }
+}
+
+// ─── Job 6: expire_stale_actions ─────────────────────────────────────────────
 
 /**
  * Mark old approved/pending decision actions as 'expired' if they are more
@@ -1136,5 +1244,6 @@ module.exports = {
   runQualityChecks,
   computeFreshness,
   reconcileMissingPartitions,
+  rebuildMart,
   expireStaleActions,
 };

@@ -43,6 +43,7 @@ let _vendorIngestion    = null;
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
 function stageRawData()       { return _stageRawData       || (_stageRawData       = require('./stageRawData')); }
+function rebuildMart(opts)     { return stageRawData().rebuildMart(opts); }
 function buildCanonical()     { return _buildCanonical     || (_buildCanonical     = require('./buildCanonicalModels')); }
 function slaChecker()         { return _slaChecker         || (_slaChecker         = require('./slaChecker')); }
 function adsIngestion()       { return _adsIngestion       || (_adsIngestion       = require('./adsIngestion')); }
