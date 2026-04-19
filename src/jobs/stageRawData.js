@@ -358,6 +358,28 @@ async function stageAdCampaignRaw(clientId, pipelineRunId) {
     if (dcrRows < 100) {
       console.warn(`[stageAdCampaignRaw] Skipping DSP RAW update for ${clientId} — DCR only has ${dcrRows} rows (expected ≥100). DCR may be incomplete.`);
     } else {
+    // Pre-MERGE dedup: remove duplicate DSP rows from RAW.AD_CAMPAIGN that would cause
+    // Snowflake "Duplicate row detected" if one source row matches multiple target rows.
+    // Duplicate target rows were inserted by old code versions with different report_id formats
+    // (profile_id+order_id, client_id+order_id). Keep only the latest ingested_at per key.
+    try {
+      const dedupResult = await query(`
+        DELETE FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+        WHERE ad_product = 'DSP'
+          AND client_id = ?
+          AND (client_id, campaign_name, ad_product, date, ingested_at) NOT IN (
+            SELECT client_id, campaign_name, ad_product, date, MAX(ingested_at)
+            FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+            WHERE ad_product = 'DSP' AND client_id = ?
+            GROUP BY client_id, campaign_name, ad_product, date
+          )
+      `, [clientId, clientId]);
+      const dedupDel = Array.isArray(dedupResult) ? dedupResult.reduce((s,x)=>s+Number(Object.values(x)[0]||0),0) : 0;
+      if (dedupDel > 0) console.warn(`[stageAdCampaignRaw] Pre-MERGE dedup: removed ${dedupDel} duplicate DSP rows from RAW.AD_CAMPAIGN for ${clientId}`);
+    } catch (dedupErr) {
+      // Non-fatal — log and proceed; MERGE may still succeed if no dupes remain
+      console.warn(`[stageAdCampaignRaw] Pre-MERGE dedup step failed for ${clientId} (non-fatal):`, dedupErr.message);
+    }
     const r = await query(`
       MERGE INTO CALBRIDGE_PROD.RAW.AD_CAMPAIGN tgt
       USING (
