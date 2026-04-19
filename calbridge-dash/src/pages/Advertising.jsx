@@ -13,10 +13,11 @@ import AdvertisingSubNav from './advertising/AdvertisingSubNav';
 
 // ─── Ad type color map ───────────────────────────────────────────────────────
 const AD_TYPES = [
-  { key: 'sp',  label: 'Sponsored Products', abbr: 'SP',  color: '#2563eb' },
-  { key: 'sb',  label: 'Sponsored Brands',   abbr: 'SB',  color: '#10b981' },
-  { key: 'sd',  label: 'Sponsored Display',  abbr: 'SD',  color: '#f59e0b' },
-  { key: 'dsp', label: 'DSP',                abbr: 'DSP', color: '#8b5cf6' },
+  { key: 'sp',  label: 'Sponsored Products',    abbr: 'SP',  color: '#2563eb' },
+  { key: 'sb',  label: 'Sponsored Brands',      abbr: 'SB',  color: '#10b981' },
+  { key: 'sbv', label: 'Sponsored Brands Video', abbr: 'SBV', color: '#06b6d4' },
+  { key: 'sd',  label: 'Sponsored Display',     abbr: 'SD',  color: '#f59e0b' },
+  { key: 'dsp', label: 'DSP',                   abbr: 'DSP', color: '#8b5cf6' },
 ];
 
 // ─── Channel selector options ─────────────────────────────────────────────────
@@ -59,6 +60,7 @@ function AdTypeCard({ type, metrics, muted, loading, fmtC = fmtCurrency }) {
   const colorMap = {
     sp:  { border: 'border-t-blue-500',   badge: 'bg-blue-100 text-blue-700' },
     sb:  { border: 'border-t-green-500',  badge: 'bg-green-100 text-green-700' },
+    sbv: { border: 'border-t-cyan-500',   badge: 'bg-cyan-100 text-cyan-700' },
     sd:  { border: 'border-t-amber-500',  badge: 'bg-amber-100 text-amber-700' },
     dsp: { border: 'border-t-purple-500', badge: 'bg-purple-100 text-purple-700' },
   };
@@ -326,7 +328,7 @@ export default function Advertising() {
       </div>
 
       {/* Ad type breakdown cards */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
         {AD_TYPES.map(type => {
           const isSponsoredType = type.key !== 'dsp';
           const muted =
