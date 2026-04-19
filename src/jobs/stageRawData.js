@@ -902,13 +902,14 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
 
         if (!pass) failures++;
 
+        const logId = require('crypto').randomUUID();
         await query(`
           INSERT INTO CALBRIDGE_PROD.PIPELINE.QUALITY_LOG
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
-            (require('crypto').randomUUID(), ?, CURRENT_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
+            (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [logId,
           logRunId,
           check.table,
           accountId, clientId,

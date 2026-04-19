@@ -18,33 +18,41 @@ const VALID_TYPES = new Set(PRESETS.map(p => p.value));
  */
 export function getDateRange(type, customStart, customEnd) {
   const today = new Date();
+  // Amazon Ads data is always D-1; use yesterday as the end to avoid an empty bar for today.
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
   const toISO = (d) => d.toISOString().slice(0, 10);
 
   switch (type) {
     case '7d': {
-      const start = new Date(today);
-      start.setDate(today.getDate() - 6);
-      return { start: toISO(start), end: toISO(today) };
+      const start = new Date(yesterday);
+      start.setDate(yesterday.getDate() - 6);
+      return { start: toISO(start), end: toISO(yesterday) };
     }
     case '14d': {
-      const start = new Date(today);
-      start.setDate(today.getDate() - 13);
-      return { start: toISO(start), end: toISO(today) };
+      const start = new Date(yesterday);
+      start.setDate(yesterday.getDate() - 13);
+      return { start: toISO(start), end: toISO(yesterday) };
     }
     case 'mtd': {
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { start: toISO(start), end: toISO(today) };
+      // If today is the 1st, yesterday is the last day of the prior month — use it as both start and end.
+      const start = today.getDate() === 1
+        ? new Date(yesterday)
+        : new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+      return { start: toISO(start), end: toISO(yesterday) };
     }
     case 'ytd': {
-      const start = new Date(today.getFullYear(), 0, 1);
-      return { start: toISO(start), end: toISO(today) };
+      const start = new Date(yesterday.getFullYear(), 0, 1);
+      return { start: toISO(start), end: toISO(yesterday) };
     }
     case 'custom':
       return { start: customStart, end: customEnd };
     default: {
       // Fallback: MTD
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { start: toISO(start), end: toISO(today) };
+      const start = today.getDate() === 1
+        ? new Date(yesterday)
+        : new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+      return { start: toISO(start), end: toISO(yesterday) };
     }
   }
 }
