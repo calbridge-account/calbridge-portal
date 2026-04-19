@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DateRangePicker from './DateRangePicker';
 import AdvertiserSelector from './AdvertiserSelector';
@@ -62,6 +62,23 @@ function useNavConfig() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// ─── Billing plan hook ────────────────────────────────────────────────────────
+
+function useBillingPlan() {
+  const [plan, setPlan] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/billing/status', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!cancelled && data?.plan) setPlan(data.plan);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  return plan;
+}
+
 function getInitials(name = '') {
   return name
     .split(/\s+/)
@@ -85,6 +102,9 @@ function usePageTitle() {
 
 function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const billingPlan = useBillingPlan();
+  const showUpgrade = billingPlan === 'free' || billingPlan === 'starter';
   const clientName = user?.companyName || user?.clientName || user?.name || 'Client';
   const logoUrl = user?.logoUrl || null;
   const initials = getInitials(clientName);
@@ -223,6 +243,24 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
           );
         })}
       </nav>
+
+      {/* ── Upgrade CTA ── */}
+      {showUpgrade && (
+        <div className={`flex-shrink-0 px-3 pb-2 ${collapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={() => navigate('/pricing')}
+            title={collapsed ? 'Upgrade Plan' : undefined}
+            className={`
+              flex items-center gap-1.5 text-xs font-semibold text-white
+              bg-indigo-600 hover:bg-indigo-700 transition-colors
+              ${collapsed ? 'w-9 h-9 rounded-full justify-center' : 'w-full px-3 py-2 rounded-full justify-center'}
+            `}
+          >
+            <span className="text-sm leading-none">⚡</span>
+            {!collapsed && <span>Upgrade</span>}
+          </button>
+        </div>
+      )}
 
       {/* ── Sign out ── */}
       <div className="flex-shrink-0 border-t border-gray-200">

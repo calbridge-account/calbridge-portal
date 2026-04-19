@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../components/Skeleton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -222,6 +223,39 @@ const SORT_OPTIONS = [
   { key: 'newest',       label: 'Newest First'      },
 ];
 
+// ─── Upgrade banner ──────────────────────────────────────────────────────────
+
+function UpgradeBanner({ onDismiss }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+      <div className="flex items-center gap-2 text-sm text-amber-800">
+        <span className="text-base">🔒</span>
+        <span className="font-medium">AI-powered bid optimization requires Growth plan.</span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={() => navigate('/pricing')}
+          className="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors"
+        >
+          Upgrade Now →
+        </button>
+        <button
+          onClick={onDismiss}
+          className="p-1 text-amber-500 hover:text-amber-700 transition-colors"
+          aria-label="Dismiss"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function Recommendations() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab]   = useState('pending');
@@ -229,6 +263,20 @@ export default function Recommendations() {
   const [sortBy, setSortBy] = useState('score_desc');
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState(null);
+
+  // Upgrade banner state — show if on free or starter plan
+  const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
+  useEffect(() => {
+    fetch('/billing/status', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const plan = data?.plan || 'free';
+        if (plan === 'free' || plan === 'starter') {
+          setShowUpgradeBanner(true);
+        }
+      })
+      .catch(() => {}); // silently ignore
+  }, []);
 
   const showToast = (msg, ok = true) => {
     setToast({ msg, ok });
@@ -279,6 +327,11 @@ export default function Recommendations() {
   return (
     <div className="max-w-7xl">
       <PageHeader title="Recommendations" subtitle="AI-generated bid and budget optimizations — review and approve before execution" />
+
+      {/* Upgrade banner */}
+      {showUpgradeBanner && (
+        <UpgradeBanner onDismiss={() => setShowUpgradeBanner(false)} />
+      )}
 
       {/* Toast */}
       {toast && (
