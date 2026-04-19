@@ -1122,59 +1122,62 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const result = await query(`
       MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
       USING (
-        -- ── Sponsored Ads (SP / SB / SBV / SD): sourced from RAW.AD_CAMPAIGN ───────
-        -- sales_14d is the correct attribution window for sponsored ads.
-        -- Two-level aggregation prevents duplicate MERGE keys.
+        -- ── Sponsored Ads (SP / SB / SBV / SD) ─────────────────────────────────────
+        -- Source: RAW.AD_CAMPAIGN joined to sp_campaign_report for profile_id,
+        -- then to client_accounts to get the correct marketplace per profile.
+        -- This prevents CA profile campaigns bleeding into the US marketplace total.
+        -- Attribution window: sales_30d (matches Amazon native reporting).
         SELECT
-          client_id, date, marketplace, ad_type,
-          COUNT(DISTINCT campaign_id)                       AS active_campaigns,
-          SUM(cost)                                         AS spend,
-          SUM(sales_14d)                                    AS sales,
-          SUM(purchases_14d)                                AS orders,
-          SUM(clicks)                                       AS clicks,
-          SUM(impressions)                                  AS impressions,
-          CASE WHEN SUM(sales_14d) > 0
-            THEN SUM(cost) / SUM(sales_14d) ELSE NULL END   AS acos,
-          CASE WHEN SUM(cost) > 0
-            THEN SUM(sales_14d) / SUM(cost) ELSE NULL END   AS roas,
-          CASE WHEN SUM(impressions) > 0
-            THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END AS ctr
+          r.client_id,
+          r.date,
+          COALESCE(ca.marketplace, 'US')                            AS marketplace,
+          CASE
+            WHEN r.ad_product = 'SPONSORED_BRANDS' AND UPPER(r.campaign_name) LIKE '%VIDEO%' THEN 'SBV'
+            WHEN r.ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
+            WHEN r.ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
+            WHEN r.ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
+            ELSE UPPER(r.ad_product)
+          END                                                       AS ad_type,
+          COUNT(DISTINCT r.campaign_id)                             AS active_campaigns,
+          SUM(r.cost)                                               AS spend,
+          SUM(r.sales_30d)                                          AS sales,
+          SUM(r.purchases_30d)                                      AS orders,
+          SUM(r.clicks)                                             AS clicks,
+          SUM(r.impressions)                                        AS impressions,
+          CASE WHEN SUM(r.sales_30d) > 0
+            THEN SUM(r.cost) / SUM(r.sales_30d) ELSE NULL END       AS acos,
+          CASE WHEN SUM(r.cost) > 0
+            THEN SUM(r.sales_30d) / SUM(r.cost) ELSE NULL END       AS roas,
+          CASE WHEN SUM(r.impressions) > 0
+            THEN SUM(r.clicks)::FLOAT / SUM(r.impressions) ELSE NULL END AS ctr
         FROM (
-          SELECT
-            client_id, campaign_id, date,
-            CASE marketplace
-              WHEN 'ATVPDKIKX0DER' THEN 'US'
-              WHEN 'A2EUQ1WTGCTBG2' THEN 'CA'
-              WHEN 'A1AM78C64UM0Y8' THEN 'MX'
-              WHEN 'A1RKKUPIHCS9HS' THEN 'GB'
-              WHEN 'A1PA6795UKMFR9' THEN 'DE'
-              WHEN 'APJ6JRA9NG5V4'  THEN 'IT'
-              WHEN 'A13V1IB3VIYZZH' THEN 'FR'
-              WHEN 'A1805IZSGTT6HS' THEN 'NL'
-              WHEN 'A2VIGQ35RCS4UG' THEN 'AE'
-              WHEN 'A21TJRUUN4KGV'  THEN 'IN'
-              WHEN 'A39IBJ37TRP1C6' THEN 'AU'
-              WHEN 'A1VC38T7YXB528' THEN 'JP'
-              ELSE COALESCE(marketplace, 'US')
-            END AS marketplace,
-            CASE
-              WHEN ad_product = 'SPONSORED_BRANDS' AND UPPER(campaign_name) LIKE '%VIDEO%' THEN 'SBV'
-              WHEN ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
-              WHEN ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
-              WHEN ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
-              ELSE UPPER(ad_product)
-            END AS ad_type,
+          -- Deduplicate RAW: one canonical row per (client_id, campaign_id, date)
+          SELECT client_id, campaign_id, campaign_name, ad_product, date,
             MAX(cost)          AS cost,
-            MAX(sales_14d)     AS sales_14d,
-            MAX(purchases_14d) AS purchases_14d,
+            MAX(sales_30d)     AS sales_30d,
+            MAX(purchases_30d) AS purchases_30d,
             MAX(clicks)        AS clicks,
             MAX(impressions)   AS impressions
           FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
           WHERE ad_product != 'DSP'
-            AND date >= DATEADD('day', -95, CURRENT_DATE())
-          GROUP BY client_id, campaign_id, date, marketplace, ad_type
-        ) deduped
-        GROUP BY client_id, date, marketplace, ad_type
+            AND date >= '2026-01-01'
+          GROUP BY client_id, campaign_id, campaign_name, ad_product, date
+        ) r
+        -- Get profile_id: check sp_campaign_report first (SP/SD), then sb_campaign_report (SB/SBV)
+        LEFT JOIN (
+          SELECT DISTINCT client_id, campaign_id, profile_id
+          FROM CALBRIDGE_PROD.APP.sp_campaign_report
+          UNION
+          SELECT DISTINCT client_id, campaign_id, profile_id
+          FROM CALBRIDGE_PROD.APP.sb_campaign_report
+        ) spr ON spr.client_id = r.client_id AND spr.campaign_id = r.campaign_id
+        -- Map profile_id → marketplace via client_accounts
+        LEFT JOIN (
+          SELECT client_id, platform_profile_id, marketplace
+          FROM CALBRIDGE_PROD.APP.client_accounts
+          WHERE channel = 'sponsored_ads' AND is_active = TRUE
+        ) ca ON ca.client_id = r.client_id AND ca.platform_profile_id = spr.profile_id
+        GROUP BY r.client_id, r.date, COALESCE(ca.marketplace, 'US'), ad_type
 
         UNION ALL
 
@@ -1208,7 +1211,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             MAX(clicks)           AS clicks,
             MAX(impressions)      AS impressions
           FROM CALBRIDGE_PROD.APP.dsp_campaign_report
-          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          WHERE date >= '2026-01-01'  -- full YTD
           GROUP BY client_id, order_id, date
         ) dsp_deduped
         GROUP BY client_id, date
