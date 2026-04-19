@@ -222,7 +222,7 @@ export default function Pricing() {
     setLoading(planId);
     setError(null);
     try {
-      const res = await fetch('/billing/checkout', {
+      const res = await fetch('/billing/create-checkout', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

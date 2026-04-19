@@ -1122,13 +1122,11 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const result = await query(`
       MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
       USING (
-        -- Two-level aggregation: first normalize marketplace + classify ad_type,
-        -- then aggregate to prevent duplicate source keys in MERGE.
+        -- ── Sponsored Ads (SP / SB / SBV / SD): sourced from RAW.AD_CAMPAIGN ───────
+        -- sales_14d is the correct attribution window for sponsored ads.
+        -- Two-level aggregation prevents duplicate MERGE keys.
         SELECT
-          client_id,
-          date,
-          marketplace,
-          ad_type,
+          client_id, date, marketplace, ad_type,
           COUNT(DISTINCT campaign_id)                       AS active_campaigns,
           SUM(cost)                                         AS spend,
           SUM(sales_14d)                                    AS sales,
@@ -1143,9 +1141,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END AS ctr
         FROM (
           SELECT
-            client_id,
-            campaign_id,
-            date,
+            client_id, campaign_id, date,
             CASE marketplace
               WHEN 'ATVPDKIKX0DER' THEN 'US'
               WHEN 'A2EUQ1WTGCTBG2' THEN 'CA'
@@ -1166,20 +1162,55 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
               WHEN ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
               WHEN ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
               WHEN ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
-              WHEN ad_product = 'DSP'                THEN 'DSP'
               ELSE UPPER(ad_product)
             END AS ad_type,
-            -- For duped rows (same campaign_id+date), keep highest ingested_at
-            MAX(cost)         AS cost,
-            MAX(sales_14d)    AS sales_14d,
+            MAX(cost)          AS cost,
+            MAX(sales_14d)     AS sales_14d,
             MAX(purchases_14d) AS purchases_14d,
-            MAX(clicks)       AS clicks,
-            MAX(impressions)  AS impressions
+            MAX(clicks)        AS clicks,
+            MAX(impressions)   AS impressions
           FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          WHERE ad_product != 'DSP'
+            AND date >= DATEADD('day', -95, CURRENT_DATE())
           GROUP BY client_id, campaign_id, date, marketplace, ad_type
         ) deduped
         GROUP BY client_id, date, marketplace, ad_type
+
+        UNION ALL
+
+        -- ── DSP: sourced from dsp_raw_campaign (order-level, view-through sales) ──
+        -- RAW.AD_CAMPAIGN.sales_14d is NULL for DSP — DSP uses view-through attribution.
+        -- total_sales from dsp_raw_campaign is the canonical DSP revenue figure.
+        SELECT
+          client_id,
+          date,
+          'US'                                                        AS marketplace,
+          'DSP'                                                       AS ad_type,
+          COUNT(DISTINCT order_id)                                    AS active_campaigns,
+          SUM(total_cost)                                             AS spend,
+          SUM(total_sales)                                            AS sales,
+          SUM(total_purchases)                                        AS orders,
+          SUM(clicks)                                                 AS clicks,
+          SUM(impressions)                                            AS impressions,
+          CASE WHEN SUM(total_sales) > 0
+            THEN SUM(total_cost) / SUM(total_sales) ELSE NULL END     AS acos,
+          CASE WHEN SUM(total_cost) > 0
+            THEN SUM(total_sales) / SUM(total_cost) ELSE NULL END     AS roas,
+          CASE WHEN SUM(impressions) > 0
+            THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END  AS ctr
+        FROM (
+          -- Deduplicate dsp_raw_campaign: keep latest ingested row per order+date
+          SELECT client_id, order_id, date,
+            MAX(total_cost)       AS total_cost,
+            MAX(total_sales)      AS total_sales,
+            MAX(total_purchases)  AS total_purchases,
+            MAX(clicks)           AS clicks,
+            MAX(impressions)      AS impressions
+          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          GROUP BY client_id, order_id, date
+        ) dsp_deduped
+        GROUP BY client_id, date
       ) src
       ON  tgt.client_id   = src.client_id
       AND tgt.date        = src.date

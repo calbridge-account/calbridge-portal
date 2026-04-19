@@ -2182,7 +2182,7 @@ async function writeDspRawCampaign(clientId, profileId, rows) {
       'order_currency','entity_id','impressions','clicks','total_cost','viewable_impressions',
       'viewability_rate','detail_page_views','detail_page_view_clicks','add_to_cart','add_to_cart_clicks',
       'purchases','purchases_clicks','total_purchases','total_purchases_clicks','sales','total_sales',
-      'new_to_brand_purchases','new_to_brand_purchases_clicks','new_to_brand_product_sales','synced_at'],
+      'new_to_brand_purchases','new_to_brand_purchases_clicks','new_to_brand_product_sales'],
     dateColumns: ['date', 'order_start_date', 'order_end_date'],
     rows: mapped,
   });
@@ -2224,7 +2224,7 @@ async function writeDspRawFlight(clientId, profileId, rows) {
       'viewable_impressions','viewability_rate','detail_page_views','add_to_cart',
       'purchases','total_purchases','sales','total_sales',
       'new_to_brand_purchases','new_to_brand_product_sales',
-      'video_ad_start','video_ad_complete','synced_at'],
+      'video_ad_start','video_ad_complete'],
     dateColumns: ['date'],
     rows: mapped,
   });
@@ -2266,7 +2266,7 @@ async function writeDspRawAd(clientId, profileId, rows) {
       'viewable_impressions','viewability_rate','detail_page_views','add_to_cart',
       'purchases','total_purchases','sales','total_sales',
       'new_to_brand_purchases','new_to_brand_product_sales',
-      'video_ad_start','video_ad_complete','synced_at'],
+      'video_ad_start','video_ad_complete'],
     dateColumns: ['date'],
     rows: mapped,
   });
@@ -2299,7 +2299,7 @@ async function writeDspRawCreative(clientId, profileId, rows) {
     keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
     dataColumns: ['order_name','advertiser_name','impressions','clicks','total_cost',
       'viewable_impressions','viewability_rate',
-      'video_ad_start','video_ad_midpoint','video_ad_complete','synced_at'],
+      'video_ad_start','video_ad_midpoint','video_ad_complete'],
     dateColumns: ['date'],
     rows: mapped,
   });
