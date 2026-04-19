@@ -705,7 +705,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
     const spSql = `
       SELECT
         'SP'                                                                      AS ad_type,
-        COALESCE(keyword, targeting)                                              AS keyword,
+        MAX(COALESCE(keyword, targeting))                                         AS keyword,
         COALESCE(match_type, 'AUTO')                                              AS match_type,
         MAX(campaign_name)                                                        AS campaign_name,
         MAX(ad_group_name)                                                        AS ad_group_name,
@@ -727,12 +727,12 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       WHERE client_id = ?
         ${dateFilter('date', days, startDate, endDate)}
         AND COALESCE(keyword, targeting) IS NOT NULL
-      GROUP BY COALESCE(keyword, targeting), COALESCE(match_type, 'AUTO')`;
+      GROUP BY UPPER(TRIM(COALESCE(keyword, targeting))), COALESCE(match_type, 'AUTO')`;
 
     const sbSql = `
       SELECT
         'SB'                                                                      AS ad_type,
-        COALESCE(keyword_text, targeting_text)                                    AS keyword,
+        MAX(COALESCE(keyword_text, targeting_text))                               AS keyword,
         COALESCE(match_type, 'N/A')                                               AS match_type,
         MAX(campaign_name)                                                        AS campaign_name,
         MAX(ad_group_name)                                                        AS ad_group_name,
@@ -754,7 +754,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
       WHERE client_id = ?
         ${dateFilter('report_date', days, startDate, endDate)}
         AND COALESCE(keyword_text, targeting_text) IS NOT NULL
-      GROUP BY COALESCE(keyword_text, targeting_text), COALESCE(match_type, 'N/A')`;
+      GROUP BY UPPER(TRIM(COALESCE(keyword_text, targeting_text))), COALESCE(match_type, 'N/A')`;
 
     if (adType === 'SP') {
       sql = spSql; binds = [clientId];
