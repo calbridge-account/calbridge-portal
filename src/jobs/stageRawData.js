@@ -1065,10 +1065,10 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
             (log_id, run_id, checked_at, table_name, account_id, client_id,
              assertion, check_type, status, rows_checked, rows_failed, failure_detail)
           VALUES
-            (require('crypto').randomUUID(), ?, CURRENT_TIMESTAMP(), 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+            (?, ?, CURRENT_TIMESTAMP(), 'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
              ?, ?, 'no_missing_partitions', 'row_count', 'WARN', 30, ?, ?)
         `, [
-          uuidv4(),
+          require('crypto').randomUUID(),
           accountId, clientId,
           missing.length,
           `Missing ${missing.length} date(s) in last 30 days: ${missingDates.substring(0, 500)}`,
@@ -1085,9 +1085,34 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
   return { gaps };
 }
 
+// ─── Job 5: expire_stale_actions ─────────────────────────────────────────────
+
+/**
+ * Mark old approved/pending decision actions as 'expired' if they are more
+ * than 14 days old. This prevents stale references to Amazon entities that
+ * may have been deleted, merged, or renamed.
+ */
+async function expireStaleActions({ triggeredBy = 'cron' } = {}) {
+  try {
+    const result = await query(`
+      UPDATE CALBRIDGE_PROD.APP.decision_actions
+      SET status = 'expired', updated_at = CURRENT_TIMESTAMP()
+      WHERE status IN ('approved', 'pending')
+        AND created_at < DATEADD('day', -14, CURRENT_TIMESTAMP())
+    `);
+    const count = result?.[0]?.['number of rows updated'] ?? 0;
+    console.log(`[expireStaleActions] ✅ Expired ${count} stale decision action(s)`);
+    return { expired: count };
+  } catch (err) {
+    console.error('[expireStaleActions] Failed:', err.message);
+    throw err;
+  }
+}
+
 module.exports = {
   stageRawData,
   runQualityChecks,
   computeFreshness,
   reconcileMissingPartitions,
+  expireStaleActions,
 };

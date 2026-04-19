@@ -480,39 +480,46 @@ async function executeAction(actionId, clientId, executedBy) {
   try {
     if (action.ACTION_TYPE === 'bid_decrease' || action.ACTION_TYPE === 'bid_increase') {
       if (action.AD_TYPE === 'SP') {
-        const res = await client.put('/v2/sp/keywords', [
-          { keywordId: action.ENTITY_ID, bid: action.PROPOSED_VALUE, state: 'enabled' }
-        ]);
+        // SP API v3: PATCH /sp/keywords with keyword object array
+        const res = await client.patch('/sp/keywords', {
+          keywords: [{ keywordId: String(action.ENTITY_ID), bid: Number(action.PROPOSED_VALUE) }]
+        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
         result = res.data;
       } else if (action.AD_TYPE === 'SB') {
-        const res = await client.put('/v2/sb/keywords', [
-          { keywordId: action.ENTITY_ID, bid: action.PROPOSED_VALUE }
-        ]);
+        // SB API v4: PUT /sb/v4/keywords
+        const res = await client.put('/sb/v4/keywords', {
+          keywords: [{ keywordId: String(action.ENTITY_ID), bid: { bidValue: Number(action.PROPOSED_VALUE), bidAdjustment: null } }]
+        });
         result = res.data;
       } else {
         throw new Error(`Bid update not supported for ad type: ${action.AD_TYPE}`);
       }
     } else if (action.ACTION_TYPE === 'add_keyword') {
-      // Add new keyword to SP campaign
-      const res = await client.post('/v2/sp/keywords', [{
-        campaignId:  action.CAMPAIGN_ID,
-        adGroupId:   action.AD_GROUP_ID,
-        keywordText: action.ENTITY_NAME,
-        matchType:   action.METRICS_SNAPSHOT?.suggested_match_type || 'EXACT',
-        bid:         action.PROPOSED_VALUE,
-        state:       'enabled',
-      }]);
+      // SP API v3: POST /sp/keywords
+      const matchType = action.METRICS_SNAPSHOT?.suggested_match_type || 'EXACT';
+      const res = await client.post('/sp/keywords', {
+        keywords: [{
+          campaignId:  String(action.CAMPAIGN_ID),
+          adGroupId:   String(action.AD_GROUP_ID),
+          keywordText: action.ENTITY_NAME,
+          matchType:   matchType.toUpperCase(),
+          bid:         Number(action.PROPOSED_VALUE),
+          state:       'ENABLED',
+        }]
+      }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
       result = res.data;
     } else if (action.ACTION_TYPE === 'budget_increase' || action.ACTION_TYPE === 'budget_decrease') {
-      const res = await client.put('/v2/sp/campaigns', [
-        { campaignId: action.ENTITY_ID, dailyBudget: action.PROPOSED_VALUE }
-      ]);
+      // SP API v3: PUT /sp/campaigns
+      const res = await client.put('/sp/campaigns', {
+        campaigns: [{ campaignId: String(action.ENTITY_ID), budget: { budgetType: 'DAILY', budget: Number(action.PROPOSED_VALUE) } }]
+      }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json' } });
       result = res.data;
     } else if (action.ACTION_TYPE === 'pause_keyword') {
       if (action.AD_TYPE === 'SP') {
-        const res = await client.put('/v2/sp/keywords', [
-          { keywordId: action.ENTITY_ID, state: 'paused' }
-        ]);
+        // SP API v3: PATCH /sp/keywords to set state
+        const res = await client.patch('/sp/keywords', {
+          keywords: [{ keywordId: String(action.ENTITY_ID), state: 'PAUSED' }]
+        }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json' } });
         result = res.data;
       } else {
         throw new Error('Pause not yet implemented for non-SP keywords');
@@ -529,6 +536,20 @@ async function executeAction(actionId, clientId, executedBy) {
 
     return { success: true, result };
   } catch (err) {
+    // Detect 404s — Amazon entity was deleted, merged, or no longer exists
+    const is404 = err.response?.status === 404
+      || String(err.response?.status) === '404'
+      || /404|not found/i.test(err.message);
+
+    if (is404) {
+      await query(`
+        UPDATE CALBRIDGE_PROD.APP.decision_actions
+        SET status='expired', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()
+        WHERE action_id=?
+      `, [JSON.stringify({ error: 'Amazon entity no longer exists', response: err.response?.data }), actionId]);
+      return { success: false, expired: true, reason: 'Amazon entity no longer exists' };
+    }
+
     await query(`
       UPDATE CALBRIDGE_PROD.APP.decision_actions
       SET status='failed', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()

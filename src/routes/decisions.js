@@ -140,6 +140,9 @@ router.post('/execute/:id', requireAuth, async (req, res, next) => {
     const clientId  = await resolveClientId(req);
     const executedBy = req.session.email || req.session.clientId;
     const result = await executeAction(req.params.id, clientId, executedBy);
+    if (result?.expired) {
+      return res.status(410).json({ error: result.reason || 'Amazon entity no longer exists', expired: true });
+    }
     res.json(result);
   } catch (err) {
     if (err.message?.includes('Cannot execute') || err.message?.includes('not found')) {

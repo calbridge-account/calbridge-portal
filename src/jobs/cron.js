@@ -126,6 +126,9 @@ const JOB_HANDLERS = {
   detect_anomalies:          () => buildCanonical().detectAnomalies({ triggeredBy: 'cron' }),
   generate_operator_summary: () => buildCanonical().generateOperatorSummary({ triggeredBy: 'cron' }),
 
+  // ── Daily cleanup ──────────────────────────────────────────────────────────
+  expire_stale_actions:      () => stageRawData().expireStaleActions({ triggeredBy: 'cron' }),
+
   // ── Daily post-models ─────────────────────────────────────────────────────
   // score_opportunities: () => economist().scoreOpportunities({ triggeredBy: 'cron' }),
 
@@ -324,6 +327,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'generate_operator_summary',
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
+  },
+  {
+    jobId: 'expire_stale_actions',
+    expr:  '0 4 * * *',     // 04:00 UTC daily — expire decisions older than 14 days
   },
 
   // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
