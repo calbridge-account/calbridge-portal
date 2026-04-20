@@ -1113,8 +1113,8 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
  * Rebuild MART_ADVERTISING_DAILY from RAW.AD_CAMPAIGN.
  * Runs hourly at :05 after stage_raw_data completes.
  *
- * SBV detection: SB campaigns with 'Video' in the campaign name are classified
- * as ad_type='SBV' so they appear as a separate card on the advertising overview.
+ * Sponsored Brands (SB + SBV) are combined into a single 'SB' bucket.
+ * SBV split was removed — SB and video are now aggregated together.
  */
 async function rebuildMart({ triggeredBy = 'cron' } = {}) {
   const startMs = Date.now();
@@ -1132,7 +1132,6 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
           r.date,
           COALESCE(ca.marketplace, 'US')                            AS marketplace,
           CASE
-            WHEN r.ad_product = 'SPONSORED_BRANDS' AND UPPER(r.campaign_name) LIKE '%VIDEO%' THEN 'SBV'
             WHEN r.ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
             WHEN r.ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
             WHEN r.ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
