@@ -147,7 +147,7 @@ export default function VendorPerformance() {
         />
       </div>
 
-      {/* ── KPI Row 2: Operations ──────────────────────────────────────────── */}
+      {/* ── KPI Row 2: Inventory Health ───────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           title="Glance Views"
@@ -158,24 +158,24 @@ export default function VendorPerformance() {
           loading={isLoading}
         />
         <MetricCard
-          title="Sell-Through Rate"
-          value={fmtPct(vm_kpis.sellThroughRate)}
-          sub="Units sold ÷ available inventory"
-          highlight={vm_kpis.sellThroughRate != null && vm_kpis.sellThroughRate < 0.5 ? 'amber' : 'green'}
+          title="Inventory Turnover"
+          value={vm_kpis.invTurnover != null ? `${vm_kpis.invTurnover.toFixed(1)}× / yr` : '—'}
+          sub={vm_kpis.daysOnHand != null ? `${Math.round(vm_kpis.daysOnHand)}d on hand` : 'Based on 30d shipped COGS'}
+          highlight={vm_kpis.invTurnover != null && vm_kpis.invTurnover < 4 ? 'amber' : 'green'}
           loading={isLoading}
         />
         <MetricCard
-          title="Open PO Units"
-          value={fmtNum(vm_kpis.openPoUnits)}
-          sub="Ordered but not yet received"
+          title="Stockout Rate"
+          value={vm_kpis.stockoutRate != null ? fmtPct(vm_kpis.stockoutRate) : '—'}
+          sub={vm_kpis.stockoutAsins != null ? `${vm_kpis.stockoutAsins} ASINs at 0 units · ${vm_kpis.lowStockAsins ?? 0} low` : ''}
+          highlight={vm_kpis.stockoutRate != null && vm_kpis.stockoutRate > 0.05 ? 'red' : 'green'}
+          loading={isLoading}
+        />
+        <MetricCard
+          title="Carrying Cost"
+          value={vm_kpis.carryingCost != null ? fmt$(Math.round(vm_kpis.carryingCost)) : '—'}
+          sub={vm_kpis.totalInvValue != null ? `Est. monthly · ${fmt$(Math.round(vm_kpis.totalInvValue))} inv value` : 'Est. monthly (2% of inv value)'}
           highlight="blue"
-          loading={isLoading}
-        />
-        <MetricCard
-          title="Stockout Risk"
-          value={gs.stockoutRisk?.atRiskCount ?? '—'}
-          sub="ASINs with <2 weeks cover"
-          highlight={gs.stockoutRisk?.atRiskCount > 0 ? 'red' : 'green'}
           loading={isLoading}
         />
       </div>

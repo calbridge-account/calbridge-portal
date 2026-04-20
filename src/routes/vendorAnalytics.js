@@ -473,13 +473,11 @@ router.get('/vendor', requireAuth, requirePlan('vendorReports'), async (req, res
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     const weeks = req.query.weeks || 12;
 
-    const [invAgg, invSnapshot, weeklyInv, weeklyUnits] = await Promise.all([
+    const [invAgg, invSnapshot, cogsAgg, weeklyInv, weeklyUnits] = await Promise.all([
 
-      // Rate KPIs averaged over the selected date range (trend-based — date range IS relevant)
-      // NOTE: AVG(vendor_confirmation_rate) only over weeks with active POs (rate > 0)
+      // Rate KPIs averaged over the selected date range
       query(`
         SELECT
-          AVG(sell_through_rate)          AS avg_sell_through,
           AVG(CASE WHEN vendor_confirmation_rate > 0 THEN vendor_confirmation_rate END) AS avg_conf_rate,
           AVG(receive_fill_rate)          AS avg_fill_rate,
           AVG(avg_vendor_lead_time_days)  AS avg_lead_time
@@ -487,18 +485,31 @@ router.get('/vendor', requireAuth, requirePlan('vendorReports'), async (req, res
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
       `, [CLIENT_ID, cutoff, rangeEnd]),
 
-      // Snapshot KPIs: always use latest snapshot — NEVER summed across date range
-      // (summing daily rows inflates on-hand counts by 30x, 90x, etc.)
+      // Snapshot KPIs: always use latest snapshot
       query(`
         SELECT
           SUM(sellable_on_hand_units)          AS total_sellable,
+          SUM(sellable_on_hand_cost)           AS total_inv_value,
           SUM(aged_90_plus_units)              AS total_aged_90,
           SUM(unhealthy_units)                 AS total_unhealthy,
-          SUM(unfilled_customer_ordered_units) AS total_oos
+          SUM(unfilled_customer_ordered_units) AS total_oos,
+          SUM(open_purchase_order_units)       AS total_open_po,
+          COUNT(DISTINCT asin)                 AS total_asins,
+          COUNT(DISTINCT CASE WHEN sellable_on_hand_units = 0 THEN asin END) AS stockout_asins,
+          COUNT(DISTINCT CASE WHEN sellable_on_hand_units < 14 AND sellable_on_hand_units > 0 THEN asin END) AS low_stock_asins
         FROM ${SCHEMA}.VENDOR_INVENTORY
         WHERE client_id = ?
           AND end_date = (SELECT MAX(end_date) FROM ${SCHEMA}.VENDOR_INVENTORY WHERE client_id = ?)
       `, [CLIENT_ID, CLIENT_ID]),
+
+      // 30-day COGS for inventory turnover + days-on-hand calculation
+      query(`
+        SELECT SUM(shipped_cogs) AS cogs_30d, SUM(shipped_units) AS units_30d
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ?
+          AND start_date >= DATEADD('day', -30, CURRENT_DATE())
+          AND start_date = end_date
+      `, [CLIENT_ID]),
 
       // Weekly sell-through rate trend
       // Only average conf_rate over rows where a PO was confirmed (rate > 0)
@@ -530,18 +541,45 @@ router.get('/vendor', requireAuth, requirePlan('vendorReports'), async (req, res
       `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
 
+    // ── Calculated inventory metrics ──────────────────────────────────────────
+    const invValue   = n(invSnapshot[0]?.TOTAL_INV_VALUE) || 0;
+    const cogs30d    = n(cogsAgg[0]?.COGS_30D) || 0;
+    const totalAsins = n(invSnapshot[0]?.TOTAL_ASINS) || 0;
+    const stockoutAsins = n(invSnapshot[0]?.STOCKOUT_ASINS) || 0;
+    const lowStockAsins = n(invSnapshot[0]?.LOW_STOCK_ASINS) || 0;
+
+    // Inventory Turnover: annualized COGS / inventory value (standard formula)
+    const annualizedCOGS  = cogs30d * 12;
+    const invTurnover     = invValue > 0 ? annualizedCOGS / invValue : null;
+    // Days on Hand: inventory value / daily COGS rate
+    const dailyCOGS       = cogs30d / 30;
+    const daysOnHand      = dailyCOGS > 0 ? invValue / dailyCOGS : null;
+    // Stockout Rate: fraction of ASINs with zero sellable units
+    const stockoutRate    = totalAsins > 0 ? stockoutAsins / totalAsins : null;
+    // Carrying Cost: estimated at 2%/month of inventory value (~24% annually)
+    // This is an industry-standard estimate; actual = holding + storage + opportunity
+    const carryingCost    = invValue * 0.02;
+
     res.json({
       metrics: {
-        // Rate metrics: averaged over selected date range (trend-based)
-        avgSellThrough:       n(invAgg[0]?.AVG_SELL_THROUGH),
+        // Vendor confirmation + fill rates (trend-based, date range dependent)
         avgConfRate:          n(invAgg[0]?.AVG_CONF_RATE),
         avgFillRate:          n(invAgg[0]?.AVG_FILL_RATE),
         avgLeadTime:          n(invAgg[0]?.AVG_LEAD_TIME),
-        // Snapshot metrics: always current (latest snapshot only — not date-range dependent)
+        // Snapshot metrics (always current)
         totalSellable:        n(invSnapshot[0]?.TOTAL_SELLABLE),
+        totalInvValue:        invValue,
         totalAged90:          n(invSnapshot[0]?.TOTAL_AGED_90),
         totalUnhealthy:       n(invSnapshot[0]?.TOTAL_UNHEALTHY),
         totalOos:             n(invSnapshot[0]?.TOTAL_OOS),
+        openPoUnits:          n(invSnapshot[0]?.TOTAL_OPEN_PO),
+        // Calculated operational metrics
+        invTurnover,        // times per year
+        daysOnHand,         // days of inventory remaining at current sell rate
+        stockoutRate,       // fraction of ASINs at 0 units
+        stockoutAsins,      // count
+        lowStockAsins,      // count of ASINs < 14 days cover
+        carryingCost,       // estimated monthly carrying cost ($)
       },
       weeklyInventoryTrend: weeklyInv.map(r => ({
         week:          r.WEEK,
