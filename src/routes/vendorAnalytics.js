@@ -23,6 +23,12 @@ const { requireAuth } = require('../middleware/requireAuth');
 // Production database — use APP schema with current table names
 const SCHEMA = 'CALBRIDGE_PROD.APP';
 
+// Filter that excludes real-time sales rows from regular aggregations.
+// RT rows have start_date != end_date (hourly windows crossing midnight) and
+// no shipped data — including them doubles ordered_revenue for the day.
+// Use this in every VENDOR_SALES query that aggregates shipped or ordered totals.
+const DAY_ONLY = `AND start_date = end_date`;
+
 // Table name mapping: Project GO names → current actual table names
 const T = {
   RETAIL_SALES_TRAFFIC: 'VENDOR_SALES',
@@ -169,6 +175,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
           SUM(ordered_units)   AS ordered_units
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
       `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
 
       // Previous week only (for WoW)
@@ -178,6 +185,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
           SUM(shipped_cogs)    AS shipped_cogs
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date >= ? AND start_date < ?
+          ${DAY_ONLY}
       `, [CLIENT_ID, prevCutoff, effectiveCutoff]),
 
       // Current glance views
@@ -232,6 +240,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
           SUM(shipped_units)   AS shipped_units
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
         GROUP BY start_date
         ORDER BY start_date ASC
       `, [CLIENT_ID, effectiveCutoff, effectiveRangeEnd]),
@@ -252,6 +261,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
         FROM ${SCHEMA}.VENDOR_SALES s
         LEFT JOIN best_product bp ON bp.asin = s.asin
         WHERE s.client_id = ? AND s.start_date >= DATEADD('week', -4, CURRENT_DATE)
+          AND s.start_date = s.end_date
         GROUP BY s.asin
         ORDER BY shipped_revenue DESC NULLS LAST
         LIMIT 10
@@ -285,6 +295,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
         SELECT SUM(shipped_revenue) AS revenue
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date >= DATEADD('day', -7, CURRENT_DATE)
+          AND start_date = end_date
       `, [CLIENT_ID]),
 
       // Growth: prior week revenue (7-14 days ago)
@@ -292,6 +303,7 @@ router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, r
         SELECT SUM(shipped_revenue) AS revenue
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date >= DATEADD('day', -14, CURRENT_DATE) AND start_date < DATEADD('day', -7, CURRENT_DATE)
+          AND start_date = end_date
       `, [CLIENT_ID]),
 
       // Growth: current week glance views
@@ -512,6 +524,7 @@ router.get('/vendor', requireAuth, requirePlan('vendorReports'), async (req, res
           SUM(shipped_units)  AS shipped_units
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
         GROUP BY start_date
         ORDER BY start_date ASC
       `, [CLIENT_ID, cutoff, rangeEnd]),
@@ -606,6 +619,7 @@ router.get('/vendor/asins', requireAuth, requirePlan('vendorReports'), async (re
         SELECT asin, SUM(shipped_cogs) AS shipped_cogs
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
         GROUP BY asin
       `, [CLIENT_ID, cutoff, rangeEnd]),
     ]);
@@ -1242,6 +1256,7 @@ router.get('/annual-projection', requireAuth, requirePlan('vendorReports'), asyn
         WHERE client_id = ?
           AND start_date >= ?
           AND start_date <= ?
+          AND start_date = end_date
       `, [CLIENT_ID, janFirst, lastSundayStr]),
 
       // Week-by-week actuals for the year
@@ -1256,6 +1271,7 @@ router.get('/annual-projection', requireAuth, requirePlan('vendorReports'), asyn
         WHERE client_id = ?
           AND start_date >= ?
           AND start_date <= ?
+          AND start_date = end_date
         GROUP BY start_date
         ORDER BY start_date ASC
       `, [CLIENT_ID, janFirst, lastSundayStr]),
@@ -1372,6 +1388,7 @@ router.get('/inventory-detail', requireAuth, requirePlan('vendorReports'), async
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ?
           AND start_date >= DATEADD('week', -4, CURRENT_DATE)
+          AND start_date = end_date
         GROUP BY asin
       ),
       -- Collapse products to one row per ASIN, preferring non-null titles.
