@@ -532,8 +532,8 @@ async function executeAction(actionId, clientId, executedBy) {
       const snap       = action.METRICS_SNAPSHOT || {};
       const dailyBudget = snap.suggested_budget || 30;
       const defaultBid  = snap.suggested_bid    || 1.50;
-      const today       = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const campaignName = `Auto.SP.IdleInv.${asin}.${today}`;
+      const today       = new Date().toISOString().slice(0, 10); // YYYY-MM-DD required by SP API v3
+      const campaignName = `Auto.SP.IdleInv.${asin}.${today.replace(/-/g,'')}`;  // name can use compact date
 
       // 1. Create campaign
       const campRes = await client.post('/sp/campaigns', {
@@ -824,10 +824,11 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
         } else if (actionType === 'launch_campaign' && adType === 'SP') {
           // Batched campaign creation: 4 API calls total for N campaigns
           // Step 1: Create all campaigns in one call
-          const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+          const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD required by SP API v3
+          const todayCompact = today.replace(/-/g, '');              // compact for name only
           const campRes = await client.post('/sp/campaigns', {
             campaigns: batch.map(a => ({
-              name:          `Auto.SP.IdleInv.${a.ENTITY_NAME}.${today}`,
+              name:          `Auto.SP.IdleInv.${a.ENTITY_NAME}.${todayCompact}`,
               targetingType: 'AUTO',
               state:         'ENABLED',
               budget:        { budgetType: 'DAILY', budget: a.METRICS_SNAPSHOT?.suggested_budget || 30 },
@@ -847,7 +848,7 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
 
           const agRes = await client.post('/sp/adGroups', {
             adGroups: agInputs.map(x => ({
-              name:       `Auto.SP.IdleInv.${x.asin}.${today}_AG`,
+              name:       `Auto.SP.IdleInv.${x.asin}.${todayCompact}_AG`,
               campaignId: String(x.campaignId),
               defaultBid: x.defaultBid,
               state:      'ENABLED',

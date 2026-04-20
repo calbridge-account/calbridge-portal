@@ -33,17 +33,74 @@ async function spClient(clientId, connectionType) {
 }
 
 /**
- * Fetch catalog items (products) from SP-API
+ * Fetch catalog items by ASIN batch from SP-API Catalog Items v2022-04-01.
+ * Max 20 ASINs per request — caller handles batching.
+ *
+ * Key params:
+ *   identifiers      = comma-delimited ASINs (max 20)
+ *   identifiersType  = 'ASIN'
+ *   marketplaceIds   = single marketplace ID (max 1 per request)
+ *   includedData     = 'summaries,images,salesRanks,relationships'
+ *
+ * Returns array of item objects.
  */
-async function fetchProducts(client, marketplaceId = 'ATVPDKIKX0DER') {
+async function fetchCatalogBatch(client, asins, marketplaceId = 'ATVPDKIKX0DER') {
   const res = await client.get('/catalog/2022-04-01/items', {
     params: {
-      marketplaceIds: marketplaceId,
-      includedData: 'summaries,attributes,salesRanks',
-      pageSize: 20
+      identifiers:     asins.join(','),
+      identifiersType: 'ASIN',
+      marketplaceIds:  marketplaceId,
+      includedData:    'summaries,images,salesRanks,relationships',
+      pageSize:        20,
     }
   });
   return res.data?.items || [];
+}
+
+/**
+ * Fetch all ASINs for this client via GET_MERCHANT_LISTINGS_ALL_DATA report.
+ * Returns array of { asin, sku, title, price, status } objects.
+ * Used to discover ASINs not yet in our PRODUCTS table.
+ */
+async function fetchListingsReport(client, marketplaceId = 'ATVPDKIKX0DER') {
+  const createRes = await client.post('/reports/2021-06-30/reports', {
+    reportType:      'GET_MERCHANT_LISTINGS_ALL_DATA',
+    marketplaceIds:  [marketplaceId],
+  });
+  const reportId = createRes.data?.reportId;
+  if (!reportId) throw new Error('No reportId from GET_MERCHANT_LISTINGS_ALL_DATA');
+
+  // Poll up to 5 min
+  const maxWait = 300000;
+  const start   = Date.now();
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, 15000));
+    const status = await client.get(`/reports/2021-06-30/reports/${reportId}`);
+    const { processingStatus, reportDocumentId } = status.data;
+    if (processingStatus === 'DONE' && reportDocumentId) {
+      const docRes  = await client.get(`/reports/2021-06-30/documents/${reportDocumentId}`);
+      const dl      = await axios.get(docRes.data.url, { responseType: 'text' });
+      // TSV — parse header + rows
+      const lines   = dl.data.split('\n').filter(Boolean);
+      const headers = lines[0].split('\t').map(h => h.trim());
+      return lines.slice(1).map(line => {
+        const cells = line.split('\t');
+        const row   = {};
+        headers.forEach((h, i) => { row[h] = cells[i]?.trim() || null; });
+        return {
+          asin:   row['asin1'] || row['asin'] || null,
+          sku:    row['seller-sku'] || row['sku'] || null,
+          title:  row['item-name'] || row['title'] || null,
+          price:  row['price'] ? parseFloat(row['price']) : null,
+          status: row['status'] || null,
+        };
+      }).filter(r => r.asin);
+    }
+    if (['CANCELLED', 'FATAL'].includes(processingStatus)) {
+      throw new Error(`Listings report ${reportId} ended with: ${processingStatus}`);
+    }
+  }
+  throw new Error('Listings report timed out');
 }
 
 /**
@@ -91,32 +148,75 @@ async function pollReport(client, reportId, maxWaitMs = 120000) {
 }
 
 /**
- * Upsert products into Snowflake
+ * Upsert catalog items into PRODUCTS table.
+ * Handles the richer v2022-04-01 response shape:
+ *   item.summaries[0]        → title, brand, productType, modelNumber
+ *   item.images[0].images[0] → image_url (MAIN image)
+ *   item.relationships       → parent_asin (variation parent)
+ *
+ * Only overwrites non-null fields — preserves COGS/FBA_FEES set elsewhere.
  */
 async function writeProducts(clientId, connectionType, items) {
   if (!items.length) return 0;
-  let written = 0;
-  for (const item of items) {
-    const asin = item.asin;
-    const summary = item.summaries?.[0] || {};
-    await query(`
-      MERGE INTO products t
-      USING (SELECT ? AS client_id, ? AS connection_type, ? AS asin) s
-      ON t.client_id = s.client_id AND t.connection_type = s.connection_type AND t.asin = s.asin
-      WHEN MATCHED THEN UPDATE SET
-        title = ?, brand = ?, synced_at = CURRENT_TIMESTAMP
-      WHEN NOT MATCHED THEN INSERT
-        (client_id, connection_type, asin, title, brand, synced_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `, [
-      clientId, connectionType, asin,
-      summary.itemName || null, summary.brand || null,
-      clientId, connectionType, asin,
-      summary.itemName || null, summary.brand || null
-    ]);
-    written++;
-  }
-  return written;
+  const { batchMerge } = require('../services/snowflakeService');
+  const rows = items.map(item => {
+    const asin     = item.asin;
+    const summary  = (item.summaries  || [])[0] || {};
+    const imgSet   = (item.images     || [])[0];
+    const mainImg  = (imgSet?.images  || []).find(i => i.variant === 'MAIN');
+    // Resolve parent ASIN from relationships
+    const relParent = (item.relationships || []).find(r => r.type === 'VARIATION');
+    const parentAsin = relParent?.parentAsin || null;
+
+    return {
+      client_id:        clientId,
+      connection_type:  connectionType,
+      asin,
+      title:            summary.itemName       || null,
+      brand:            summary.brand          || null,
+      product_type:     summary.productType    || null,
+      model_number:     summary.modelNumber    || null,
+      image_url:        mainImg?.link          || null,
+      parent_asin:      parentAsin,
+      marketplace:      'US',
+      is_active:        true,
+    };
+  });
+
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.APP.products',
+    keyColumns:  ['client_id', 'asin'],
+    dataColumns: ['connection_type', 'title', 'brand', 'product_type', 'model_number',
+                  'image_url', 'parent_asin', 'marketplace', 'is_active'],
+    dateColumns: [],
+    rows,
+  });
+}
+
+/**
+ * Upsert SKU rows from the listings report into PRODUCTS.
+ * Only sets fields not already populated by the catalog API.
+ */
+async function writeListings(clientId, connectionType, listings) {
+  if (!listings.length) return 0;
+  const { batchMerge } = require('../services/snowflakeService');
+  const rows = listings.map(l => ({
+    client_id:       clientId,
+    connection_type: connectionType,
+    asin:            l.asin,
+    sku:             l.sku,
+    title:           l.title,
+    price:           l.price,
+    marketplace:     'US',
+    is_active:       l.status === 'Active' ? true : false,
+  }));
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.APP.products',
+    keyColumns:  ['client_id', 'asin'],
+    dataColumns: ['connection_type', 'sku', 'title', 'price', 'marketplace', 'is_active'],
+    dateColumns: [],
+    rows,
+  });
 }
 
 /**
@@ -185,20 +285,66 @@ async function resolveAccountId(clientId, channel) {
 }
 
 /**
- * Main ingestion job — products
+ * Main ingestion job — full product catalog.
  *
- * Phase 2c: resolves account_id from client_accounts for logging.
+ * Flow:
+ *   1. GET_MERCHANT_LISTINGS_ALL_DATA report → full SKU/ASIN list, upsert into PRODUCTS
+ *   2. Collect all known ASINs for this client (PRODUCTS + advertised)
+ *   3. Batch-lookup catalog details (title, brand, image, parent_asin) via
+ *      GET /catalog/2022-04-01/items with identifiers=ASIN (20 per request)
+ *
+ * Rate: 2 req/s burst for catalog items — we sleep 600ms between batches.
  */
-async function ingestProducts(clientId, connectionType) {
+async function ingestProducts(clientId, connectionType = 'seller') {
   return runJob(clientId, connectionType, 'products', async () => {
-    // Phase 2c: log account_id if available
     const accountId = await resolveAccountId(clientId, connectionType);
-    if (accountId) console.log(`[spIngestion] products client=${clientId} connectionType=${connectionType} account_id=${accountId}`);
+    if (accountId) console.log(`[spIngestion] catalog client=${clientId} account_id=${accountId}`);
 
     const client = await spClient(clientId, connectionType);
-    const items = await fetchProducts(client);
-    const written = await writeProducts(clientId, connectionType, items);
-    return { recordsWritten: written };
+    const marketplaceId = 'ATVPDKIKX0DER';
+    let totalWritten = 0;
+
+    // Step 1: listings report for full SKU→ASIN map
+    console.log(`[spIngestion] Fetching listings report...`);
+    let listingWritten = 0;
+    try {
+      const listings = await fetchListingsReport(client, marketplaceId);
+      console.log(`[spIngestion] Listings report: ${listings.length} rows`);
+      listingWritten = await writeListings(clientId, connectionType, listings);
+      console.log(`[spIngestion] Listings upserted: ${listingWritten}`);
+      totalWritten += listingWritten;
+    } catch (err) {
+      console.warn(`[spIngestion] Listings report failed (non-fatal): ${err.message}`);
+    }
+
+    // Step 2: collect all known ASINs
+    const asinRows = await query(`
+      SELECT DISTINCT asin FROM CALBRIDGE_PROD.APP.products
+      WHERE client_id = ? AND asin IS NOT NULL
+    `, [clientId]);
+    const asins = asinRows.map(r => r.ASIN || r.asin).filter(Boolean);
+    console.log(`[spIngestion] Enriching ${asins.length} ASINs via Catalog API...`);
+
+    // Step 3: batch catalog lookups (20 per request)
+    const BATCH = 20;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    for (let i = 0; i < asins.length; i += BATCH) {
+      const batch = asins.slice(i, i + BATCH);
+      try {
+        const items = await fetchCatalogBatch(client, batch, marketplaceId);
+        if (items.length) {
+          const written = await writeProducts(clientId, connectionType, items);
+          totalWritten += written;
+        }
+        console.log(`[spIngestion] Catalog batch ${Math.floor(i/BATCH)+1}/${Math.ceil(asins.length/BATCH)}: ${batch.length} in → ${items.length} back`);
+      } catch (err) {
+        console.warn(`[spIngestion] Catalog batch ${i}–${i+BATCH} failed: ${err.message}`);
+      }
+      if (i + BATCH < asins.length) await sleep(600); // 2 req/s rate limit
+    }
+
+    console.log(`[spIngestion] Catalog sync complete — ${totalWritten} rows upserted`);
+    return { recordsWritten: totalWritten };
   });
 }
 
