@@ -525,6 +525,65 @@ async function executeAction(actionId, clientId, executedBy) {
       } else {
         throw new Error('Pause not yet implemented for non-SP keywords');
       }
+    } else if (action.ACTION_TYPE === 'launch_campaign') {
+      // SP API v3: Create auto-targeting campaign for idle-inventory ASIN
+      // Steps: campaign → ad group → product ad → auto targets
+      const asin       = action.ENTITY_NAME || action.METRICS_SNAPSHOT?.asin;
+      const snap       = action.METRICS_SNAPSHOT || {};
+      const dailyBudget = snap.suggested_budget || 30;
+      const defaultBid  = snap.suggested_bid    || 1.50;
+      const today       = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const campaignName = `Auto.SP.IdleInv.${asin}.${today}`;
+
+      // 1. Create campaign
+      const campRes = await client.post('/sp/campaigns', {
+        campaigns: [{
+          name:          campaignName,
+          targetingType: 'AUTO',
+          state:         'ENABLED',
+          budget:        { budgetType: 'DAILY', budget: dailyBudget },
+          startDate:     today,
+        }]
+      }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
+
+      const campaignId = campRes.data?.campaigns?.success?.[0]?.campaignId;
+      if (!campaignId) throw new Error('Campaign creation failed: ' + JSON.stringify(campRes.data));
+
+      // 2. Create ad group
+      const agRes = await client.post('/sp/adGroups', {
+        adGroups: [{
+          name:       `${campaignName}_AG`,
+          campaignId: String(campaignId),
+          defaultBid: defaultBid,
+          state:      'ENABLED',
+        }]
+      }, { headers: { 'Content-Type': 'application/vnd.spAdGroup.v3+json', 'Accept': 'application/vnd.spAdGroup.v3+json' } });
+
+      const adGroupId = agRes.data?.adGroups?.success?.[0]?.adGroupId;
+      if (!adGroupId) throw new Error('Ad group creation failed: ' + JSON.stringify(agRes.data));
+
+      // 3. Add product ad
+      await client.post('/sp/productAds', {
+        productAds: [{
+          campaignId: String(campaignId),
+          adGroupId:  String(adGroupId),
+          asin:       asin,
+          state:      'ENABLED',
+        }]
+      }, { headers: { 'Content-Type': 'application/vnd.spProductAd.v3+json', 'Accept': 'application/vnd.spProductAd.v3+json' } });
+
+      // 4. Add auto-targeting expressions (close match + loose match + substitutes + complements)
+      await client.post('/sp/targets', {
+        targets: [
+          { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'queryHighRelMatches' }],   bid: defaultBid },
+          { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'queryBroadRelMatches' }],  bid: defaultBid * 0.8 },
+          { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'asinSubstituteRelated' }], bid: defaultBid * 0.7 },
+          { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'asinAccessoryRelated' }],  bid: defaultBid * 0.6 },
+        ]
+      }, { headers: { 'Content-Type': 'application/vnd.spTarget.v3+json', 'Accept': 'application/vnd.spTarget.v3+json' } });
+
+      result = { campaignId, adGroupId, asin, campaignName };
+
     } else {
       throw new Error(`Unknown action type: ${action.ACTION_TYPE}`);
     }
@@ -694,8 +753,13 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
       continue;
     }
 
-    // Actions without a profile (e.g. launch_campaign) fall back to one-by-one
-    if (!profileId || profileId === 'null') {
+    // launch_campaign actions have no profile_id — assign the US sponsored_ads profile
+    const resolvedProfileId = (!profileId || profileId === 'null')
+      ? Object.entries(profileMarketplace).find(([,mkt]) => mkt === 'US')?.[0] || null
+      : profileId;
+
+    // Actions without any resolvable profile fall back to one-by-one
+    if (!resolvedProfileId) {
       for (const a of actions) {
         try {
           await executeAction(a.ACTION_ID, clientId, executedBy);
@@ -711,7 +775,7 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
     for (let i = 0; i < actions.length; i += BATCH_SIZE) {
       const batch = actions.slice(i, i + BATCH_SIZE);
       try {
-        const client = await adsClient(clientId, profileId);
+        const client = await adsClient(clientId, resolvedProfileId);
         let apiResult;
 
         if ((actionType === 'bid_decrease' || actionType === 'bid_increase') && adType === 'SP') {
