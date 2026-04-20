@@ -43,6 +43,7 @@ import Cogs from './pages/Cogs';
 import Recommendations from './pages/Recommendations';
 import Pacing from './pages/Pacing';
 import Pricing from './pages/Pricing';
+import Signup from './pages/Signup';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/pacing"          element={<Pacing />} />
             <Route path="/recommendations" element={<Recommendations />} />
             <Route path="/pricing"         element={<Pricing />} />
+            <Route path="/signup"          element={<Signup />} />
           </Routes>
         </Layout>
       </BrowserRouter>

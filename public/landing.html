@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calbridge — Amazon Analytics for Operators</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:       #2d5a27;
+      --brand-dark:  #1e3a1a;
+      --brand-light: #edf5ec;
+      --brand-mid:   #3d7a35;
+      --gray-50:     #f9fafb;
+      --gray-100:    #f3f4f6;
+      --gray-200:    #e5e7eb;
+      --gray-400:    #9ca3af;
+      --gray-500:    #6b7280;
+      --gray-600:    #4b5563;
+      --gray-700:    #374151;
+      --gray-800:    #1f2937;
+      --gray-900:    #111827;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--gray-800);
+      background: #fff;
+      line-height: 1.6;
+    }
+
+    a { text-decoration: none; color: inherit; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo img {
+      height: 44px;
+      width: auto;
+      display: block;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-ghost {
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      border-radius: 8px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary {
+      display: inline-block;
+      padding: 9px 20px;
+      background: var(--brand);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover { background: var(--brand-dark); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-outline {
+      display: inline-block;
+      padding: 9px 20px;
+      background: transparent;
+      color: var(--brand);
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 2px solid var(--brand);
+      transition: background 0.15s, color 0.15s, transform 0.1s;
+    }
+    .btn-outline:hover { background: var(--brand-light); transform: translateY(-1px); }
+
+    /* ── HERO ── */
+    .hero {
+      background: linear-gradient(160deg, #f5faf4 0%, #edf5ec 40%, #f8fbf7 100%);
+      padding: 96px 24px 88px;
+      text-align: center;
+    }
+    .hero-inner { max-width: 800px; margin: 0 auto; }
+    .hero-eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      background: var(--brand-light);
+      border: 1px solid rgba(45,90,39,0.2);
+      border-radius: 100px;
+      padding: 4px 14px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+    .hero h1 em {
+      font-style: normal;
+      color: var(--brand);
+    }
+    .hero-sub {
+      font-size: clamp(16px, 2.5vw, 20px);
+      color: var(--gray-600);
+      max-width: 600px;
+      margin: 0 auto 36px;
+      line-height: 1.55;
+    }
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .hero-ctas .btn-primary { padding: 13px 28px; font-size: 16px; border-radius: 10px; }
+    .hero-ctas .btn-outline  { padding: 12px 28px; font-size: 16px; border-radius: 10px; }
+
+    /* ── SOCIAL PROOF BAR ── */
+    .proof-bar {
+      background: var(--brand-dark);
+      padding: 18px 24px;
+      text-align: center;
+    }
+    .proof-bar p {
+      color: rgba(255,255,255,0.9);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .proof-bar p span {
+      color: #9fda9b;
+      font-weight: 700;
+    }
+
+    /* ── SECTION SHARED ── */
+    section { padding: 80px 24px; }
+    .section-inner { max-width: 1120px; margin: 0 auto; }
+    .section-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--brand);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(24px, 4vw, 36px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 17px;
+      color: var(--gray-500);
+      max-width: 560px;
+      line-height: 1.55;
+      margin-bottom: 56px;
+    }
+
+    /* ── FEATURES ── */
+    .features { background: #fff; }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 16px;
+      padding: 32px 28px;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    }
+    .feature-card:hover {
+      border-color: rgba(45,90,39,0.3);
+      box-shadow: 0 8px 24px rgba(45,90,39,0.08);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      font-size: 32px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 10px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--gray-600);
+      line-height: 1.65;
+    }
+
+    /* ── PRICING ── */
+    .pricing { background: var(--gray-50); }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .pricing-card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: 16px;
+      padding: 28px 24px 32px;
+      position: relative;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .pricing-card:hover {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+      transform: translateY(-2px);
+    }
+    .pricing-card.featured {
+      background: var(--brand-dark);
+      border-color: var(--brand-dark);
+      color: #fff;
+      transform: scale(1.03);
+    }
+    .pricing-card.featured:hover {
+      transform: scale(1.03) translateY(-2px);
+      box-shadow: 0 12px 40px rgba(30,58,26,0.3);
+    }
+    .pricing-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #22c55e;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+    .pricing-tier {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--brand);
+      margin-bottom: 8px;
+    }
+    .pricing-card.featured .pricing-tier { color: rgba(255,255,255,0.7); }
+    .pricing-price {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+    .pricing-amount {
+      font-size: 40px;
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.03em;
+    }
+    .pricing-card.featured .pricing-amount { color: #fff; }
+    .pricing-period {
+      font-size: 14px;
+      color: var(--gray-500);
+      font-weight: 500;
+    }
+    .pricing-card.featured .pricing-period { color: rgba(255,255,255,0.65); }
+    .pricing-tagline {
+      font-size: 13px;
+      color: var(--gray-500);
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .pricing-card.featured .pricing-tagline { color: rgba(255,255,255,0.7); }
+    .pricing-divider {
+      height: 1px;
+      background: var(--gray-200);
+      margin-bottom: 20px;
+    }
+    .pricing-card.featured .pricing-divider { background: rgba(255,255,255,0.15); }
+    .pricing-features {
+      list-style: none;
+      margin-bottom: 24px;
+      space-y: 8px;
+    }
+    .pricing-features li {
+      font-size: 13px;
+      color: var(--gray-600);
+      padding: 5px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+    .pricing-card.featured .pricing-features li { color: rgba(255,255,255,0.85); }
+    .pricing-features li::before {
+      content: '✓';
+      color: var(--brand);
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .pricing-card.featured .pricing-features li::before { color: #9fda9b; }
+    .pricing-cta {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 11px 0;
+      background: var(--brand);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .pricing-cta:hover { background: var(--brand-dark); transform: translateY(-1px); }
+    .pricing-card.featured .pricing-cta {
+      background: #fff;
+      color: var(--brand-dark);
+    }
+    .pricing-card.featured .pricing-cta:hover { background: var(--brand-light); }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--brand-dark);
+      color: rgba(255,255,255,0.65);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    footer p { font-size: 13px; }
+    .footer-links {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 13px;
+      color: rgba(255,255,255,0.55);
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: #fff; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+      .pricing-card.featured { transform: none; }
+      .pricing-card.featured:hover { transform: translateY(-2px); }
+    }
+    @media (max-width: 700px) {
+      .features-grid { grid-template-columns: 1fr; }
+      .pricing-grid  { grid-template-columns: 1fr; }
+      .pricing-card.featured { transform: none; }
+      .hero { padding: 64px 20px 56px; }
+      section { padding: 56px 20px; }
+      .nav-inner { padding: 0 16px; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+    @media (max-width: 480px) {
+      .hero-ctas { flex-direction: column; align-items: stretch; }
+      .hero-ctas .btn-primary, .hero-ctas .btn-outline { text-align: center; }
+      .nav-actions .btn-ghost { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── NAV ── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <img src="/images/calbridge-logo.png" alt="Calbridge" />
+      </a>
+      <div class="nav-actions">
+        <a href="/" class="btn-ghost">Sign In</a>
+        <a href="/signup.html" class="btn-primary">Get Started Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="hero">
+    <div class="hero-inner">
+      <span class="hero-eyebrow">Amazon Analytics Platform</span>
+      <h1>The Amazon analytics platform built by <em>operators</em>, for operators.</h1>
+      <p class="hero-sub">Unified advertising, retail, and inventory data — with AI that takes action.</p>
+      <div class="hero-ctas">
+        <a href="/signup.html" class="btn-primary">Start Free</a>
+        <a href="/" class="btn-outline">See the Dashboard</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SOCIAL PROOF BAR ── -->
+  <div class="proof-bar">
+    <p>Trusted by brands managing <span>$500k+/month</span> in Amazon ad spend</p>
+  </div>
+
+  <!-- ── FEATURES ── -->
+  <section class="features">
+    <div class="section-inner">
+      <p class="section-label">What's Inside</p>
+      <h2 class="section-title">Everything you need.<br/>Nothing you don't.</h2>
+      <p class="section-sub">Purpose-built for the complexity of modern Amazon operations — not retrofitted from a generic analytics tool.</p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon">🎯</span>
+          <h3>Unified Advertising</h3>
+          <p>SP, SB, SD, and DSP in one view. ACOS, ROAS, and contribution margin per ASIN — so you always know what's actually working.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">🤖</span>
+          <h3>AI Decision Engine</h3>
+          <p>Automated bid adjustments and campaign launches. Approve with one click, execute against Amazon's API. You stay in control.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">📦</span>
+          <h3>Vendor &amp; Retail Analytics</h3>
+          <p>Shipped revenue, inventory turnover, stockout rate, and carrying cost. Built for Vendor Central — not bolted on after the fact.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PRICING ── -->
+  <section class="pricing">
+    <div class="section-inner">
+      <p class="section-label">Simple Pricing</p>
+      <h2 class="section-title">Scale with confidence.</h2>
+      <p class="section-sub">Start free. Upgrade when you're ready. No contracts, no surprises.</p>
+
+      <div class="pricing-grid">
+
+        <!-- Free -->
+        <div class="pricing-card">
+          <p class="pricing-tier">Free</p>
+          <div class="pricing-price">
+            <span class="pricing-amount">$0</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <p class="pricing-tagline">Try it out, no card required.</p>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li>1 Amazon connection</li>
+            <li>30-day data history</li>
+            <li>Read-only analytics</li>
+            <li>Core dashboards</li>
+          </ul>
+          <a href="/signup.html" class="pricing-cta">Get Started</a>
+        </div>
+
+        <!-- Starter -->
+        <div class="pricing-card">
+          <p class="pricing-tier">Starter</p>
+          <div class="pricing-price">
+            <span class="pricing-amount">$99</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <p class="pricing-tagline">For growing brands with one or two accounts.</p>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li>2 Amazon connections</li>
+            <li>90-day data history</li>
+            <li>Full dashboard access</li>
+            <li>COGS &amp; margin tracking</li>
+          </ul>
+          <a href="/signup.html" class="pricing-cta">Get Started</a>
+        </div>
+
+        <!-- Growth (Featured) -->
+        <div class="pricing-card featured">
+          <span class="pricing-badge">Most Popular</span>
+          <p class="pricing-tier">Growth</p>
+          <div class="pricing-price">
+            <span class="pricing-amount">$249</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <p class="pricing-tagline">For serious operators scaling fast.</p>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li>All Amazon connections</li>
+            <li>1-year data history</li>
+            <li>AI decisions + write-back</li>
+            <li>Vendor Central analytics</li>
+            <li>3 team seats</li>
+          </ul>
+          <a href="/signup.html" class="pricing-cta">Get Started</a>
+        </div>
+
+        <!-- Pro -->
+        <div class="pricing-card">
+          <p class="pricing-tier">Pro</p>
+          <div class="pricing-price">
+            <span class="pricing-amount">$499</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <p class="pricing-tagline">For agencies and multi-brand portfolios.</p>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li>Everything in Growth</li>
+            <li>White-label reporting</li>
+            <li>Multi-brand management</li>
+            <li>Unlimited team seats</li>
+          </ul>
+          <a href="/signup.html" class="pricing-cta">Get Started</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge</p>
+      <div class="footer-links">
+        <a href="/privacy.html">Privacy</a>
+        <a href="/terms.html">Terms</a>
+        <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
