@@ -480,16 +480,16 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 3. Vendor Traffic (WEEK grain, Sun→Sat aligned, no distributorView/sellingProgram) ─
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
-    // WEEK reports require Sunday→Saturday alignment.
+    // Pull 8 weeks of traffic/PPM on each run to self-heal any gaps from missed cron runs.
     // Traffic/NetPPM data SLA: ~96h after Saturday close (4 days to be safe).
-    // Use prior week if current week's Saturday was < 4 days ago.
     const rawSat = lastCompletedSaturday();
     const daysSinceSat = Math.round((new Date() - new Date(rawSat + 'T00:00:00Z')) / 86400000);
     const endDate = daysSinceSat >= 4 ? rawSat : (() => {
       const d = new Date(rawSat + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
     })();
     const endSat = new Date(endDate + 'T00:00:00Z');
-    const startSun = new Date(endSat); startSun.setUTCDate(endSat.getUTCDate() - 6);
+    // 8-week window — always backfills any missed weeks automatically
+    const startSun = new Date(endSat); startSun.setUTCDate(endSat.getUTCDate() - (7 * 8 - 1));
     const startDate = startSun.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
       reportPeriod:     'WEEK',
@@ -512,14 +512,14 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── 4. Vendor Net PPM (WEEK grain, Sun→Sat aligned) ─────────────────────────
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT...');
-    // Same 96h lag rule as traffic report
+    // 8-week rolling window — self-heals any gaps from missed cron runs
     const rawSat2 = lastCompletedSaturday();
     const daysSinceSat2 = Math.round((new Date() - new Date(rawSat2 + 'T00:00:00Z')) / 86400000);
     const endDate = daysSinceSat2 >= 4 ? rawSat2 : (() => {
       const d = new Date(rawSat2 + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
     })();
     const endSat2 = new Date(endDate + 'T00:00:00Z');
-    const startSun2 = new Date(endSat2); startSun2.setUTCDate(endSat2.getUTCDate() - 6);
+    const startSun2 = new Date(endSat2); startSun2.setUTCDate(endSat2.getUTCDate() - (7 * 8 - 1));
     const startDate = startSun2.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
       reportPeriod:     'WEEK',
@@ -538,6 +538,39 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   }
 
   await sleep(2000);
+
+  // ── 4b. Vendor Inventory WEEK grain (sell-through, unhealthy, fill-rate) ──────
+  // DAY grain inventory rows have NULL for sell_through_rate, unhealthy_units, fill_rate.
+  // WEEK grain is the only source for these operational metrics. Pull 8 weeks rolling.
+  try {
+    const rawSatInv = lastCompletedSaturday();
+    const daysSinceSatInv = Math.round((new Date() - new Date(rawSatInv + 'T00:00:00Z')) / 86400000);
+    const invEndDate = daysSinceSatInv >= 4 ? rawSatInv : (() => {
+      const d = new Date(rawSatInv + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
+    })();
+    const invEndSat = new Date(invEndDate + 'T00:00:00Z');
+    const invStartSun = new Date(invEndSat); invStartSun.setUTCDate(invEndSat.getUTCDate() - (7 * 8 - 1));
+    const invWeekStart = invStartSun.toISOString().substring(0,10);
+    console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT (WEEK grain)...');
+    const invWeekData = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+      reportPeriod:     'WEEK',
+      distributorView:  'SOURCING',
+      sellingProgram:   'RETAIL',
+      dataStartTime:    invWeekStart,
+      dataEndTime:      invEndDate,
+    }, marketplaceId);
+    const invWeekRows = Array.isArray(invWeekData) ? invWeekData : (invWeekData?.reportData || invWeekData?.inventoryByAsin || []);
+    const invWeekWritten = await writeVendorInventory(clientId, invWeekRows);
+    results.vendorInventoryWeek = invWeekWritten;
+    totalWritten += invWeekWritten;
+    console.log(`[vendorIngestion] VENDOR_INVENTORY (WEEK): ${invWeekWritten} rows written`);
+  } catch (err) {
+    console.warn('[vendorIngestion] VENDOR_INVENTORY (WEEK) failed:', err.message?.substring(0, 120));
+    results.vendorInventoryWeek = 0;
+  }
+
+  await sleep(2000);
+
 
   // ── 5. Vendor Forecasts (most recent week only) ──────────────────────────────
   try {
@@ -703,6 +736,22 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
       console.log(`[vendorBackfill] NET_PPM: ${written} rows`);
     } catch (err) {
       console.warn(`[vendorBackfill] NET_PPM failed:`, err.message?.substring(0, 200));
+    }
+    await sleep(2000);
+
+    // Inventory WEEK grain — provides sell_through_rate, unhealthy_units, fill_rate, lead_time
+    // These fields are NULL in DAY grain inventory rows; WEEK grain is the only source.
+    try {
+      const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+        reportPeriod: 'WEEK', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
+        dataStartTime: batch.start, dataEndTime: batch.end,
+      }, marketplaceId, 600000);
+      const rows = toRows(data, 'inventoryByAsin', 'reportData');
+      const written = await writeVendorInventory(clientId, rows);
+      results.vendorInventory += written;
+      console.log(`[vendorBackfill] INVENTORY (WEEK): ${written} rows`);
+    } catch (err) {
+      console.warn(`[vendorBackfill] INVENTORY (WEEK) failed:`, err.message?.substring(0, 200));
     }
 
     if (results.weekChunks < weekBatches.length) {
