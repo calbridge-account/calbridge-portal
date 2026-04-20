@@ -64,7 +64,10 @@ function startWorkers(JOB_HANDLERS) {
     {
       connection: REDIS_CONNECTION,
       concurrency: 2,         // KEY: only 2 heavy jobs run at once — protects Snowflake pool
-      lockDuration: 300000,   // 5 min lock — vendor ingestion and model builds can take 3+ min
+      lockDuration: 300000,   // 5 min lock renewal — vendor ingestion and model builds can take 3+ min
+      lockRenewTime: 120000,  // Renew lock every 2 min (well within 5 min window)
+      maxStalledCount: 1,     // Auto-fail a job if it stalls (lock not renewed) more than once
+      stalledInterval: 60000, // Check for stalled jobs every 60s
     }
   );
 

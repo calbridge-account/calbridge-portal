@@ -32,6 +32,17 @@ const QUEUE_DEFAULTS = {
   },
 };
 
+// Per-job timeout overrides for heavy jobs that have known long runtimes
+// Jobs exceeding their timeout are killed and marked failed (freeing the worker slot)
+const JOB_TIMEOUTS = {
+  ingest_vendor_reports:        15 * 60 * 1000,  // 15 min max
+  ingest_dsp:                   20 * 60 * 1000,  // 20 min max
+  stage_raw_data:               10 * 60 * 1000,  // 10 min max
+  download_completed_reports:   10 * 60 * 1000,  // 10 min max
+  submit_amazon_reports:        10 * 60 * 1000,  // 10 min max
+  build_canonical_models:       30 * 60 * 1000,  // 30 min max
+};
+
 const lightQueue = new Queue('calbridge-light', {
   connection: REDIS_CONNECTION,
   ...QUEUE_DEFAULTS,
@@ -93,7 +104,9 @@ async function enqueueJob(jobId, data = {}) {
     ? jobId  // deduplicated
     : `${jobId}-${Date.now()}`;  // unique per tick
 
-  await queue.add(jobId, { jobId, ...data }, { jobId: jobKey });
+  const opts = { jobId: jobKey };
+  if (JOB_TIMEOUTS[jobId]) opts.timeout = JOB_TIMEOUTS[jobId];
+  await queue.add(jobId, { jobId, ...data }, opts);
   return queueType;
 }
 
