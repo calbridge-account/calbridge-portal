@@ -779,8 +779,8 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
             UPDATE CALBRIDGE_PROD.APP.decision_actions
             SET status='executed', executed_at=CURRENT_TIMESTAMP(),
                 execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()
-            WHERE action_id IN (${placeholders})
-          `, [JSON.stringify(apiResult), ...successActionIds]);
+            WHERE client_id = ? AND action_id IN (${placeholders})
+          `, [JSON.stringify(apiResult), clientId, ...successActionIds]);
         }
 
         // Mark failures individually
@@ -788,8 +788,8 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
           await query(`
             UPDATE CALBRIDGE_PROD.APP.decision_actions
             SET status='failed', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()
-            WHERE action_id=?
-          `, [JSON.stringify({ error: f.err }), f.id]);
+            WHERE client_id = ? AND action_id=?
+          `, [JSON.stringify({ error: f.err }), clientId, f.id]);
         }
 
       } catch (err) {
