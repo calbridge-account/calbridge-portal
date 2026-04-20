@@ -632,4 +632,183 @@ async function discoverIdleInventory(clientId, days, cooldownSet) {
   }
 }
 
-module.exports = { analyze, executeAction };
+// ─── Bulk execution ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Execute all approved actions for a client in bulk.
+ * Groups actions by profile_id + action_type + ad_type and sends batched
+ * array requests to Amazon (up to 1000 items per call) instead of one call
+ * per action. Reduces 900 sequential API calls to ~10 batched calls.
+ *
+ * Returns { executed, failed, expired, results[] }
+ */
+async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}) {
+  const rows = await query(`
+    SELECT action_id, action_type, ad_type, profile_id,
+           entity_id, entity_name, proposed_value, current_value,
+           campaign_id, ad_group_id, metrics_snapshot
+    FROM CALBRIDGE_PROD.APP.decision_actions
+    WHERE client_id = ?
+      AND status = 'approved'
+      AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
+      ${type ? `AND action_type = '${type}'` : ''}
+    ORDER BY profile_id, action_type, ad_type
+  `, [clientId]);
+
+  if (!rows.length) return { executed: 0, failed: 0, expired: 0, results: [] };
+
+  // Group by profile_id + action_type + ad_type
+  const groups = {};
+  for (const r of rows) {
+    const key = `${r.PROFILE_ID}::${r.ACTION_TYPE}::${r.AD_TYPE}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  }
+
+  const results   = [];
+  const BATCH_SIZE = 1000; // Amazon v3 SP API max per request
+
+  for (const [key, actions] of Object.entries(groups)) {
+    const [profileId, actionType, adType] = key.split('::');
+
+    // Actions without a profile (e.g. launch_campaign) fall back to one-by-one
+    if (!profileId || profileId === 'null') {
+      for (const a of actions) {
+        try {
+          await executeAction(a.ACTION_ID, clientId, executedBy);
+          results.push({ actionId: a.ACTION_ID, ok: true });
+        } catch (e) {
+          results.push({ actionId: a.ACTION_ID, ok: false, error: e.message });
+        }
+      }
+      continue;
+    }
+
+    // Chunk into batches of BATCH_SIZE
+    for (let i = 0; i < actions.length; i += BATCH_SIZE) {
+      const batch = actions.slice(i, i + BATCH_SIZE);
+      try {
+        const client = await adsClient(clientId, profileId);
+        let apiResult;
+
+        if ((actionType === 'bid_decrease' || actionType === 'bid_increase') && adType === 'SP') {
+          const res = await client.put('/sp/keywords', {
+            keywords: batch.map(a => ({ keywordId: String(a.ENTITY_ID), bid: Number(a.PROPOSED_VALUE), state: 'ENABLED' }))
+          }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
+          apiResult = res.data;
+
+        } else if ((actionType === 'bid_decrease' || actionType === 'bid_increase') && adType === 'SB') {
+          const res = await client.put('/sb/v4/keywords', {
+            keywords: batch.map(a => ({ keywordId: String(a.ENTITY_ID), bid: { bidValue: Number(a.PROPOSED_VALUE) } }))
+          }, { headers: { 'Content-Type': 'application/vnd.sbKeyword.v4+json', 'Accept': 'application/vnd.sbKeyword.v4+json' } });
+          apiResult = res.data;
+
+        } else if (actionType === 'pause_keyword' && adType === 'SP') {
+          const res = await client.put('/sp/keywords', {
+            keywords: batch.map(a => ({ keywordId: String(a.ENTITY_ID), state: 'PAUSED' }))
+          }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
+          apiResult = res.data;
+
+        } else if (actionType === 'add_keyword' && adType === 'SP') {
+          const res = await client.post('/sp/keywords', {
+            keywords: batch.map(a => ({
+              campaignId:  String(a.CAMPAIGN_ID),
+              adGroupId:   String(a.AD_GROUP_ID),
+              keywordText: a.ENTITY_NAME,
+              matchType:   (a.METRICS_SNAPSHOT?.suggested_match_type || 'EXACT').toUpperCase(),
+              bid:         Number(a.PROPOSED_VALUE),
+              state:       'ENABLED',
+            }))
+          }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
+          apiResult = res.data;
+
+        } else if ((actionType === 'budget_increase' || actionType === 'budget_decrease') && adType === 'SP') {
+          const res = await client.put('/sp/campaigns', {
+            campaigns: batch.map(a => ({ campaignId: String(a.ENTITY_ID), budget: { budgetType: 'DAILY', budget: Number(a.PROPOSED_VALUE) } }))
+          }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
+          apiResult = res.data;
+
+        } else {
+          // Unsupported batch type — fall back to one-by-one
+          for (const a of batch) {
+            try {
+              await executeAction(a.ACTION_ID, clientId, executedBy);
+              results.push({ actionId: a.ACTION_ID, ok: true });
+            } catch (e) {
+              results.push({ actionId: a.ACTION_ID, ok: false, error: e.message });
+            }
+          }
+          continue;
+        }
+
+        // Parse success/error lists from Amazon v3 response
+        const successIds = new Set(
+          (apiResult?.keywords?.success || apiResult?.campaigns?.success || [])
+            .map(s => String(s.keywordId || s.campaignId || ''))
+        );
+        const errorMap = {};
+        for (const e of (apiResult?.keywords?.error || apiResult?.campaigns?.error || [])) {
+          const id = String(e.keywordId || e.campaignId || batch[e.index]?.ENTITY_ID || '');
+          errorMap[id] = e.errorValue || e.message || 'Unknown error';
+        }
+
+        // Bulk-update Snowflake status for this batch
+        const successActionIds = [];
+        const failedActions    = [];
+
+        for (const a of batch) {
+          const entityId = String(a.ENTITY_ID);
+          // For add_keyword, Amazon returns the new keywordId — just check no error at index
+          const isSuccess = actionType === 'add_keyword'
+            ? !errorMap[entityId]
+            : successIds.has(entityId) || (!errorMap[entityId] && successIds.size > 0);
+
+          if (isSuccess) {
+            successActionIds.push(a.ACTION_ID);
+            results.push({ actionId: a.ACTION_ID, ok: true });
+          } else {
+            failedActions.push({ id: a.ACTION_ID, err: errorMap[entityId] || 'Not in success list' });
+            results.push({ actionId: a.ACTION_ID, ok: false, error: errorMap[entityId] });
+          }
+        }
+
+        // Single bulk UPDATE for successes
+        if (successActionIds.length) {
+          const placeholders = successActionIds.map(() => '?').join(',');
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.decision_actions
+            SET status='executed', executed_at=CURRENT_TIMESTAMP(),
+                execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()
+            WHERE action_id IN (${placeholders})
+          `, [JSON.stringify(apiResult), ...successActionIds]);
+        }
+
+        // Mark failures individually
+        for (const f of failedActions) {
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.decision_actions
+            SET status='failed', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP()
+            WHERE action_id=?
+          `, [JSON.stringify({ error: f.err }), f.id]);
+        }
+
+      } catch (err) {
+        // Whole batch call failed — mark all as failed
+        console.error(`[executeBulk] Batch ${key} failed:`, err.message);
+        const errJson = JSON.stringify({ error: err.message, response: err.response?.data });
+        for (const a of batch) {
+          results.push({ actionId: a.ACTION_ID, ok: false, error: err.message });
+          await query(`UPDATE CALBRIDGE_PROD.APP.decision_actions SET status='failed', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP() WHERE action_id=?`,
+            [errJson, a.ACTION_ID]).catch(() => {});
+        }
+      }
+    }
+  }
+
+  const executed = results.filter(r => r.ok).length;
+  const failed   = results.filter(r => !r.ok).length;
+  console.log(`[executeBulk] ✅ ${executed} executed, ${failed} failed for client ${clientId}`);
+  return { executed, failed, expired: 0, results };
+}
+
+module.exports = { analyze, executeAction, executeBulk };

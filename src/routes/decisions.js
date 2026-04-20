@@ -135,35 +135,16 @@ router.post('/approve-all', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ─── POST /decisions/execute-all ────────────────────────────────────────────
+// ─── POST /decisions/execute-all ─────────────────────────────────────────────
+// Uses executeBulk for batched Amazon API calls (seconds not minutes)
 router.post('/execute-all', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const clientId   = await resolveClientId(req);
     const executedBy = req.session.email || req.session.clientId;
     const type       = req.body?.type || null;
-
-    // Fetch all approved pending actions
-    const rows = await query(`
-      SELECT action_id
-      FROM CALBRIDGE_PROD.APP.decision_actions
-      WHERE client_id = ?
-        AND status = 'approved'
-        AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
-        ${type ? `AND action_type = '${type}'` : ''}
-      ORDER BY created_at ASC
-    `, [clientId]);
-
-    const results = [];
-    for (const row of rows) {
-      try {
-        const result = await executeAction(row.ACTION_ID || row.action_id, clientId, executedBy);
-        results.push({ actionId: row.ACTION_ID || row.action_id, ok: true, result });
-      } catch (err) {
-        results.push({ actionId: row.ACTION_ID || row.action_id, ok: false, error: err.message });
-      }
-    }
-
-    res.json({ ok: true, executed: results.length, results });
+    const { executeBulk } = require('../services/decisionEngine');
+    const result = await executeBulk(clientId, { type, executedBy });
+    res.json({ ok: true, ...result });
   } catch (err) { next(err); }
 });
 
