@@ -130,6 +130,11 @@ const JOB_HANDLERS = {
   // ── Daily cleanup ──────────────────────────────────────────────────────────
   expire_stale_actions:      () => stageRawData().expireStaleActions({ triggeredBy: 'cron' }),
 
+  // ── Daily recommendations ──────────────────────────────────────────────────
+  // Run decision engine analysis for all active clients at 06:00 UTC.
+  generate_recommendations:  () => generateRecommendationsAllClients({ triggeredBy: 'cron' }),
+
+
   // ── Daily post-models ─────────────────────────────────────────────────────
   // score_opportunities: () => economist().scoreOpportunities({ triggeredBy: 'cron' }),
 
@@ -200,6 +205,31 @@ async function ingestDspAllClients({ triggeredBy = 'cron' } = {}) {
     console.log(`[cron] ingest_dsp complete ─ ran for ${ran} client(s)`);
   } catch (err) {
     console.error('[cron] ingestDspAllClients error:', err.message);
+  }
+}
+
+
+// ─── Daily recommendations ────────────────────────────────────────────────────
+async function generateRecommendationsAllClients({ triggeredBy = 'cron' } = {}) {
+  const { query: _q } = require('../services/snowflakeService');
+  try {
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+    const { analyze } = require('../services/decisionEngine');
+    let ran = 0;
+    for (const row of (clients || [])) {
+      const clientId = row.CLIENT_ID || row.client_id;
+      try {
+        console.log(`[cron] generate_recommendations starting for ${clientId}`);
+        const result = await analyze(clientId, 30);
+        console.log(`[cron] generate_recommendations ${clientId}: generated=${result?.generated ?? 0} pending=${result?.total_pending ?? 0}`);
+        ran++;
+      } catch (err) {
+        console.warn(`[cron] generate_recommendations ${clientId} failed:`, err.message);
+      }
+    }
+    console.log(`[cron] generate_recommendations complete — ran for ${ran} client(s)`);
+  } catch (err) {
+    console.error('[cron] generateRecommendationsAllClients error:', err.message);
   }
 }
 
@@ -332,6 +362,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'expire_stale_actions',
     expr:  '0 4 * * *',     // 04:00 UTC daily — expire decisions older than 14 days
+  },
+  {
+    jobId: 'generate_recommendations',
+    expr:  '0 6 * * *',     // 06:00 UTC daily — run decision engine analysis for all clients
   },
 
   // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
