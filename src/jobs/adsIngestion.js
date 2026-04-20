@@ -1970,7 +1970,10 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date', 'order_start_date', 'order_end_date'],
     rows: mapped,
   });
-  await writeDspRawCampaign(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
+  // Pass normalizedRows (not raw rows) to writeDspRawCampaign so order_id values
+  // match the canonical ID. Using raw rows here could cause MERGE key mismatches
+  // if different downloads return different 64-bit truncation variants of the same ID.
+  await writeDspRawCampaign(clientId, profileId, normalizedRows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
   return result;
 }
 
