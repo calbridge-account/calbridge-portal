@@ -399,9 +399,9 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     const rtSalesEnd   = new Date().toISOString().slice(0, 10);
     const rtSalesStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const rtSalesData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_SALES_REPORT', {
-      reportOptions: { sellingProgram: 'RETAIL' },
-      dataStartTime: rtSalesStart,
-      dataEndTime:   rtSalesEnd,
+      dataStartTime:  rtSalesStart,
+      dataEndTime:    rtSalesEnd,
+      sellingProgram: 'RETAIL',
     }, marketplaceId);
     const rtRows = (rtSalesData?.reportData || [])
       .filter(r => r.asin && r.startTime);
@@ -438,9 +438,9 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
     const rtInvEnd   = new Date().toISOString().slice(0, 10);
     const rtInvStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const rtInvData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_INVENTORY_REPORT', {
-      reportOptions: { sellingProgram: 'RETAIL' },
-      dataStartTime: rtInvStart,
-      dataEndTime:   rtInvEnd,
+      dataStartTime:  rtInvStart,
+      dataEndTime:    rtInvEnd,
+      sellingProgram: 'RETAIL',
     }, marketplaceId);
     // Keep only the latest snapshot per ASIN
     const latestByAsin = {};
