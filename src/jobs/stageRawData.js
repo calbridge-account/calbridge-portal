@@ -1259,15 +1259,42 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
  */
 async function expireStaleActions({ triggeredBy = 'cron' } = {}) {
   try {
-    const result = await query(`
+    // 1. Expire actions older than 14 days
+    const ageResult = await query(`
       UPDATE CALBRIDGE_PROD.APP.decision_actions
-      SET status = 'expired', updated_at = CURRENT_TIMESTAMP()
+      SET status = 'expired',
+          execution_result = PARSE_JSON('{"reason":"action older than 14 days"}'),
+          updated_at = CURRENT_TIMESTAMP()
       WHERE status IN ('approved', 'pending')
         AND created_at < DATEADD('day', -14, CURRENT_TIMESTAMP())
     `);
-    const count = result?.[0]?.['number of rows updated'] ?? 0;
-    console.log(`[expireStaleActions] ✅ Expired ${count} stale decision action(s)`);
-    return { expired: count };
+    const ageCount = ageResult?.[0]?.['number of rows updated'] ?? 0;
+
+    // 2. Expire SP keyword actions where the keyword hasn't appeared in reports for 14+ days
+    //    (keyword was paused/deleted/archived on Amazon)
+    const staleResult = await query(`
+      UPDATE CALBRIDGE_PROD.APP.decision_actions da
+      SET status = 'expired',
+          execution_result = PARSE_JSON('{"reason":"keyword not active in reports for 14+ days"}'),
+          updated_at = CURRENT_TIMESTAMP()
+      WHERE da.status IN ('approved', 'pending')
+        AND da.ad_type = 'SP'
+        AND da.action_type IN ('bid_decrease', 'bid_increase', 'pause_keyword')
+        AND NOT EXISTS (
+          SELECT 1 FROM CALBRIDGE_PROD.APP.sp_targeting_keyword_report k
+          WHERE k.client_id = da.client_id
+            AND k.keyword_id = da.entity_id
+            AND k.date >= DATEADD('day', -14, CURRENT_DATE())
+        )
+    `).catch(e => {
+      console.warn('[expireStaleActions] Keyword staleness check failed (non-fatal):', e.message);
+      return [{ 'number of rows updated': 0 }];
+    });
+    const staleCount = staleResult?.[0]?.['number of rows updated'] ?? 0;
+
+    const total = ageCount + staleCount;
+    console.log(`[expireStaleActions] ✅ Expired ${total} stale action(s) (${ageCount} aged out, ${staleCount} stale keywords)`);
+    return { expired: total };
   } catch (err) {
     console.error('[expireStaleActions] Failed:', err.message);
     throw err;
