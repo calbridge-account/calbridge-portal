@@ -815,6 +815,93 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
           }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
           apiResult = res.data;
 
+        } else if (actionType === 'launch_campaign' && adType === 'SP') {
+          // Batched campaign creation: 4 API calls total for N campaigns
+          // Step 1: Create all campaigns in one call
+          const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+          const campRes = await client.post('/sp/campaigns', {
+            campaigns: batch.map(a => ({
+              name:          `Auto.SP.IdleInv.${a.ENTITY_NAME}.${today}`,
+              targetingType: 'AUTO',
+              state:         'ENABLED',
+              budget:        { budgetType: 'DAILY', budget: a.METRICS_SNAPSHOT?.suggested_budget || 30 },
+              startDate:     today,
+            }))
+          }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
+
+          // Map index → campaignId from success list
+          const campById = {};
+          for (const s of (campRes.data?.campaigns?.success || [])) campById[s.index] = s.campaignId;
+          const campErrors = campRes.data?.campaigns?.error || [];
+
+          // Step 2: Create all ad groups in one call (only for successful campaigns)
+          const agInputs = batch
+            .map((a, i) => ({ actionId: a.ACTION_ID, asin: a.ENTITY_NAME, index: i, campaignId: campById[i], defaultBid: a.METRICS_SNAPSHOT?.suggested_bid || 1.50 }))
+            .filter(x => x.campaignId);
+
+          const agRes = await client.post('/sp/adGroups', {
+            adGroups: agInputs.map(x => ({
+              name:       `Auto.SP.IdleInv.${x.asin}.${today}_AG`,
+              campaignId: String(x.campaignId),
+              defaultBid: x.defaultBid,
+              state:      'ENABLED',
+            }))
+          }, { headers: { 'Content-Type': 'application/vnd.spAdGroup.v3+json', 'Accept': 'application/vnd.spAdGroup.v3+json' } });
+
+          const agById = {};
+          for (const s of (agRes.data?.adGroups?.success || [])) agById[s.index] = s.adGroupId;
+
+          // Step 3: Create all product ads in one call
+          const paInputs = agInputs
+            .map((x, i) => ({ ...x, adGroupId: agById[i] }))
+            .filter(x => x.adGroupId);
+
+          await client.post('/sp/productAds', {
+            productAds: paInputs.map(x => ({
+              campaignId: String(x.campaignId),
+              adGroupId:  String(x.adGroupId),
+              asin:       x.asin,
+              state:      'ENABLED',
+            }))
+          }, { headers: { 'Content-Type': 'application/vnd.spProductAd.v3+json', 'Accept': 'application/vnd.spProductAd.v3+json' } });
+
+          // Step 4: Create all auto targets in one call (4 target types × N campaigns)
+          await client.post('/sp/targets', {
+            targets: paInputs.flatMap(x => [
+              { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'queryHighRelMatches'  }], bid: x.defaultBid },
+              { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'queryBroadRelMatches' }], bid: x.defaultBid * 0.8 },
+              { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'asinSubstituteRelated' }], bid: x.defaultBid * 0.7 },
+              { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'asinAccessoryRelated' }], bid: x.defaultBid * 0.6 },
+            ])
+          }, { headers: { 'Content-Type': 'application/vnd.spTarget.v3+json', 'Accept': 'application/vnd.spTarget.v3+json' } });
+
+          // Mark results
+          const errorSet = new Set(campErrors.map(e => e.index));
+          apiResult = campRes.data;
+          for (let j = 0; j < batch.length; j++) {
+            const a = batch[j];
+            if (!errorSet.has(j) && campById[j]) {
+              results.push({ actionId: a.ACTION_ID, ok: true, campaignId: campById[j] });
+            } else {
+              const err = campErrors.find(e => e.index === j);
+              results.push({ actionId: a.ACTION_ID, ok: false, error: err?.errorValue || 'Campaign creation failed' });
+            }
+          }
+
+          // Bulk UPDATE successes
+          const successIds = results.filter(r => r.ok && batch.find(a => a.ACTION_ID === r.actionId)).map(r => r.actionId);
+          if (successIds.length) {
+            const ph = successIds.map(() => '?').join(',');
+            await query(`UPDATE CALBRIDGE_PROD.APP.decision_actions SET status='executed', executed_at=CURRENT_TIMESTAMP(), execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP() WHERE client_id=? AND action_id IN (${ph})`,
+              [JSON.stringify(apiResult), clientId, ...successIds]);
+          }
+          const failIds = results.filter(r => !r.ok && batch.find(a => a.ACTION_ID === r.actionId));
+          for (const f of failIds) {
+            await query(`UPDATE CALBRIDGE_PROD.APP.decision_actions SET status='failed', execution_result=PARSE_JSON(?), updated_at=CURRENT_TIMESTAMP() WHERE client_id=? AND action_id=?`,
+              [JSON.stringify({ error: f.error }), clientId, f.actionId]);
+          }
+          continue; // skip the generic success/fail handling below
+
         } else {
           // Unsupported batch type — fall back to one-by-one
           for (const a of batch) {
