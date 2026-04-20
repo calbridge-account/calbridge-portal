@@ -323,11 +323,11 @@ const CRON_SCHEDULE = [
   // ── Hourly ─────────────────────────────────────────────────────────────────
   {
     jobId: 'stage_raw_data',
-    expr:  SCHEDULE_CRONS['hourly'],
+    expr:  SCHEDULE_CRONS['every15min'], // was hourly — tightened to match download cadence
   },
   {
     jobId: 'rebuild_mart',
-    expr:  '5 * * * *',   // 5 min past each hour — after stage_raw_data completes
+    expr:  '*/15 * * * *', // every 15 min — runs right after stage_raw_data
   },
   {
     jobId: 'run_quality_checks',
