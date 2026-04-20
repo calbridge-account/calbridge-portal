@@ -175,7 +175,7 @@ function ActionRow({ action, tab, onApprove, onReject, onSnooze, onExecute, load
       <td className="py-3 pl-2 pr-4 whitespace-nowrap">
         {tab === 'pending' && (
           <div className="flex gap-1">
-            <button onClick={() => onApprove(action.actionId)} disabled={loading} className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-40">✓ Approve</button>
+            <button onClick={() => onApprove(action.actionId)} disabled={loading} className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-40">✓ Approve &amp; Execute</button>
             <button onClick={() => onReject(action.actionId)}  disabled={loading} className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200 disabled:opacity-40">✗ Reject</button>
             <button onClick={() => onSnooze(action.actionId)}  disabled={loading} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded hover:bg-gray-200 disabled:opacity-40">⏰ Snooze</button>
           </div>
@@ -455,7 +455,7 @@ export default function Recommendations() {
                   action={a}
                   tab={activeTab}
                   loading={actionLoading}
-                  onApprove={(id) => withLoading(() => approveOne(id).then(() => showToast('Approved')))}
+                  onApprove={(id) => withLoading(() => approveOne(id).then(() => executeOne(id)).then(() => showToast('Executed ✅')).catch(e => showToast('Approved — execute failed: ' + e.message, false)))}
                   onReject={(id)  => withLoading(() => rejectOne(id).then(()  => showToast('Rejected')))}
                   onSnooze={(id)  => withLoading(() => snoozeOne(id).then(()  => showToast('Snoozed 7 days')))}
                   onExecute={(id) => withLoading(() => executeOne(id).then(() => showToast('Executed ✅')))}
