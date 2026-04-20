@@ -1137,29 +1137,39 @@ router.get('/keyword-campaigns', requireAuth, async (req, res, next) => {
 
     const spSql = `
       SELECT
-        'SP'                                                                      AS ad_type,
-        campaign_id,
-        MAX(campaign_name)                                                        AS campaign_name,
-        MAX(campaign_status)                                                      AS campaign_status,
-        MAX(campaign_budget_amount)                                               AS campaign_budget,
-        MAX(ad_group_name)                                                        AS ad_group_name,
-        COALESCE(match_type, 'AUTO')                                              AS match_type,
-        MAX(ad_keyword_status)                                                    AS keyword_status,
-        MAX(keyword_bid)                                                          AS keyword_bid,
-        SUM(impressions)                                                          AS impressions,
-        SUM(clicks)                                                               AS clicks,
-        SUM(cost)                                                                 AS spend,
-        SUM(purchases_30_d)                                                       AS orders,
-        SUM(sales_30_d)                                                           AS sales,
-        CASE WHEN SUM(sales_30_d) > 0  THEN SUM(cost) / SUM(sales_30_d) ELSE NULL END AS acos,
-        CASE WHEN SUM(cost) > 0        THEN SUM(sales_30_d) / SUM(cost) ELSE NULL END AS roas,
-        CASE WHEN SUM(clicks) > 0      THEN SUM(cost) / SUM(clicks)    ELSE NULL END AS cpc
-      FROM sp_targeting_keyword_report
-      WHERE client_id = ?
-        ${dateFilter('date', days, startDate, endDate)}
-        AND UPPER(TRIM(COALESCE(keyword, targeting))) = UPPER(TRIM(?))
-        ${matchType ? `AND UPPER(COALESCE(match_type, 'AUTO')) = UPPER('${matchType}')` : ''}
-      GROUP BY campaign_id, COALESCE(match_type, 'AUTO')
+        'SP'                                                                        AS ad_type,
+        k.campaign_id,
+        MAX(c.campaign_name)                                                        AS campaign_name,
+        MAX(c.campaign_status)                                                      AS campaign_status,
+        MAX(c.campaign_budget_amount)                                               AS campaign_budget,
+        MAX(k.ad_group_name)                                                        AS ad_group_name,
+        COALESCE(k.match_type, 'AUTO')                                              AS match_type,
+        MAX(k.ad_keyword_status)                                                    AS keyword_status,
+        MAX(k.keyword_bid)                                                          AS keyword_bid,
+        SUM(k.impressions)                                                          AS impressions,
+        SUM(k.clicks)                                                               AS clicks,
+        SUM(k.cost)                                                                 AS spend,
+        SUM(k.purchases_30_d)                                                       AS orders,
+        SUM(k.sales_30_d)                                                           AS sales,
+        CASE WHEN SUM(k.sales_30_d) > 0 THEN SUM(k.cost)/SUM(k.sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(k.cost) > 0       THEN SUM(k.sales_30_d)/SUM(k.cost) ELSE NULL END AS roas,
+        CASE WHEN SUM(k.clicks) > 0     THEN SUM(k.cost)/SUM(k.clicks)     ELSE NULL END AS cpc
+      FROM sp_targeting_keyword_report k
+      LEFT JOIN (
+        SELECT campaign_id,
+          MAX(campaign_name)           AS campaign_name,
+          MAX(campaign_status)         AS campaign_status,
+          MAX(campaign_budget_amount)  AS campaign_budget_amount
+        FROM sp_campaign_report
+        WHERE client_id = ?
+          ${dateFilter('date', days, startDate, endDate)}
+        GROUP BY campaign_id
+      ) c ON c.campaign_id = k.campaign_id
+      WHERE k.client_id = ?
+        ${dateFilter('k.date', days, startDate, endDate)}
+        AND UPPER(TRIM(COALESCE(k.keyword, k.targeting))) = UPPER(TRIM(?))
+        ${matchType ? `AND UPPER(COALESCE(k.match_type, 'AUTO')) = UPPER('${matchType}')` : ''}
+      GROUP BY k.campaign_id, COALESCE(k.match_type, 'AUTO')
     `;
 
     const sbSql = `
@@ -1190,7 +1200,7 @@ router.get('/keyword-campaigns', requireAuth, async (req, res, next) => {
     `;
 
     const [spRows, sbRows] = await Promise.all([
-      query(spSql,  [clientId, keyword]),
+      query(spSql,  [clientId, clientId, keyword]),
       query(sbSql,  [clientId, keyword]),
     ]);
 
