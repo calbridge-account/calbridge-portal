@@ -85,9 +85,13 @@ async function enqueueJob(jobId, data = {}) {
   const queueType = JOB_QUEUE_MAP[jobId] || 'light';
   const queue = queueType === 'heavy' ? heavyQueue : lightQueue;
 
-  // Unique key per tick — prevents BullMQ from treating same-jobId ticks as duplicates
-  // Note: BullMQ does not allow ':' in job IDs
-  const jobKey = `${jobId}-${Date.now()}`;
+  // For heavy jobs: use a fixed jobId so BullMQ deduplicates — if a job is already
+  // waiting or active, the new enqueue is ignored. Prevents queue pile-up when the
+  // worker is temporarily blocked (e.g. stuck vendor ingestion).
+  // For light jobs: use unique key so all ticks execute.
+  const jobKey = queueType === 'heavy'
+    ? jobId  // deduplicated
+    : `${jobId}-${Date.now()}`;  // unique per tick
 
   await queue.add(jobId, { jobId, ...data }, { jobId: jobKey });
   return queueType;
