@@ -176,3 +176,7 @@ export const getDspOrders = (range, marketplace) => {
   const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
   return advJSON(`/dsp-orders${base}${mp}`);
 };
+
+// Connection status — which Amazon accounts are connected
+export const getConnections = () =>
+  fetch('/amazon/status', { credentials: 'include' }).then(r => r.ok ? r.json() : {});

@@ -286,3 +286,13 @@ export function useDspOrders(range) {
     retry: 2,
   });
 }
+
+import { getConnections } from '../api/client';
+export function useConnections() {
+  return useQuery({
+    queryKey: ['connections'],
+    queryFn: getConnections,
+    staleTime: 5 * 60 * 1000, // 5 min
+    retry: 1,
+  });
+}

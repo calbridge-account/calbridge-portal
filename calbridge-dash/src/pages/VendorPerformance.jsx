@@ -3,7 +3,7 @@ import {
   ComposedChart, BarChart, Bar, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { useOverview, useVendorMetrics } from '../hooks/useAnalytics';
+import { useOverview, useVendorMetrics, useConnections } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
@@ -72,8 +72,27 @@ export default function VendorPerformance() {
 
   const { data: ov,  isLoading: ovLoading,  isError: ovErr,  error: ovErrObj  } = useOverview(range);
   const { data: vm,  isLoading: vmLoading                                      } = useVendorMetrics(range);
+  const { data: connections, isLoading: connLoading } = useConnections();
 
   const isLoading = ovLoading || vmLoading;
+
+  // Show empty state if vendor is not connected
+  const hasVendor = connLoading || connections?.vendor?.connected || connections?.seller?.connected;
+  if (!connLoading && !hasVendor) {
+    return (
+      <div>
+        <PageHeader title="Sales" subtitle="Revenue, margin, traffic, and demand signals" />
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="text-5xl mb-4">📦</div>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">No retail account connected</h2>
+          <p className="text-gray-500 text-sm mb-6 max-w-sm">Connect your Amazon Vendor Central or Seller Central account to see sales, revenue, inventory, and traffic data.</p>
+          <a href="/brand-setup.html" className="inline-flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg text-sm font-medium hover:bg-green-800 transition-colors">
+            Connect Amazon Account →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // ── Shape data ────────────────────────────────────────────────────────────
   const m   = ov?.metrics        || {};

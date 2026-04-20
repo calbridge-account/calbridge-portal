@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useVendorMetrics, useInventoryDetail, usePoSummary } from '../hooks/useAnalytics';
+import { useVendorMetrics, useInventoryDetail, usePoSummary, useConnections } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -123,6 +123,7 @@ export default function Inventory() {
   const { data: vmData, isLoading: vmLoading, isError, error } = useVendorMetrics(range);
   const { data: invDetailData, isLoading: invDetailLoading } = useInventoryDetail();
   const { data: poSummaryData, isLoading: poSummaryLoading } = usePoSummary();
+  const { data: connections, isLoading: connLoading } = useConnections();
 
   const [activeTab, setActiveTab] = useState('inventory'); // 'inventory' | 'po'
   const [invSort, setInvSort] = useState({ key: 'sellableUnits', dir: 'desc' });
@@ -143,6 +144,24 @@ export default function Inventory() {
 
   const sortedInv = sortedRows(invDetail, invSort);
   const sortedPo  = sortedRows(poSummary, poSort);
+
+  // Empty state for non-vendor accounts
+  const hasVendor = connLoading || connections?.vendor?.connected || connections?.seller?.connected;
+  if (!connLoading && !hasVendor) {
+    return (
+      <div>
+        <PageHeader title="Inventory" subtitle="On-hand stock, aging, POs, and fulfillment health" />
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="text-5xl mb-4">📊</div>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">No inventory data yet</h2>
+          <p className="text-gray-500 text-sm mb-6 max-w-sm">Connect your Amazon Vendor Central or Seller Central account to see inventory levels, POs, and fulfillment health.</p>
+          <a href="/brand-setup.html" className="inline-flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg text-sm font-medium hover:bg-green-800 transition-colors">
+            Connect Amazon Account →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

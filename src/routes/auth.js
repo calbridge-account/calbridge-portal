@@ -17,6 +17,47 @@ router.post('/signup', async (req, res, next) => {
     const client = await authService.signup({ email, password, name, companyName });
     req.session.clientId = client.id;
     res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name } });
+
+    // Send welcome email (non-blocking — don't fail signup if email fails)
+    setImmediate(async () => {
+      try {
+        const { Resend } = require('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const baseUrl = process.env.BASE_URL || 'https://app.teamcalbridge.com';
+        const firstName = (name || '').split(' ')[0] || 'there';
+        await resend.emails.send({
+          from: 'Ash at Calbridge <ash@teamcalbridge.com>',
+          to: email,
+          subject: 'Welcome to Calbridge — let\'s connect your Amazon account',
+          html: `
+<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1a1a1a;">
+  <img src="https://app.teamcalbridge.com/images/calbridge-logo.png" alt="Calbridge" style="height:56px;margin-bottom:24px;">
+  <h1 style="font-size:22px;font-weight:700;margin:0 0 8px;">Welcome, ${firstName}!</h1>
+  <p style="color:#4b5563;margin:0 0 20px;line-height:1.6;">Your Calbridge account is ready. Here\'s how to get started:</p>
+
+  <div style="background:#f9fafb;border-radius:8px;padding:20px 24px;margin-bottom:20px;">
+    <p style="font-weight:600;margin:0 0 12px;">Step 1 — Connect your Amazon account</p>
+    <p style="color:#4b5563;margin:0 0 12px;font-size:14px;">Head to Brand Setup and connect your Seller Central, Advertising, or Vendor Central account.</p>
+    <a href="${baseUrl}/brand-setup.html" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;">Connect Amazon Account</a>
+  </div>
+
+  <div style="background:#f9fafb;border-radius:8px;padding:20px 24px;margin-bottom:20px;">
+    <p style="font-weight:600;margin:0 0 12px;">Step 2 — View your dashboard</p>
+    <p style="color:#4b5563;margin:0 0 12px;font-size:14px;">Once connected, your advertising and retail data will start syncing automatically.</p>
+    <a href="${baseUrl}/analytics/" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;">Open Dashboard</a>
+  </div>
+
+  <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 8px;">Questions? Just reply to this email — I\'ll get back to you.</p>
+  <p style="color:#4b5563;font-size:14px;margin:0 0 32px;">— Abe, Calbridge</p>
+  <p style="color:#9ca3af;font-size:11px;border-top:1px solid #e5e7eb;padding-top:16px;">© 2026 Calbridge · <a href="https://teamcalbridge.com" style="color:#9ca3af;">teamcalbridge.com</a></p>
+</body></html>`
+        });
+        console.log(`[Auth] Welcome email sent to ${email}`);
+      } catch (emailErr) {
+        console.error('[Auth] Welcome email failed (non-fatal):', emailErr.message);
+      }
+    });
   } catch (err) {
     next(err);
   }
