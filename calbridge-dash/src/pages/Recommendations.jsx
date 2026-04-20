@@ -26,6 +26,7 @@ const rejectOne       = (id)     => postJSON(`/decisions/${id}/reject`);
 const snoozeOne       = (id)     => postJSON(`/decisions/${id}/snooze`);
 const executeOne      = (id)     => postJSON(`/decisions/execute/${id}`);
 const approveAll      = (type)   => fetch('/decisions/approve-all', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type: type || null }) }).then(r=>r.json());
+const executeAll      = (type)   => fetch('/decisions/execute-all',  { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type: type || null }) }).then(r=>r.json());
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -320,8 +321,11 @@ export default function Recommendations() {
   };
 
   const handleApproveAll = () => withLoading(async () => {
-    const r = await approveAll(typeFilter || null);
-    showToast(`Approved ${r.approved} ${typeFilter ? typeFilter.replace('_',' ') : ''} recommendations`);
+    const approved = await approveAll(typeFilter || null);
+    showToast(`Approved ${approved.approved} — executing now...`);
+    const executed = await executeAll(typeFilter || null);
+    const failed = (executed.results || []).filter(r => !r.ok).length;
+    showToast(`✅ Executed ${executed.executed ?? 0} actions${failed ? ` (${failed} failed)` : ''}`);
   });
 
   return (
