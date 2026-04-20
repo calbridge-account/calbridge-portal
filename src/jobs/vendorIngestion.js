@@ -393,6 +393,90 @@ async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
+  // ── 2b. Real-time Sales (hourly ordered units/revenue, last 24h) ─────────────
+  try {
+    console.log('[vendorIngestion] Requesting GET_VENDOR_REAL_TIME_SALES_REPORT...');
+    const rtSalesEnd   = new Date().toISOString().slice(0, 10);
+    const rtSalesStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const rtSalesData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_SALES_REPORT', {
+      reportOptions: { sellingProgram: 'RETAIL' },
+      dataStartTime: rtSalesStart,
+      dataEndTime:   rtSalesEnd,
+    }, marketplaceId);
+    const rtRows = (rtSalesData?.reportData || [])
+      .filter(r => r.asin && r.startTime);
+    // Write: upsert hourly rows into vendor_sales keyed on (client_id, asin, start_date=startTime)
+    let rtWritten = 0;
+    for (const r of rtRows) {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.APP.vendor_sales t
+        USING (SELECT ? AS client_id, ? AS asin, ?::TIMESTAMP AS start_date) s
+          ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
+        WHEN MATCHED THEN UPDATE SET
+          ordered_units=?, ordered_revenue=?, synced_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,asin,start_date,end_date,ordered_units,ordered_revenue,ordered_currency,synced_at)
+          VALUES (?,?,?,?,?,?,'USD',CURRENT_TIMESTAMP())
+      `, [clientId,r.asin,r.startTime, r.orderedUnits||0,r.orderedRevenue||0,
+          clientId,r.asin,r.startTime,r.endTime,r.orderedUnits||0,r.orderedRevenue||0])
+        .catch(() => {});
+      rtWritten++;
+    }
+    results.vendorRealtimeSales = rtWritten;
+    totalWritten += rtWritten;
+    console.log(`[vendorIngestion] RT_SALES: ${rtWritten} hourly rows written`);
+  } catch (err) {
+    console.warn('[vendorIngestion] RT_SALES failed (non-fatal):', err.message.slice(0, 100));
+    results.vendorRealtimeSales = 0;
+  }
+
+  await sleep(1000);
+
+  // ── 2c. Real-time Inventory (hourly on-hand, last 24h — latest snapshot per ASIN) ─
+  try {
+    console.log('[vendorIngestion] Requesting GET_VENDOR_REAL_TIME_INVENTORY_REPORT...');
+    const rtInvEnd   = new Date().toISOString().slice(0, 10);
+    const rtInvStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const rtInvData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_INVENTORY_REPORT', {
+      reportOptions: { sellingProgram: 'RETAIL' },
+      dataStartTime: rtInvStart,
+      dataEndTime:   rtInvEnd,
+    }, marketplaceId);
+    // Keep only the latest snapshot per ASIN
+    const latestByAsin = {};
+    for (const row of (rtInvData?.reportData || [])) {
+      if (!row.asin) continue;
+      if (!latestByAsin[row.asin] || row.endTime > latestByAsin[row.asin].endTime) {
+        latestByAsin[row.asin] = row;
+      }
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    let rtInvWritten = 0;
+    for (const row of Object.values(latestByAsin)) {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.APP.vendor_inventory t
+        USING (SELECT ? AS client_id, ? AS asin, ?::DATE AS start_date) s
+          ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
+        WHEN MATCHED THEN UPDATE SET
+          sellable_on_hand_units=?, synced_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,asin,start_date,sellable_on_hand_units,synced_at)
+          VALUES (?,?,?,?,CURRENT_TIMESTAMP())
+      `, [clientId,row.asin,today, row.highlyAvailableInventory||0,
+          clientId,row.asin,today, row.highlyAvailableInventory||0])
+        .catch(() => {});
+      rtInvWritten++;
+    }
+    results.vendorRealtimeInventory = rtInvWritten;
+    totalWritten += rtInvWritten;
+    console.log(`[vendorIngestion] RT_INVENTORY: ${rtInvWritten} ASINs written (current snapshot)`);
+  } catch (err) {
+    console.warn('[vendorIngestion] RT_INVENTORY failed (non-fatal):', err.message.slice(0, 100));
+    results.vendorRealtimeInventory = 0;
+  }
+
+  await sleep(2000);
+
   // ── 3. Vendor Traffic (WEEK grain, Sun→Sat aligned, no distributorView/sellingProgram) ─
   try {
     console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
