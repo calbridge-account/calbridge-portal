@@ -643,6 +643,18 @@ async function discoverIdleInventory(clientId, days, cooldownSet) {
  * Returns { executed, failed, expired, results[] }
  */
 async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}) {
+  // Load profile → marketplace mapping from client_accounts
+  // Only US profiles support write-back currently; other marketplaces are skipped
+  const accountRows = await query(`
+    SELECT platform_profile_id, marketplace
+    FROM CALBRIDGE_PROD.APP.client_accounts
+    WHERE client_id = ? AND channel = 'sponsored_ads' AND is_active = TRUE
+  `, [clientId]).catch(() => []);
+  const profileMarketplace = {};
+  for (const r of accountRows) {
+    if (r.PLATFORM_PROFILE_ID) profileMarketplace[String(r.PLATFORM_PROFILE_ID)] = r.MARKETPLACE;
+  }
+
   const rows = await query(`
     SELECT action_id, action_type, ad_type, profile_id,
            entity_id, entity_name, proposed_value, current_value,
@@ -670,6 +682,17 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
 
   for (const [key, actions] of Object.entries(groups)) {
     const [profileId, actionType, adType] = key.split('::');
+
+    // Skip non-US profiles — write-back is US-only for now
+    // CA/MX/EU etc. generate recommendations (useful for review) but can't execute
+    const marketplace = profileMarketplace[profileId] || 'US';
+    if (marketplace !== 'US' && profileId && profileId !== 'null') {
+      console.log(`[executeBulk] Skipping ${key} — marketplace ${marketplace} not yet supported for write-back`);
+      for (const a of actions) {
+        results.push({ actionId: a.ACTION_ID, ok: false, skipped: true, reason: `marketplace ${marketplace} not supported` });
+      }
+      continue;
+    }
 
     // Actions without a profile (e.g. launch_campaign) fall back to one-by-one
     if (!profileId || profileId === 'null') {
@@ -806,9 +829,11 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
   }
 
   const executed = results.filter(r => r.ok).length;
-  const failed   = results.filter(r => !r.ok).length;
+  const failed   = results.filter(r => !r.ok && !r.skipped).length;
+  const skipped  = results.filter(r => r.skipped).length;
+  if (skipped) console.log(`[executeBulk] ⏭️ ${skipped} skipped (non-US marketplace)`);
   console.log(`[executeBulk] ✅ ${executed} executed, ${failed} failed for client ${clientId}`);
-  return { executed, failed, expired: 0, results };
+  return { executed, failed, skipped, expired: 0, results };
 }
 
 module.exports = { analyze, executeAction, executeBulk };
