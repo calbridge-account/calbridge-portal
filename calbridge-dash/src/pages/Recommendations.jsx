@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../components/Skeleton';
@@ -27,6 +27,9 @@ const snoozeOne       = (id)     => postJSON(`/decisions/${id}/snooze`);
 const executeOne      = (id)     => postJSON(`/decisions/execute/${id}`);
 const approveAll      = (type)   => fetch('/decisions/approve-all', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type: type || null }) }).then(r=>r.json());
 const executeAll      = (type)   => fetch('/decisions/execute-all',  { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type: type || null }) }).then(r=>r.json());
+// Approve + execute a specific list of action IDs
+const approveIds      = (ids)    => fetch('/decisions/approve-all', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) }).then(r=>r.json());
+const executeIds      = (ids)    => fetch('/decisions/execute-all', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) }).then(r=>r.json());
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -264,6 +267,8 @@ export default function Recommendations() {
   const [sortBy, setSortBy] = useState('score_desc');
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage]         = useState(1);
 
   // Upgrade banner state — show if on free or starter plan
   const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
@@ -320,10 +325,35 @@ export default function Recommendations() {
     finally { setActionLoading(false); }
   };
 
+  // Sorted + filtered full list
+  const sortedActions = useMemo(() => [...(actions||[])].sort((a,b) => {
+    const ma=a.metrics||{},mb=b.metrics||{};
+    switch(sortBy){
+      case 'score_desc': return calcScore(b)-calcScore(a);
+      case 'spend_desc': return (mb.spend_30d||0)-(ma.spend_30d||0);
+      case 'acos_desc':  return (mb.acos||0)-(ma.acos||0);
+      case 'acos_asc':   return (ma.acos||0)-(mb.acos||0);
+      case 'orders_desc':return (mb.orders_30d||0)-(ma.orders_30d||0);
+      case 'newest':     return new Date(b.createdAt||0)-new Date(a.createdAt||0);
+      default: return 0;
+    }
+  }), [actions, sortBy]);
+
+  const totalPages   = pageSize === 0 ? 1 : Math.ceil((sortedActions.length||0) / pageSize);
+  const pagedActions = useMemo(() =>
+    pageSize === 0 ? sortedActions : sortedActions.slice((page-1)*pageSize, page*pageSize)
+  , [sortedActions, page, pageSize]);
+
+  // Reset to page 1 when filters/sort/pageSize change
+  useEffect(() => setPage(1), [typeFilter, sortBy, pageSize, activeTab]);
+
+  // Approve + execute only the rows currently visible on the page
   const handleApproveAll = () => withLoading(async () => {
-    const approved = await approveAll(typeFilter || null);
-    showToast(`Approved ${approved.approved} — executing now...`);
-    const executed = await executeAll(typeFilter || null);
+    const ids = pagedActions.filter(a => a.status === 'pending' || !a.status).map(a => a.actionId);
+    if (!ids.length) { showToast('No pending rows on this page', false); return; }
+    const approved = await approveIds(ids);
+    showToast(`Approved ${approved.approved ?? ids.length} — executing now...`);
+    const executed = await executeIds(ids);
     const failed = (executed.results || []).filter(r => !r.ok).length;
     showToast(`✅ Executed ${executed.executed ?? 0} actions${failed ? ` (${failed} failed)` : ''}`);
   });
@@ -383,30 +413,40 @@ export default function Recommendations() {
           >
             {SORT_OPTIONS.map(s => <option key={s.key} value={s.key}>{s.key === sortBy ? '↕ ' : ''}{s.label}</option>)}
           </select>
+          {/* Rows per page */}
+          <select
+            value={pageSize}
+            onChange={e => setPageSize(Number(e.target.value))}
+            className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700"
+            title="Rows per page"
+          >
+            <option value={25}>25 rows</option>
+            <option value={50}>50 rows</option>
+            <option value={250}>250 rows</option>
+            <option value={0}>All rows</option>
+          </select>
           {activeTab === 'pending' && (
             <button
               onClick={handleApproveAll}
-              disabled={actionLoading || !actions?.length}
+              disabled={actionLoading || !pagedActions?.length}
               className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors"
-              title={typeFilter ? `Approve all ${typeFilter.replace('_',' ')} recommendations` : 'Approve all pending recommendations'}
+              title={`Approve & execute the ${pagedActions?.length ?? 0} recommendations on this page`}
             >
-              ✓ Approve {typeFilter ? typeFilter.replace(/_/g,' ') : 'All'}
+              ✓ Approve Page ({pagedActions?.length ?? 0})
             </button>
           )}
           {activeTab === 'approved' && (
             <button
               onClick={() => withLoading(async () => {
-                const ids = (window.__sortedActions || actions || []).map(a => a.actionId);
-                let done = 0, failed = 0;
-                for (const id of ids) {
-                  try { await executeOne(id); done++; } catch { failed++; }
-                }
-                showToast(`Executed ${done}${failed ? `, ${failed} failed` : ''}`);
+                const ids = pagedActions.map(a => a.actionId);
+                const executed = await executeIds(ids);
+                const failed = (executed.results || []).filter(r => !r.ok).length;
+                showToast(`Executed ${executed.executed ?? 0}${failed ? `, ${failed} failed` : ''}`);
               })}
-              disabled={actionLoading || !actions?.length}
+              disabled={actionLoading || !pagedActions?.length}
               className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
             >
-              ▶ Execute All
+              ▶ Execute Page ({pagedActions?.length ?? 0})
             </button>
           )}
         </div>
@@ -414,18 +454,7 @@ export default function Recommendations() {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {(() => { window.__sortedActions = [...(actions||[])].sort((a,b) => {
-          const ma=a.metrics||{},mb=b.metrics||{};
-          switch(sortBy){
-            case 'score_desc': return calcScore(b)-calcScore(a);
-            case 'spend_desc': return (mb.spend_30d||0)-(ma.spend_30d||0);
-            case 'acos_desc':  return (mb.acos||0)-(ma.acos||0);
-            case 'acos_asc':   return (ma.acos||0)-(mb.acos||0);
-            case 'orders_desc':return (mb.orders_30d||0)-(ma.orders_30d||0);
-            case 'newest':     return new Date(b.createdAt||0)-new Date(a.createdAt||0);
-            default: return 0;
-          }
-        }); return null; })()}
+
         {actionsLoading || statsLoading ? (
           <div className="p-8"><SkeletonTable /></div>
         ) : isError ? (
@@ -453,7 +482,7 @@ export default function Recommendations() {
               </tr>
             </thead>
             <tbody>
-              {(window.__sortedActions||actions||[]).map(a => (
+              {pagedActions.map(a => (
                 <ActionRow
                   key={a.actionId}
                   action={a}
@@ -467,6 +496,32 @@ export default function Recommendations() {
               ))}
             </tbody>
           </table>
+        )}
+        {/* Pagination footer */}
+        {!!actions?.length && pageSize !== 0 && totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">
+              Showing {(page-1)*pageSize + 1}–{Math.min(page*pageSize, sortedActions.length)} of {sortedActions.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p-1))}
+                disabled={page === 1}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40"
+              >← Prev</button>
+              <span className="text-xs text-gray-500 px-2">Page {page} of {totalPages}</span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p+1))}
+                disabled={page === totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40"
+              >Next →</button>
+            </div>
+          </div>
+        )}
+        {!!actions?.length && pageSize === 0 && (
+          <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">Showing all {sortedActions.length} rows</span>
+          </div>
         )}
       </div>
 

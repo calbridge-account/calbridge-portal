@@ -701,7 +701,7 @@ async function discoverIdleInventory(clientId, days, cooldownSet) {
  *
  * Returns { executed, failed, expired, results[] }
  */
-async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}) {
+async function executeBulk(clientId, { type = null, ids = null, executedBy = 'system' } = {}) {
   // Load profile → marketplace mapping from client_accounts
   // Only US profiles support write-back currently; other marketplaces are skipped
   const accountRows = await query(`
@@ -714,6 +714,11 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
     if (r.PLATFORM_PROFILE_ID) profileMarketplace[String(r.PLATFORM_PROFILE_ID)] = r.MARKETPLACE;
   }
 
+  const idsFilter = Array.isArray(ids) && ids.length
+    ? `AND action_id IN (${ids.map(() => '?').join(',')})`
+    : '';
+  const idsBinds = Array.isArray(ids) && ids.length ? ids : [];
+
   const rows = await query(`
     SELECT action_id, action_type, ad_type, profile_id,
            entity_id, entity_name, proposed_value, current_value,
@@ -723,8 +728,9 @@ async function executeBulk(clientId, { type = null, executedBy = 'system' } = {}
       AND status = 'approved'
       AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
       ${type ? `AND action_type = '${type}'` : ''}
+      ${idsFilter}
     ORDER BY profile_id, action_type, ad_type
-  `, [clientId]);
+  `, [clientId, ...idsBinds]);
 
   if (!rows.length) return { executed: 0, failed: 0, expired: 0, results: [] };
 

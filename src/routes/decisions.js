@@ -123,14 +123,30 @@ router.post('/approve-all', requireAuth, async (req, res, next) => {
     const clientId = await resolveClientId(req);
     const user = req.session.email || req.session.clientId;
     const type = req.body?.type || null;
-    const result = await query(`
-      UPDATE CALBRIDGE_PROD.APP.decision_actions
-      SET status='approved', approved_by=?, approved_at=CURRENT_TIMESTAMP(), updated_at=CURRENT_TIMESTAMP()
-      WHERE client_id=? AND status='pending'
-        AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
-        ${type ? `AND action_type = '${type}'` : ''}
-    `, [user, clientId]);
-    const count = result[0]?.['number of rows updated'] || 0;
+    const ids  = Array.isArray(req.body?.ids) && req.body.ids.length ? req.body.ids : null;
+
+    let count;
+    if (ids) {
+      // Page-scoped approve: only the specific IDs provided
+      const placeholders = ids.map(() => '?').join(',');
+      const result = await query(`
+        UPDATE CALBRIDGE_PROD.APP.decision_actions
+        SET status='approved', approved_by=?, approved_at=CURRENT_TIMESTAMP(), updated_at=CURRENT_TIMESTAMP()
+        WHERE client_id=? AND status='pending'
+          AND action_id IN (${placeholders})
+      `, [user, clientId, ...ids]);
+      count = result[0]?.['number of rows updated'] || 0;
+    } else {
+      // Approve all pending (with optional type filter)
+      const result = await query(`
+        UPDATE CALBRIDGE_PROD.APP.decision_actions
+        SET status='approved', approved_by=?, approved_at=CURRENT_TIMESTAMP(), updated_at=CURRENT_TIMESTAMP()
+        WHERE client_id=? AND status='pending'
+          AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
+          ${type ? `AND action_type = '${type}'` : ''}
+      `, [user, clientId]);
+      count = result[0]?.['number of rows updated'] || 0;
+    }
     res.json({ ok: true, approved: count });
   } catch (err) { next(err); }
 });
@@ -142,8 +158,9 @@ router.post('/execute-all', requireAuth, requirePlan('decisions'), async (req, r
     const clientId   = await resolveClientId(req);
     const executedBy = req.session.email || req.session.clientId;
     const type       = req.body?.type || null;
+    const ids        = Array.isArray(req.body?.ids) && req.body.ids.length ? req.body.ids : null;
     const { executeBulk } = require('../services/decisionEngine');
-    const result = await executeBulk(clientId, { type, executedBy });
+    const result = await executeBulk(clientId, { type, ids, executedBy });
     res.json({ ok: true, ...result });
   } catch (err) { next(err); }
 });
