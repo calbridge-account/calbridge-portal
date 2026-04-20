@@ -69,7 +69,8 @@ function getAuthUrl(type, clientId) {
       application_id: SPAPI_APP_ID,
       state,
       redirect_uri:   `${BASE_URL}/amazon/callback/${type}`,
-      version:        'beta', // omit in production after app is live in Appstore
+      // NOTE: do NOT include version=beta in production — that routes to the draft
+      // app which may not have all roles approved. Omitting version uses the live app.
     });
     return `${conn.consentUrl}?${params.toString()}`;
   }
