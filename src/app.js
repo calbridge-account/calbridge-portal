@@ -180,6 +180,7 @@ ensureCampaignActionsTable().catch(err =>
 );
 
 // Public pricing redirect — no auth required
+app.get('/landing', (req, res) => res.sendFile('landing.html', { root: path.join(__dirname, '../public') }));
 app.get('/pricing', (req, res) => res.redirect('/landing#pricing'));
 
 // Health check
