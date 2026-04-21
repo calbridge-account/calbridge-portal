@@ -84,6 +84,15 @@ app.use((req, res, next) => {
   }
   next();
 });
+// calbridge.ai root → landing page (must be BEFORE express.static)
+app.use((req, res, next) => {
+  const host = req.hostname || '';
+  if ((host === 'calbridge.ai' || host === 'www.calbridge.ai') && req.path === '/') {
+    return res.sendFile('landing.html', { root: path.join(__dirname, '../public') });
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Auth check endpoint for the React dashboard
@@ -184,14 +193,7 @@ ensureCampaignActionsTable().catch(err =>
 // Public pricing redirect — no auth required
 app.get('/landing', (req, res) => res.sendFile('landing.html', { root: path.join(__dirname, '../public') }));
 
-// calbridge.ai root → landing page
-app.use((req, res, next) => {
-  const host = req.hostname || '';
-  if ((host === 'calbridge.ai' || host === 'www.calbridge.ai') && req.path === '/') {
-    return res.sendFile('landing.html', { root: path.join(__dirname, '../public') });
-  }
-  next();
-});
+// calbridge.ai landing redirect handled above (before express.static)
 app.get('/pricing', (req, res) => res.redirect('/landing#pricing'));
 
 // Health check
