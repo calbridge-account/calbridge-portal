@@ -39,7 +39,9 @@ let _buildCanonical     = null;
 let _slaChecker         = null;
 let _adsIngestion       = null;
 let _vendorIngestion    = null;
+let _sellerIngestion    = null;
 
+function sellerIngestion() { return _sellerIngestion || (_sellerIngestion = require('./sellerIngestion')); }
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
 function stageRawData()       { return _stageRawData       || (_stageRawData       = require('./stageRawData')); }
@@ -129,6 +131,9 @@ const JOB_HANDLERS = {
 
   // ── Daily cleanup ──────────────────────────────────────────────────────────
   expire_stale_actions:      () => stageRawData().expireStaleActions({ triggeredBy: 'cron' }),
+
+  // ── Every 6 hours — Seller Central ingestion ───────────────────────────────
+  ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),
 
   // ── Daily recommendations ──────────────────────────────────────────────────
   // Run decision engine analysis for all active clients at 06:00 UTC.
@@ -379,6 +384,10 @@ const CRON_SCHEDULE = [
   },
 
   // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)
+  {
+    jobId: 'ingest_seller_reports',
+    expr:  '0 */6 * * *',   // every 6h at :00 — sales traffic + FBA inventory
+  },
   {
     jobId: 'ingest_vendor_reports',
     expr:  '30 */6 * * *',  // 00:30, 06:30, 12:30, 18:30 UTC (offset from DSP)
