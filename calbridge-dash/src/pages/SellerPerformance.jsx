@@ -166,6 +166,24 @@ export default function SellerPerformance() {
           <div className="text-xs text-gray-400 mt-2">
             {bbPct != null ? `${fmtNum(bbSessions)} sessions won · ${fmtNum(lostSessions)} lost to competitors` : 'No Buy Box data in this period'}
           </div>
+          {/* Trend signal: compare first half vs second half of period */}
+          {!isLoading && (() => {
+            const half = Math.floor(trend.length / 2);
+            if (half < 2) return null;
+            const firstHalf = trend.slice(0, half).filter(r => r.buyBoxPct != null);
+            const secondHalf = trend.slice(half).filter(r => r.buyBoxPct != null);
+            if (!firstHalf.length || !secondHalf.length) return null;
+            const avgFirst  = firstHalf.reduce((s,r)=>s+r.buyBoxPct,0)/firstHalf.length;
+            const avgSecond = secondHalf.reduce((s,r)=>s+r.buyBoxPct,0)/secondHalf.length;
+            const delta = avgSecond - avgFirst;
+            if (Math.abs(delta) < 2) return null;
+            const declining = delta < 0;
+            return (
+              <div className={`mt-1 text-xs font-medium ${declining ? 'text-red-500' : 'text-emerald-600'}`}>
+                {declining ? '⚠️' : '✅'} {declining ? 'Declining' : 'Improving'} {Math.abs(delta).toFixed(1)}pp over period
+              </div>
+            );
+          })()}
         </div>
 
         {/* Won sessions */}

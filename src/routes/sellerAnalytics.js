@@ -45,8 +45,8 @@ router.get('/overview', requireAuth, async (req, res, next) => {
           SUM(ordered_revenue) AS ordered_revenue,
           SUM(sessions)        AS sessions,
           SUM(page_views)      AS page_views,
-          AVG(buy_box_pct)     AS avg_buy_box_pct,
-          AVG(unit_session_pct) AS avg_cvr
+          SUM(sessions * buy_box_pct) / NULLIF(SUM(sessions), 0) AS avg_buy_box_pct,
+          SUM(ordered_units) / NULLIF(SUM(sessions), 0) * 100         AS avg_cvr
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
         WHERE client_id = ? AND asin = '__ACCOUNT__'
           ${dateFilter('date', days, startDate, endDate)}
@@ -83,7 +83,7 @@ router.get('/overview', requireAuth, async (req, res, next) => {
         SELECT
           SUM(ordered_revenue) AS ordered_revenue,
           SUM(sessions)        AS sessions,
-          AVG(buy_box_pct)     AS avg_buy_box_pct
+          SUM(sessions * buy_box_pct) / NULLIF(SUM(sessions), 0) AS avg_buy_box_pct
         FROM ${SCHEMA}.RETAIL_SALES_TRAFFIC
         WHERE client_id = ? AND asin = '__ACCOUNT__'
           AND date >= DATEADD('day', -(${days || 30} * 2), CURRENT_DATE())
