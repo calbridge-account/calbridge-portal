@@ -137,6 +137,9 @@ const JOB_HANDLERS = {
   // ── Every 6 hours — Seller Central ingestion ───────────────────────────────
   ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),
 
+  // ── Every 5 min — flush buffered JOB_RUNS to Snowflake ───────────────────────
+  flush_job_runs:               () => require('../services/jobRunner').flushJobRunBuffer({ triggeredBy: 'cron' }),
+
   // ── Hourly — Dayparting ─────────────────────────────────────────────────────
   execute_dayparting:           () => daypartingEngine().executeDaypartingAllClients({ triggeredBy: 'cron' }),
 
@@ -298,6 +301,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'check_connector_health',
     expr:  '*/30 * * * *',  // reduced from every5min — saves ~400 Snowflake writes/day
+  },
+  {
+    jobId: 'flush_job_runs',
+    expr:  SCHEDULE_CRONS['every5min'],  // flush buffered JOB_RUNS to Snowflake
   },
   {
     jobId: 'poll_report_status',
