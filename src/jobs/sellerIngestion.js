@@ -82,23 +82,29 @@ async function ingestSalesTraffic(clientId, client, daysBack = 14) {
     reportOptions: { dateGranularity: 'DAY', asinGranularity: 'PARENT' },
   });
 
-  const rows = (data?.salesAndTrafficByAsin || []).flatMap(item => {
+  // salesAndTrafficByAsin = ASIN-level totals over the date range (no date field)
+  // salesAndTrafficByDate  = daily totals over all ASINs (has date field)
+  // We write daily account totals to RETAIL_SALES_TRAFFIC using a synthetic ASIN='__ACCOUNT__'
+  // and ASIN-level totals using the report end date as the snapshot date.
+
+  const endDateSnapshot = endDate; // use report end date as the ASIN snapshot date
+
+  const byAsinRows = (data?.salesAndTrafficByAsin || []).map(item => {
     const asin = item.parentAsin || item.childAsin;
-    const date = item.date;
-    if (!asin || !date) return [];
+    if (!asin) return null;
     const s = item.salesByAsin   || {};
     const t = item.trafficByAsin || {};
-    return [{
+    return {
       client_id:           clientId,
       platform:            'amazon',
       marketplace:         'US',
       asin,
-      date,
+      date:                endDateSnapshot,
       ordered_units:       s.unitsOrdered ?? 0,
       ordered_revenue:     s.orderedProductSales?.amount ?? 0,
       currency_code:       s.orderedProductSales?.currencyCode || 'USD',
       shipped_units:       s.unitsShipped ?? 0,
-      shipped_revenue:     s.totalOrderItems ?? 0,
+      shipped_revenue:     0,
       sessions:            t.sessions ?? 0,
       page_views:          t.pageViews ?? 0,
       buy_box_pct:         t.buyBoxPercentage ?? null,
@@ -107,8 +113,37 @@ async function ingestSalesTraffic(clientId, client, daysBack = 14) {
       b2b_ordered_revenue: s.orderedProductSalesB2B?.amount ?? 0,
       selling_program:     'RETAIL',
       distributor_view:    'SOURCING',
-    }];
-  });
+    };
+  }).filter(Boolean);
+
+  const byDateRows = (data?.salesAndTrafficByDate || []).map(item => {
+    const date = item.date;
+    if (!date) return null;
+    const s = item.salesByDate   || {};
+    const t = item.trafficByDate || {};
+    return {
+      client_id:           clientId,
+      platform:            'amazon',
+      marketplace:         'US',
+      asin:                '__ACCOUNT__', // account-level daily total
+      date,
+      ordered_units:       s.unitsOrdered ?? 0,
+      ordered_revenue:     s.orderedProductSales?.amount ?? 0,
+      currency_code:       s.orderedProductSales?.currencyCode || 'USD',
+      shipped_units:       s.unitsShipped ?? 0,
+      shipped_revenue:     0,
+      sessions:            t.sessions ?? 0,
+      page_views:          t.pageViews ?? 0,
+      buy_box_pct:         t.buyBoxPercentage ?? null,
+      unit_session_pct:    t.unitSessionPercentage ?? null,
+      b2b_ordered_units:   s.unitsOrderedB2B ?? 0,
+      b2b_ordered_revenue: s.orderedProductSalesB2B?.amount ?? 0,
+      selling_program:     'RETAIL',
+      distributor_view:    'SOURCING',
+    };
+  }).filter(Boolean);
+
+  const rows = [...byAsinRows, ...byDateRows];
 
   if (!rows.length) return 0;
   return batchMerge({
