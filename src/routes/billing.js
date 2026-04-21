@@ -152,8 +152,8 @@ const PLANS = {
   agency: {
     id:           'agency',
     name:         'Agency',
-    price:        499,
-    priceMonthly: '$499 + $299/brand',
+    price:        549,
+    priceMonthly: '$549 + $299/brand',
     description:  'White-label portal for agencies managing multiple brands.',
     features: [
       '$499/mo for first brand, $299/mo per additional brand',
