@@ -41,8 +41,10 @@ let _adsIngestion       = null;
 let _vendorIngestion    = null;
 let _sellerIngestion    = null;
 let _daypartingEngine   = null;
+let _daypartingService  = null;
 
 function daypartingEngine() { return _daypartingEngine || (_daypartingEngine = require('./daypartingEngine')); }
+function daypartingService() { return _daypartingService || (_daypartingService = require('../services/daypartingService')); }
 function sellerIngestion() { return _sellerIngestion || (_sellerIngestion = require('./sellerIngestion')); }
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
@@ -151,10 +153,15 @@ const JOB_HANDLERS = {
 
   // ── Hourly — Dayparting ─────────────────────────────────────────────────────
   execute_dayparting:           () => daypartingEngine().executeDaypartingAllClients({ triggeredBy: 'cron' }),
+  apply_daypart_schedules:      () => daypartingService().applyDaypartSchedulesAllClients({ triggeredBy: 'cron' }),
 
   // ── Daily recommendations ──────────────────────────────────────────────────
   // Run decision engine analysis for all active clients at 06:00 UTC.
   generate_recommendations:  () => generateRecommendationsAllClients({ triggeredBy: 'cron' }),
+
+  // ── Daily Marginal ROAS scoring ────────────────────────────────────────────
+  // Score all campaigns for efficiency and write to CAMPAIGN_MARGINAL_ROAS.
+  score_marginal_roas: () => require('../services/marginalRoasService').scoreAllClients(),
 
 
   // ── Daily post-models ─────────────────────────────────────────────────────
@@ -406,6 +413,10 @@ const CRON_SCHEDULE = [
     jobId: 'generate_recommendations',
     expr:  '0 6 * * *',     // 06:00 UTC daily — prune stale + generate fresh recommendations
   },
+  {
+    jobId: 'score_marginal_roas',
+    expr:  '30 6 * * *',    // 06:30 UTC daily — score campaign marginal ROAS after recommendations
+  },
 
   // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
   // Runs 4× per day: 00:00, 06:00, 12:00, 18:00 UTC.
@@ -421,6 +432,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'execute_dayparting',
     expr:  '0 * * * *',    // every hour at :00 — check dayparting rules
+  },
+  {
+    jobId: 'apply_daypart_schedules',
+    expr:  '0 * * * *',    // every hour at :00 — apply 24h multiplier schedules
   },
   {
     jobId: 'ingest_seller_reports',

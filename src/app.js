@@ -32,6 +32,7 @@ const navConfigRoutes      = require('./routes/navConfig');
 const managerRoutes        = require('./routes/managerAccounts');
 const managerAccountRoutes = require('./routes/managerAccounts');
 const { agencyRouter }     = require('./routes/managerAccounts');
+const marginalRoasRoutes   = require('./routes/marginalRoas');
 
 const app = express();
 
@@ -172,6 +173,7 @@ app.use('/', navConfigRoutes);
 app.use('/manager', managerRoutes);
 app.use('/manager', managerAccountRoutes);
 app.use('/agency', agencyRouter);
+app.use('/api/marginal-roas', marginalRoasRoutes);
 app.use('/upload', require('./routes/upload'));
 
 // Ensure campaign_actions table exists (non-blocking)
@@ -181,6 +183,15 @@ ensureCampaignActionsTable().catch(err =>
 
 // Public pricing redirect — no auth required
 app.get('/landing', (req, res) => res.sendFile('landing.html', { root: path.join(__dirname, '../public') }));
+
+// calbridge.ai root → landing page
+app.use((req, res, next) => {
+  const host = req.hostname || '';
+  if ((host === 'calbridge.ai' || host === 'www.calbridge.ai') && req.path === '/') {
+    return res.sendFile('landing.html', { root: path.join(__dirname, '../public') });
+  }
+  next();
+});
 app.get('/pricing', (req, res) => res.redirect('/landing#pricing'));
 
 // Health check
