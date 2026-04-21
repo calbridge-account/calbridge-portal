@@ -16,7 +16,7 @@ require('dotenv').config();
 
 const axios  = require('axios');
 const zlib   = require('zlib');
-const { query, batchMerge } = require('../services/snowflakeService');
+const { query } = require('../services/snowflakeService');
 const { getValidToken, getConnectionStatus } = require('../services/amazonAuthService');
 
 const SP_API_BASE = 'https://sellingpartnerapi-na.amazon.com';
@@ -146,22 +146,51 @@ async function ingestSalesTraffic(clientId, client, daysBack = 14) {
   const rows = [...byAsinRows, ...byDateRows];
 
   if (!rows.length) return 0;
-  return batchMerge({
-    table:       'CALBRIDGE_PROD.RAW.RETAIL_SALES_TRAFFIC',
-    keyColumns:  ['client_id', 'asin', 'date', 'marketplace'],
-    dataColumns: ['platform', 'ordered_units', 'ordered_revenue', 'currency_code',
-                  'shipped_units', 'shipped_revenue', 'sessions', 'page_views',
-                  'buy_box_pct', 'unit_session_pct', 'b2b_ordered_units',
-                  'b2b_ordered_revenue', 'selling_program', 'distributor_view'],
-    dateColumns: ['date'],
-    rows,
-  });
+
+  let written = 0;
+  for (const r of rows) {
+    await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_SALES_TRAFFIC t
+      USING (SELECT ? AS client_id, ? AS asin, ?::DATE AS dt, ? AS marketplace) s
+        ON t.client_id=s.client_id AND t.asin=s.asin AND t.date=s.dt AND t.marketplace=s.marketplace
+      WHEN MATCHED THEN UPDATE SET
+        ordered_units=?, ordered_revenue=?, currency_code=?,
+        shipped_units=?, sessions=?, page_views=?,
+        buy_box_pct=?, unit_session_pct=?, selling_program=?, distributor_view=?,
+        ingested_at=CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT
+        (client_id,asin,date,marketplace,platform,ordered_units,ordered_revenue,currency_code,
+         shipped_units,sessions,page_views,buy_box_pct,unit_session_pct,selling_program,distributor_view,ingested_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP())
+    `, [r.client_id, r.asin, r.date, r.marketplace,
+        r.ordered_units, r.ordered_revenue, r.currency_code,
+        r.shipped_units, r.sessions, r.page_views,
+        r.buy_box_pct, r.unit_session_pct, r.selling_program, r.distributor_view,
+        r.client_id, r.asin, r.date, r.marketplace, r.platform,
+        r.ordered_units, r.ordered_revenue, r.currency_code,
+        r.shipped_units, r.sessions, r.page_views,
+        r.buy_box_pct, r.unit_session_pct, r.selling_program, r.distributor_view]
+    ).catch(() => {});
+    written++;
+  }
+  return written;
 }
 
 // ─── 2. FBA Inventory ─────────────────────────────────────────────────────────
 
 async function ingestFbaInventory(clientId, client) {
-  const data = await requestAndPoll(client, 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA');
+  // Try FBA first; if FATAL (account not using FBA), try MFN open listings
+  let data;
+  try {
+    data = await requestAndPoll(client, 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA');
+  } catch (e) {
+    if (e.message.includes('FATAL')) {
+      console.log('[sellerIngestion] FBA report FATAL — account may not use FBA, trying MFN listings');
+      data = await requestAndPoll(client, 'GET_FLAT_FILE_OPEN_LISTINGS_DATA');
+    } else {
+      throw e;
+    }
+  }
   const today = new Date().toISOString().split('T')[0];
 
   if (typeof data !== 'string') {
@@ -204,17 +233,34 @@ async function ingestFbaInventory(clientId, client) {
     distributor_view:          'SOURCING',
   }));
 
-  return batchMerge({
-    table:       'CALBRIDGE_PROD.RAW.RETAIL_INVENTORY',
-    keyColumns:  ['client_id', 'asin', 'date', 'marketplace'],
-    dataColumns: ['platform', 'sellable_on_hand_units', 'sellable_on_hand_cost',
-                  'unsellable_on_hand_units', 'unsellable_on_hand_cost',
-                  'open_purchase_order_units', 'net_received_units', 'net_received_cost',
-                  'aged_90_plus_units', 'aged_90_plus_cost', 'unhealthy_units', 'unhealthy_cost',
-                  'sell_through_rate', 'selling_program', 'distributor_view'],
-    dateColumns: ['date'],
-    rows: mapped,
-  });
+  let written = 0;
+  for (const r of mapped) {
+    await query(`
+      MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_INVENTORY t
+      USING (SELECT ? AS client_id, ? AS asin, ?::DATE AS dt, ? AS marketplace) s
+        ON t.client_id=s.client_id AND t.asin=s.asin AND t.date=s.dt AND t.marketplace=s.marketplace
+      WHEN MATCHED THEN UPDATE SET
+        sellable_on_hand_units=?, unsellable_on_hand_units=?,
+        open_purchase_order_units=?, net_received_units=?,
+        selling_program=?, distributor_view=?,
+        ingested_at=CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT
+        (client_id,asin,date,marketplace,platform,sellable_on_hand_units,
+         unsellable_on_hand_units,open_purchase_order_units,net_received_units,
+         selling_program,distributor_view,ingested_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP())
+    `, [r.client_id, r.asin, r.date, r.marketplace,
+        r.sellable_on_hand_units, r.unsellable_on_hand_units,
+        r.open_purchase_order_units, r.net_received_units,
+        r.selling_program, r.distributor_view,
+        r.client_id, r.asin, r.date, r.marketplace, r.platform,
+        r.sellable_on_hand_units, r.unsellable_on_hand_units,
+        r.open_purchase_order_units, r.net_received_units,
+        r.selling_program, r.distributor_view]
+    ).catch(() => {});
+    written++;
+  }
+  return written;
 }
 
 // ─── Main: one client ─────────────────────────────────────────────────────────
