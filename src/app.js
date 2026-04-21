@@ -27,7 +27,6 @@ const sellerAnalyticsRoutes  = require('./routes/sellerAnalytics');
 const daypartingRoutes        = require('./routes/dayparting');
 const cogsAnalyticsRoutes  = require('./routes/cogsAnalytics');
 const streamRoutes         = require('./routes/stream');
-const v2AnalyticsRoutes    = require('./routes/v2Analytics');
 const budgetRoutes         = require('./routes/budgets');
 const navConfigRoutes      = require('./routes/navConfig');
 const managerRoutes        = require('./routes/managerAccounts');
@@ -104,17 +103,6 @@ app.get('/analytics-auth', (req, res) => {
   res.json({ authenticated: true, clientId: req.session.clientId });
 });
 
-// Serve calbridge-v2 at /v2
-app.use('/v2', express.static(path.join(__dirname, '../calbridge-v2/dist')));
-app.get(/^\/v2(\/.*)?$/, (req, res, next) => {
-  if (!req.session || !req.session.clientId) {
-    return res.redirect('/?redirect=/v2/');
-  }
-  res.sendFile('index.html', {
-    root: path.join(__dirname, '../calbridge-v2/dist')
-  }, (err) => { if (err) next(err); });
-});
-
 // Serve Calbridge analytics dashboard at /analytics — redirect to login if not authenticated
 app.get('/analytics', (req, res, next) => {
   if (!req.session || !req.session.clientId) {
@@ -178,7 +166,6 @@ app.use('/seller-analytics', sellerAnalyticsRoutes);
 app.use('/dayparting',        daypartingRoutes);
 app.use('/cogs-analytics', cogsAnalyticsRoutes);
 app.use('/admin', streamRoutes);
-app.use('/v2-analytics', v2AnalyticsRoutes);
 app.use('/budgets', budgetRoutes);
 app.use('/', navConfigRoutes);
 app.use('/manager', managerRoutes);
