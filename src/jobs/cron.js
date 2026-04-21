@@ -147,6 +147,7 @@ const JOB_HANDLERS = {
 
   // ── Every 5 min — flush buffered JOB_RUNS to Snowflake ───────────────────────
   flush_job_runs:               () => require('../services/jobRunner').flushJobRunBuffer({ triggeredBy: 'cron' }),
+  archive_job_runs:             () => require('../services/jobRunner').archiveJobRuns({ triggeredBy: 'cron' }),
 
   // ── Hourly — Dayparting ─────────────────────────────────────────────────────
   execute_dayparting:           () => daypartingEngine().executeDaypartingAllClients({ triggeredBy: 'cron' }),
@@ -383,6 +384,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'generate_operator_summary',
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
+  },
+  {
+    jobId: 'archive_job_runs',
+    expr:  '0 2 * * 0',   // weekly Sunday 02:00 UTC — archive Redis job_runs to Snowflake
   },
   {
     jobId: 'cleanup_report_queue',

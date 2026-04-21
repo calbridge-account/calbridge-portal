@@ -67,8 +67,9 @@ async function bufferWrite(record) {
 
 // ─── Flush buffer to Snowflake ────────────────────────────────────────────────
 /**
- * Called every 5 minutes by the flush_job_runs cron job.
- * Drains the Redis buffer and batch-writes to JOB_RUNS.
+ * Called periodically — drains the Redis buffer.
+ * SNOWFLAKE WRITES DISABLED: records stay in Redis only.
+ * Use archiveJobRuns() for weekly Snowflake archival.
  */
 async function flushJobRunBuffer({ triggeredBy = 'cron' } = {}) {
   const redis = getRedis();
@@ -95,87 +96,30 @@ async function flushJobRunBuffer({ triggeredBy = 'cron' } = {}) {
     records = [...records, ..._memBuffer.splice(0)];
   }
 
-  if (!records.length) return { flushed: 0 };
+  if (!records.length) return { buffered: 0 };
 
-  // Separate inserts (startJob) from updates (completeJob/failJob)
-  const inserts = records.filter(r => r._op === 'insert');
-  const updates = records.filter(r => r._op === 'update');
-
-  let flushed = 0;
-
-  // Batch INSERT — one VALUES tuple per record
-  if (inserts.length) {
+  // Store completed records in Redis hash for fast reads (keyed by runId)
+  // No Snowflake writes — use archiveJobRuns() for weekly archival
+  const redisW = getRedis();
+  if (redisW && redisW.status === 'ready') {
     try {
-      const vals = inserts.map(() =>
-        '(?, ?, ?, ?, ?, ?::TIMESTAMP, ?, 0, ?, 0, 0, 0)'
-      ).join(',\n');
-      const binds = inserts.flatMap(r => [
-        r.runId, r.pipelineRunId, r.jobType, r.accountId, r.clientId,
-        r.startedAt, STATUS.RUNNING, r.triggeredBy,
-      ]);
-      await query(
-        `INSERT INTO ${JOB_RUNS}
-           (job_id, pipeline_run_id, job_type, account_id, client_id,
-            started_at, status, retry_count, triggered_by,
-            rows_read, rows_written, rows_skipped)
-         VALUES ${vals}`,
-        binds
-      );
-      flushed += inserts.length;
-    } catch (err) {
-      console.error('[jobRunner] Batch INSERT failed, falling back to individual:', err.message?.slice(0, 100));
-      // Fallback: individual inserts
-      for (const r of inserts) {
-        try {
-          await query(
-            `INSERT INTO ${JOB_RUNS}
-               (job_id, pipeline_run_id, job_type, account_id, client_id,
-                started_at, status, retry_count, triggered_by,
-                rows_read, rows_written, rows_skipped)
-             VALUES (?, ?, ?, ?, ?, ?::TIMESTAMP, ?, 0, ?, 0, 0, 0)`,
-            [r.runId, r.pipelineRunId, r.jobType, r.accountId, r.clientId,
-             r.startedAt, STATUS.RUNNING, r.triggeredBy]
-          );
-          flushed++;
-        } catch { /* skip individual failures */ }
+      const pipeline = redisW.pipeline();
+      for (const r of records) {
+        // Merge insert + update records into a single hash entry per runId
+        const existing = await redisW.hget('job_runs', r.runId).catch(() => null);
+        const base = existing ? JSON.parse(existing) : {};
+        const merged = { ...base, ...r, _updatedAt: new Date().toISOString() };
+        pipeline.hset('job_runs', r.runId, JSON.stringify(merged));
       }
+      // TTL on the whole hash: 30 days
+      pipeline.expire('job_runs', 30 * 24 * 60 * 60);
+      await pipeline.exec();
+    } catch (err) {
+      console.warn('[jobRunner] Redis job_runs write failed:', err.message?.slice(0, 60));
     }
   }
 
-  // Updates: UPDATE per record (hard to batch — use individual with Promise.all)
-  if (updates.length) {
-    await Promise.all(updates.map(async r => {
-      try {
-        if (r.status === STATUS.COMPLETED) {
-          await query(
-            `UPDATE ${JOB_RUNS}
-             SET status=?, completed_at=?::TIMESTAMP,
-                 duration_seconds=DATEDIFF('second',started_at,?::TIMESTAMP),
-                 rows_read=?, rows_written=?, rows_skipped=?, error_message=NULL
-             WHERE job_id=?`,
-            [STATUS.COMPLETED, r.completedAt, r.completedAt,
-             r.rowsRead || 0, r.rowsWritten || 0, r.rowsSkipped || 0, r.runId]
-          );
-        } else {
-          await query(
-            `UPDATE ${JOB_RUNS}
-             SET status=?, completed_at=?::TIMESTAMP,
-                 duration_seconds=DATEDIFF('second',started_at,?::TIMESTAMP),
-                 error_message=?
-             WHERE job_id=?`,
-            [r.status, r.completedAt, r.completedAt,
-             (r.errorMessage || '').substring(0, 5000), r.runId]
-          );
-        }
-        flushed++;
-      } catch { /* non-fatal */ }
-    }));
-  }
-
-  if (flushed > 0) {
-    console.log(`[jobRunner] Flushed ${flushed} job run records to Snowflake`);
-  }
-  return { flushed, inserts: inserts.length, updates: updates.length };
+  return { buffered: records.length };
 }
 
 // ─── startJob ─────────────────────────────────────────────────────────────────
@@ -297,6 +241,79 @@ async function clearStaleRunningJobs(olderThanMinutes = 30) {
   }
 }
 
+// ─── Weekly archive: flush Redis job_runs → Snowflake ───────────────────────
+/**
+ * Called weekly to archive job run history from Redis to Snowflake.
+ * Keeps Snowflake as the long-term audit trail without burning credits daily.
+ */
+async function archiveJobRuns({ triggeredBy = 'cron' } = {}) {
+  const redis = getRedis();
+  if (!redis || redis.status !== 'ready') return { archived: 0 };
+
+  try {
+    const all = await redis.hgetall('job_runs');
+    if (!all || !Object.keys(all).length) return { archived: 0 };
+
+    const records = Object.values(all).map(v => {
+      try { return JSON.parse(v); } catch { return null; }
+    }).filter(Boolean);
+
+    // Only archive completed/failed records (not still-running)
+    const toArchive = records.filter(r =>
+      r._op === 'update' && [STATUS.COMPLETED, STATUS.FAILED, STATUS.SKIPPED].includes(r.status)
+    );
+
+    if (!toArchive.length) return { archived: 0 };
+
+    // Batch upsert to Snowflake — do them in chunks of 200
+    const CHUNK = 200;
+    let archived = 0;
+    for (let i = 0; i < toArchive.length; i += CHUNK) {
+      const batch = toArchive.slice(i, i + CHUNK);
+      try {
+        const vals = batch.map(() => '(?,?,?,?,?,?::TIMESTAMP,?::TIMESTAMP,?,?,?,?)').join(',');
+        const binds = batch.flatMap(r => [
+          r.runId || r._runId,
+          r.jobType || 'unknown',
+          r.accountId || 'unknown',
+          r.clientId || 'unknown',
+          r.status,
+          r.startedAt || new Date().toISOString(),
+          r.completedAt || new Date().toISOString(),
+          r.rowsRead || 0,
+          r.rowsWritten || 0,
+          r.triggeredBy || 'cron',
+          (r.errorMessage || '').substring(0, 5000),
+        ]);
+        await query(
+          `INSERT INTO ${JOB_RUNS}
+             (job_id, job_type, account_id, client_id, status,
+              started_at, completed_at, rows_read, rows_written, triggered_by, error_message)
+           SELECT col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11
+           FROM (VALUES ${vals}) v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11)
+           WHERE col1 NOT IN (SELECT job_id FROM ${JOB_RUNS} WHERE job_id=col1)`,
+          binds
+        );
+        archived += batch.length;
+      } catch { /* skip failed batches */ }
+    }
+
+    // Clear archived records from Redis (keep only last 7 days)
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const toDelete = records
+      .filter(r => new Date(r._updatedAt || 0).getTime() < cutoff)
+      .map(r => r.runId || r._runId)
+      .filter(Boolean);
+    if (toDelete.length) await redis.hdel('job_runs', ...toDelete);
+
+    console.log(`[jobRunner] Archived ${archived} job runs to Snowflake, cleared ${toDelete.length} old Redis entries`);
+    return { archived, cleared: toDelete.length };
+  } catch (err) {
+    console.error('[jobRunner] archiveJobRuns failed:', err.message?.slice(0, 100));
+    return { archived: 0 };
+  }
+}
+
 module.exports = {
   STATUS,
   startJob,
@@ -309,4 +326,5 @@ module.exports = {
   getActiveAccounts,
   clearStaleRunningJobs,
   flushJobRunBuffer,
+  archiveJobRuns,
 };
