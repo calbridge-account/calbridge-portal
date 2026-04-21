@@ -40,7 +40,9 @@ let _slaChecker         = null;
 let _adsIngestion       = null;
 let _vendorIngestion    = null;
 let _sellerIngestion    = null;
+let _daypartingEngine   = null;
 
+function daypartingEngine() { return _daypartingEngine || (_daypartingEngine = require('./daypartingEngine')); }
 function sellerIngestion() { return _sellerIngestion || (_sellerIngestion = require('./sellerIngestion')); }
 function connectorHealth()    { return _connectorHealth    || (_connectorHealth    = require('./connectorHealth')); }
 function reportOrchestrator() { return _reportOrchestrator || (_reportOrchestrator = require('./reportOrchestrator')); }
@@ -134,6 +136,9 @@ const JOB_HANDLERS = {
 
   // ── Every 6 hours — Seller Central ingestion ───────────────────────────────
   ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),
+
+  // ── Hourly — Dayparting ─────────────────────────────────────────────────────
+  execute_dayparting:           () => daypartingEngine().executeDaypartingAllClients({ triggeredBy: 'cron' }),
 
   // ── Daily recommendations ──────────────────────────────────────────────────
   // Run decision engine analysis for all active clients at 06:00 UTC.
@@ -292,7 +297,7 @@ const CRON_SCHEDULE = [
   // ── Every 5 min ────────────────────────────────────────────────────────────
   {
     jobId: 'check_connector_health',
-    expr:  SCHEDULE_CRONS['every5min'],
+    expr:  '*/30 * * * *',  // reduced from every5min — saves ~400 Snowflake writes/day
   },
   {
     jobId: 'poll_report_status',
@@ -304,7 +309,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'portal_uptime_monitor',
-    expr:  SCHEDULE_CRONS['every5min'],
+    expr:  '*/15 * * * *',  // reduced from every5min
   },
 
   // ── Every 15 min ───────────────────────────────────────────────────────────
@@ -384,6 +389,10 @@ const CRON_SCHEDULE = [
   },
 
   // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)
+  {
+    jobId: 'execute_dayparting',
+    expr:  '0 * * * *',    // every hour at :00 — check dayparting rules
+  },
   {
     jobId: 'ingest_seller_reports',
     expr:  '0 */6 * * *',   // every 6h at :00 — sales traffic + FBA inventory

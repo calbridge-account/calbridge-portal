@@ -6,15 +6,24 @@ const app = require('./app');
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`Calbridge Portal running on port ${PORT}`);
+async function start() {
+  // Init session store (Redis with Snowflake fallback) before accepting requests
+  await app.init();
 
-  // Pre-warm the Snowflake connection pool so the first real user request
-  // doesn't eat the cold-start penalty (~2-4s warehouse wake-up).
-  setTimeout(() => {
-    const { query } = require('./services/snowflakeService');
-    query('SELECT 1 AS ping')
-      .then(() => console.log('[Snowflake] Connection pool warmed'))
-      .catch(err => console.warn('[Snowflake] Warm-up failed (non-fatal):', err.message));
-  }, 2000);
+  app.listen(PORT, () => {
+    console.log(`Calbridge Portal running on port ${PORT}`);
+
+    // Pre-warm the Snowflake connection pool
+    setTimeout(() => {
+      const { query } = require('./services/snowflakeService');
+      query('SELECT 1 AS ping')
+        .then(() => console.log('[Snowflake] Connection pool warmed'))
+        .catch(err => console.warn('[Snowflake] Warm-up failed (non-fatal):', err.message));
+    }, 2000);
+  });
+}
+
+start().catch(err => {
+  console.error('[Server] Fatal startup error:', err.message);
+  process.exit(1);
 });

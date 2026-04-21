@@ -6,7 +6,7 @@ const session = require('express-session');
 
 const path = require('path');
 const rateLimit = require('express-rate-limit');
-const SnowflakeStore = require('./services/snowflakeSessionStore');
+const { buildSessionStore } = require('./services/redisSessionStore');
 const authRoutes = require('./routes/auth');
 const amazonRoutes = require('./routes/amazon');
 const dashboardRoutes = require('./routes/dashboard');
@@ -24,6 +24,7 @@ const brandsRoutes = require('./routes/brands');
 const recommendationsRoutes = require('./routes/recommendations');
 const vendorAnalyticsRoutes  = require('./routes/vendorAnalytics');
 const sellerAnalyticsRoutes  = require('./routes/sellerAnalytics');
+const daypartingRoutes        = require('./routes/dayparting');
 const cogsAnalyticsRoutes  = require('./routes/cogsAnalytics');
 const streamRoutes         = require('./routes/stream');
 const budgetRoutes         = require('./routes/budgets');
@@ -51,20 +52,36 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', creden
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session — backed by Snowflake (CALBRIDGE_PROD.APP.sessions), survives server restarts ✅
+// Session — Redis-backed (falls back to Snowflake if Redis unavailable)
+// Redis store eliminates ~200 Snowflake credits/month from session queries.
 app.set('trust proxy', 1); // trust Nginx reverse proxy
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
-  resave: false,
-  saveUninitialized: false,
-  store: new SnowflakeStore(),
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-  }
-}));
+
+// Session store is initialised async in app.init() below.
+// app.use(session(...)) is registered after Redis connects.
+let _sessionMiddleware = null;
+app.use((req, res, next) => {
+  if (_sessionMiddleware) return _sessionMiddleware(req, res, next);
+  // Fallback: if init hasn't completed yet, use a no-op session
+  req.session = req.session || {};
+  next();
+});
+
+app.init = async function initSessionStore() {
+  const store = await buildSessionStore(session);
+  _sessionMiddleware = session({
+    secret:           process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
+    resave:           false,
+    saveUninitialized: false,
+    store,
+    cookie: {
+      secure:   process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
+    },
+  });
+  console.log('[App] Session middleware initialised');
+};
 
 // Serve static frontend
 // HTML files: no-cache so browsers always re-check after deploys.
@@ -158,6 +175,7 @@ app.use('/brands', brandsRoutes);
 app.use('/recommendations', recommendationsRoutes);
 app.use('/vendor-analytics', vendorAnalyticsRoutes);
 app.use('/seller-analytics', sellerAnalyticsRoutes);
+app.use('/dayparting',        daypartingRoutes);
 app.use('/cogs-analytics', cogsAnalyticsRoutes);
 app.use('/admin', streamRoutes);
 app.use('/budgets', budgetRoutes);
