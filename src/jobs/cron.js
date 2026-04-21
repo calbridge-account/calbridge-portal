@@ -131,6 +131,14 @@ const JOB_HANDLERS = {
   detect_anomalies:          () => buildCanonical().detectAnomalies({ triggeredBy: 'cron' }),
   generate_operator_summary: () => buildCanonical().generateOperatorSummary({ triggeredBy: 'cron' }),
 
+  // ── Daily cleanup — ads_report_queue TTL (keep 7 days, delete older completed) ─
+  cleanup_report_queue:         () => {
+    const { query: _q } = require('../services/snowflakeService');
+    return _q("DELETE FROM CALBRIDGE_PROD.APP.ads_report_queue WHERE status IN ('completed','skipped','failed') AND requested_at < DATEADD('day',-7,CURRENT_TIMESTAMP())")
+      .then(r => console.log('[cleanup] report_queue deleted:', r[0]?.['number of rows deleted'] ?? 0))
+      .catch(() => {});
+  },
+
   // ── Daily cleanup ──────────────────────────────────────────────────────────
   expire_stale_actions:      () => stageRawData().expireStaleActions({ triggeredBy: 'cron' }),
 
@@ -375,6 +383,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'generate_operator_summary',
     expr:  '30 3 * * *',    // 03:30 UTC — after detect_anomalies
+  },
+  {
+    jobId: 'cleanup_report_queue',
+    expr:  '30 3 * * *',  // 03:30 UTC daily
   },
   {
     jobId: 'expire_stale_actions',

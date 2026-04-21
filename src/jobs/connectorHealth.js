@@ -38,16 +38,34 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  * Returns [{clientId, connectionType, accountId, refreshToken}]
  */
 async function getActiveConnections() {
+  // Try Redis first (fast, no Snowflake credits)
+  try {
+    const { getRedisClient } = require('../services/redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      const all = await redis.hgetall('connector_health');
+      if (all && Object.keys(all).length > 0) {
+        return Object.values(all).map(v => {
+          try {
+            const r = JSON.parse(v);
+            return {
+              clientId:       r.clientId,
+              connectionType: r.connectionType,
+              accountId:      r.accountId,
+              status:         r.status,
+              tokenExpiresAt: r.tokenExpiresAt || null,
+            };
+          } catch { return null; }
+        }).filter(r => r && r.status !== 'disabled');
+      }
+    }
+  } catch { /* fall through to Snowflake */ }
+
+  // Snowflake fallback
   try {
     const rows = await query(`
-      SELECT
-        client_id,
-        connection_type,
-        account_id,
-        status,
-        token_expires_at
-      FROM connector_health
-      WHERE status != 'disabled'
+      SELECT client_id, connection_type, account_id, status, token_expires_at
+      FROM connector_health WHERE status != 'disabled'
       ORDER BY client_id, connection_type
     `);
     return (rows || []).map(r => ({
@@ -58,7 +76,6 @@ async function getActiveConnections() {
       tokenExpiresAt: r.TOKEN_EXPIRES_AT || r.token_expires_at,
     }));
   } catch (err) {
-    // connector_health table may not exist yet — fall back to clients table
     console.warn('[connectorHealth] connector_health not found, falling back to clients table:', err.message);
     return getConnectionsFromClients();
   }
@@ -142,7 +159,28 @@ async function probeToken(connectionType, accessToken) {
  * Upsert a row into connector_health.
  * Creates table if it doesn't exist (handled by migration; fallback here for safety).
  */
+// Track upsert call count to rate-limit Snowflake writes
+const _healthWriteCount = {};
+
 async function upsertConnectorHealth(clientId, connectionType, accountId, status, details = {}) {
+  const key = `${clientId}:${connectionType}:${accountId}`;
+
+  // Always write to Redis for fast reads
+  try {
+    const { getRedisClient } = require('../services/redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      await redis.hset('connector_health', key, JSON.stringify({
+        clientId, connectionType, accountId, status,
+        lastProbeAt: new Date().toISOString(),
+        ...details,
+      }));
+      // Only write to Snowflake every 10th call (~every 5 hours at 30min intervals)
+      _healthWriteCount[key] = (_healthWriteCount[key] || 0) + 1;
+      if (_healthWriteCount[key] % 10 !== 1) return; // skip Snowflake write
+    }
+  } catch { /* fall through to Snowflake */ }
+
   try {
     await query(`
       MERGE INTO connector_health t
