@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Terms of Service — Calbridge</title>
+  <link rel="canonical" href="https://calbridge.ai/terms" />
+  <meta name="description" content="Calbridge terms of service. Plain English. Monthly subscriptions, cancel anytime, you own your data." />
+  <meta property="og:title" content="Terms of Service — Calbridge" />
+  <meta property="og:url" content="https://calbridge.ai/terms" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Calbridge" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:       #2d5a27;
+      --brand-dark:  #1e3a1a;
+      --brand-light: #edf5ec;
+      --brand-mid:   #3d7a35;
+      --gray-50:     #f9fafb;
+      --gray-100:    #f3f4f6;
+      --gray-200:    #e5e7eb;
+      --gray-400:    #9ca3af;
+      --gray-500:    #6b7280;
+      --gray-600:    #4b5563;
+      --gray-700:    #374151;
+      --gray-800:    #1f2937;
+      --gray-900:    #111827;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--gray-800);
+      background: #fff;
+      line-height: 1.6;
+    }
+
+    a { text-decoration: none; color: inherit; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo img {
+      height: 44px;
+      width: auto;
+      display: block;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-ghost {
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      border-radius: 8px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary {
+      display: inline-block;
+      padding: 9px 20px;
+      background: var(--brand);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover { background: var(--brand-dark); transform: translateY(-1px); }
+
+    /* ── CONTENT ── */
+    .content-wrap {
+      max-width: 760px;
+      margin: 64px auto;
+      padding: 0 24px 96px;
+    }
+    .page-header {
+      margin-bottom: 48px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .page-header h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    .page-header .meta {
+      font-size: 14px;
+      color: var(--gray-500);
+    }
+    .content-wrap h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin: 40px 0 12px;
+    }
+    .content-wrap p {
+      font-size: 16px;
+      color: var(--gray-700);
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+    .content-wrap ul {
+      list-style: none;
+      margin: 0 0 20px 0;
+      padding: 0;
+    }
+    .content-wrap ul li {
+      font-size: 16px;
+      color: var(--gray-700);
+      padding: 6px 0 6px 24px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .content-wrap ul li::before {
+      content: '•';
+      color: var(--brand);
+      font-weight: 700;
+      position: absolute;
+      left: 6px;
+    }
+    .content-wrap a {
+      color: var(--brand);
+      text-decoration: underline;
+    }
+    .highlight-box {
+      background: var(--brand-light);
+      border: 1px solid rgba(45,90,39,0.2);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin: 32px 0;
+    }
+    .highlight-box p {
+      color: var(--brand-dark);
+      font-weight: 600;
+      margin: 0;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--brand-dark);
+      color: rgba(255,255,255,0.65);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    footer p { font-size: 13px; }
+    .footer-links {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 13px;
+      color: rgba(255,255,255,0.55);
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: #fff; }
+
+    @media (max-width: 480px) {
+      .nav-actions .btn-ghost { display: none; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── NAV ── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <img src="/images/calbridge-logo.png" alt="Calbridge" loading="lazy" />
+      </a>
+      <div class="nav-actions">
+        <a href="/" class="btn-ghost">Sign In</a>
+        <a href="/signup.html" class="btn-primary">Get Started Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── CONTENT ── -->
+  <div class="content-wrap">
+    <div class="page-header">
+      <h1>Terms of Service</h1>
+      <p class="meta">Effective: April 2026 &nbsp;·&nbsp; Calbridge, Seattle WA &nbsp;·&nbsp; <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+    </div>
+
+    <p>These terms are written in plain English. We want you to actually read them. By using Calbridge, you agree to these terms.</p>
+
+    <h2>What Calbridge Is</h2>
+    <p>Calbridge is a SaaS analytics platform for Amazon sellers and agencies. It connects to your Amazon Seller Central and Advertising accounts via official APIs, pulls in your advertising and retail data, and gives you dashboards, analytics, and an AI decision engine that can take actions on your behalf (with your approval).</p>
+    <p>We're based in Seattle, WA. The product is operated by Calbridge. Questions: <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+
+    <h2>Your Account</h2>
+    <ul>
+      <li><strong>Keep your credentials secure.</strong> Don't share your login. You're responsible for activity on your account.</li>
+      <li><strong>Provide accurate information.</strong> Use a real email address and keep your billing info current.</li>
+      <li><strong>One account per person.</strong> Business accounts can have multiple team seats (Growth and Pro plans), but accounts are not transferable.</li>
+      <li><strong>You must be 18+</strong> and authorized to enter into contracts to use Calbridge.</li>
+    </ul>
+
+    <h2>Payment & Subscriptions</h2>
+    <ul>
+      <li>Subscriptions are billed monthly in advance.</li>
+      <li>You can cancel anytime — no penalties, no hoops to jump through.</li>
+      <li>Cancellation takes effect at the end of your current billing period. No partial-month refunds.</li>
+      <li>We use Stripe for payment processing. Your card is billed automatically each month.</li>
+      <li>Prices may change with 30 days' notice. We'll email you before any price increase.</li>
+      <li>Free tier is free forever. No card required.</li>
+    </ul>
+
+    <div class="highlight-box">
+      <p>✅ Cancel anytime. Your data is accessible through the end of your paid period.</p>
+    </div>
+
+    <h2>Acceptable Use</h2>
+    <p>Use Calbridge for its intended purpose: analyzing and optimizing your Amazon advertising and operations. The following are not allowed:</p>
+    <ul>
+      <li><strong>No scraping.</strong> Don't use Calbridge to harvest data at scale or attempt to extract our underlying datasets.</li>
+      <li><strong>No API abuse.</strong> Don't hammer our API endpoints in ways that degrade service for other users.</li>
+      <li><strong>No misuse of Amazon integrations.</strong> Calbridge connects to Amazon's APIs under their terms. Using Calbridge in ways that violate Amazon's policies is your responsibility.</li>
+      <li><strong>No reselling without permission.</strong> Don't white-label or resell Calbridge features without a written agreement. (Agency reporting on Pro is fine — that's what it's for.)</li>
+      <li><strong>No illegal activity.</strong> Obviously.</li>
+    </ul>
+
+    <h2>Your Data</h2>
+    <p><strong>You own your data.</strong> The analytics data Calbridge pulls from Amazon belongs to you. We don't claim any rights to it. We use it to provide the service — period.</p>
+    <p>When you cancel and request deletion, we remove your data within 30 days. See our <a href="/privacy">Privacy Policy</a> for the full picture.</p>
+
+    <h2>AI Write-Back Actions</h2>
+    <p>Calbridge's AI can execute bid changes, campaign adjustments, and other actions in your Amazon account via the Advertising API. You approve these actions before they run (or set rules that auto-approve them). You are responsible for reviewing and approving AI recommendations before they execute. Calbridge is not responsible for the downstream effects of actions you approve.</p>
+
+    <h2>Uptime & Service</h2>
+    <p>We aim for high availability but don't guarantee 100% uptime. Amazon's API availability is outside our control. We'll communicate outages via status page and email when they're significant.</p>
+
+    <h2>Limitation of Liability</h2>
+    <p>Calbridge is provided "as is." We're not liable for indirect, incidental, or consequential damages — including lost revenue, lost profits, or data loss — arising from your use of the service. Our total liability is capped at the amount you paid us in the 3 months before the incident.</p>
+    <p>This is standard for SaaS. We're a small team doing our best, and we can't absorb unlimited liability for decisions made using our analytics.</p>
+
+    <h2>Termination</h2>
+    <p>You can cancel anytime. We can suspend or terminate accounts that violate these terms, with notice when possible and immediately for serious violations (fraud, abuse, illegal use).</p>
+
+    <h2>Changes to These Terms</h2>
+    <p>We'll email you at least 14 days before making material changes. Continued use after the effective date means you accept the updated terms.</p>
+
+    <h2>Governing Law</h2>
+    <p>These terms are governed by the laws of the State of Washington, USA. Disputes will be resolved in the courts of King County, Washington.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about these terms: <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+    <p>Calbridge · Seattle, WA</p>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge</p>
+      <div class="footer-links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

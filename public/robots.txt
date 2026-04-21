@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /ash-ops
+Disallow: /platform-costs
+Disallow: /api/
+Disallow: /auth/
+
+Sitemap: https://calbridge.ai/sitemap.xml

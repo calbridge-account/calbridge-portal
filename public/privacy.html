@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Privacy Policy — Calbridge</title>
+  <link rel="canonical" href="https://calbridge.ai/privacy" />
+  <meta name="description" content="Calbridge privacy policy. Plain English explanation of what data we collect, how we use it, and your rights." />
+  <meta property="og:title" content="Privacy Policy — Calbridge" />
+  <meta property="og:url" content="https://calbridge.ai/privacy" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Calbridge" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:       #2d5a27;
+      --brand-dark:  #1e3a1a;
+      --brand-light: #edf5ec;
+      --brand-mid:   #3d7a35;
+      --gray-50:     #f9fafb;
+      --gray-100:    #f3f4f6;
+      --gray-200:    #e5e7eb;
+      --gray-400:    #9ca3af;
+      --gray-500:    #6b7280;
+      --gray-600:    #4b5563;
+      --gray-700:    #374151;
+      --gray-800:    #1f2937;
+      --gray-900:    #111827;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--gray-800);
+      background: #fff;
+      line-height: 1.6;
+    }
+
+    a { text-decoration: none; color: inherit; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo img {
+      height: 44px;
+      width: auto;
+      display: block;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-ghost {
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      border-radius: 8px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary {
+      display: inline-block;
+      padding: 9px 20px;
+      background: var(--brand);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover { background: var(--brand-dark); transform: translateY(-1px); }
+
+    /* ── CONTENT ── */
+    .content-wrap {
+      max-width: 760px;
+      margin: 64px auto;
+      padding: 0 24px 96px;
+    }
+    .page-header {
+      margin-bottom: 48px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .page-header h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    .page-header .meta {
+      font-size: 14px;
+      color: var(--gray-500);
+    }
+    .content-wrap h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin: 40px 0 12px;
+    }
+    .content-wrap p {
+      font-size: 16px;
+      color: var(--gray-700);
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+    .content-wrap ul {
+      list-style: none;
+      margin: 0 0 20px 0;
+      padding: 0;
+    }
+    .content-wrap ul li {
+      font-size: 16px;
+      color: var(--gray-700);
+      padding: 6px 0 6px 24px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .content-wrap ul li::before {
+      content: '•';
+      color: var(--brand);
+      font-weight: 700;
+      position: absolute;
+      left: 6px;
+    }
+    .content-wrap a {
+      color: var(--brand);
+      text-decoration: underline;
+    }
+    .highlight-box {
+      background: var(--brand-light);
+      border: 1px solid rgba(45,90,39,0.2);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin: 32px 0;
+    }
+    .highlight-box p {
+      color: var(--brand-dark);
+      font-weight: 600;
+      margin: 0;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--brand-dark);
+      color: rgba(255,255,255,0.65);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    footer p { font-size: 13px; }
+    .footer-links {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 13px;
+      color: rgba(255,255,255,0.55);
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: #fff; }
+
+    @media (max-width: 480px) {
+      .nav-actions .btn-ghost { display: none; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── NAV ── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <img src="/images/calbridge-logo.png" alt="Calbridge" loading="lazy" />
+      </a>
+      <div class="nav-actions">
+        <a href="/" class="btn-ghost">Sign In</a>
+        <a href="/signup.html" class="btn-primary">Get Started Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── CONTENT ── -->
+  <div class="content-wrap">
+    <div class="page-header">
+      <h1>Privacy Policy</h1>
+      <p class="meta">Effective: April 2026 &nbsp;·&nbsp; Calbridge, Seattle WA &nbsp;·&nbsp; <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+    </div>
+
+    <p>We wrote this in plain English because you deserve to understand what happens with your data. No legal gymnastics, no hidden surprises.</p>
+
+    <div class="highlight-box">
+      <p>🔒 We do not sell your data. Ever. Full stop.</p>
+    </div>
+
+    <h2>What We Collect</h2>
+    <ul>
+      <li><strong>Account information:</strong> your name and email address when you sign up</li>
+      <li><strong>Amazon API data:</strong> advertising performance metrics, sales data, inventory levels, and campaign data — pulled from Amazon's SP-API and Advertising API on your behalf</li>
+      <li><strong>Usage data:</strong> pages you visit, features you use, and general product analytics to help us improve</li>
+      <li><strong>Billing information:</strong> handled entirely by Stripe — we never see or store your full card number</li>
+    </ul>
+
+    <h2>How We Use It</h2>
+    <ul>
+      <li>To provide the Calbridge service — dashboards, analytics, AI decisions, and write-back actions</li>
+      <li>To improve the product — understanding which features get used and what breaks</li>
+      <li>To send transactional emails — things like receipts, alerts, and account notices (not marketing spam)</li>
+      <li>To comply with legal obligations if required</li>
+    </ul>
+
+    <h2>Where Your Data Lives</h2>
+    <p>We store data in two places, both in the United States:</p>
+    <ul>
+      <li><strong>Snowflake (US region):</strong> your Amazon analytics data and account records</li>
+      <li><strong>Azure (US West):</strong> application servers and session data</li>
+    </ul>
+
+    <h2>Third Parties We Use</h2>
+    <ul>
+      <li><strong>Amazon (SP-API / Advertising API):</strong> to fetch your account data. Your Amazon credentials are stored as OAuth tokens — we never see your Amazon password.</li>
+      <li><strong>Stripe:</strong> payment processing. Stripe has its own privacy policy and is PCI-DSS compliant.</li>
+      <li><strong>Resend:</strong> transactional email delivery (receipts, alerts, password resets).</li>
+    </ul>
+    <p>We do not share your data with advertisers, data brokers, or any third party for marketing purposes.</p>
+
+    <h2>Your Rights</h2>
+    <ul>
+      <li><strong>Access your data:</strong> email us and we'll send you an export</li>
+      <li><strong>Delete your account:</strong> email us and we'll delete everything within 30 days</li>
+      <li><strong>Correct your information:</strong> update it yourself in account settings or email us</li>
+      <li><strong>Opt out of usage analytics:</strong> email us and we'll exclude your account</li>
+    </ul>
+    <p>To exercise any of these rights: <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+
+    <h2>Data Retention</h2>
+    <p>We keep your data while your account is active and for 90 days after cancellation (so you can reactivate without losing history). After that, it's deleted. Amazon API data is refreshed on a rolling basis per your subscription plan.</p>
+
+    <h2>Security</h2>
+    <p>We use HTTPS everywhere, encrypted storage for sensitive tokens, and access controls so only the systems that need your data can see it. We're a small team — if something goes wrong, you'll hear about it promptly.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>If we make material changes, we'll email you at least 14 days before they take effect. The "Effective" date at the top will always reflect the current version.</p>
+
+    <h2>Contact</h2>
+    <p>Questions, concerns, or requests: <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a></p>
+    <p>Calbridge · Seattle, WA</p>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge</p>
+      <div class="footer-links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="mailto:abe@teamcalbridge.com">abe@teamcalbridge.com</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

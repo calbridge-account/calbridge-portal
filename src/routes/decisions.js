@@ -59,6 +59,29 @@ router.get('/pending', requireAuth, async (req, res, next) => {
 });
 
 // ─── GET /decisions/history ───────────────────────────────────────────────────
+// GET /decisions/all — all actions with status, for the unified suggestions view
+router.get('/all', requireAuth, async (req, res, next) => {
+  try {
+    const clientId  = await resolveClientId(req);
+    const type      = req.query.type   || null;
+    const status    = req.query.status || null;  // optional filter
+    const limit     = Math.min(Number(req.query.limit) || 200, 1000);
+    const rows = await query(`
+      SELECT *
+      FROM CALBRIDGE_PROD.APP.decision_actions
+      WHERE client_id = ?
+        AND (snoozed_until IS NULL OR snoozed_until <= CURRENT_DATE())
+        ${type   ? `AND action_type = '${type}'`   : ''}
+        ${status ? `AND status = '${status}'`       : "AND status IN ('pending','approved','executed','failed')"}
+      ORDER BY
+        CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+        updated_at DESC
+      LIMIT ?
+    `, [clientId, limit]);
+    res.json(rows.map(formatAction));
+  } catch (err) { next(err); }
+});
+
 router.get('/history', requireAuth, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
