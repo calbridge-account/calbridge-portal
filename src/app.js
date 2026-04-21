@@ -56,14 +56,15 @@ app.use(express.urlencoded({ extended: true }));
 // Redis store eliminates ~200 Snowflake credits/month from session queries.
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 
-// Session store is initialised async in app.init() below.
-// app.use(session(...)) is registered after Redis connects.
+// Session store initialised async — requests queue until ready.
 let _sessionMiddleware = null;
+let _sessionReady = false;
+const _sessionQueue = [];
+
 app.use((req, res, next) => {
-  if (_sessionMiddleware) return _sessionMiddleware(req, res, next);
-  // Fallback: if init hasn't completed yet, use a no-op session
-  req.session = req.session || {};
-  next();
+  if (_sessionReady) return _sessionMiddleware(req, res, next);
+  // Queue request until session store is ready (should only happen in first ~500ms)
+  _sessionQueue.push(() => _sessionMiddleware(req, res, next));
 });
 
 app.init = async function initSessionStore() {
@@ -80,6 +81,9 @@ app.init = async function initSessionStore() {
       maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
     },
   });
+  _sessionReady = true;
+  // Drain any queued requests
+  while (_sessionQueue.length) _sessionQueue.shift()();
   console.log('[App] Session middleware initialised');
 };
 
