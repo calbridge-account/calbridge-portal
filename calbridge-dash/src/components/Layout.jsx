@@ -16,7 +16,8 @@ const NAV = [
   {
     group: 'Retail',
     items: [
-      { path: '/vendor',      label: 'Sales',          emoji: '📦', minRole: 'viewer'  },
+      { path: '/vendor',      label: 'Vendor Sales',   emoji: '📦', minRole: 'viewer'  },
+      { path: '/seller',      label: 'Seller Sales',   emoji: '🛒', minRole: 'viewer'  },
       { path: '/inventory',   label: 'Inventory',      emoji: '🏭', minRole: 'viewer'  },
       { path: '/forecasting', label: 'Forecasting',    emoji: '📈', minRole: 'analyst' },
       { path: '/cogs',        label: 'COGS & Margins', emoji: '💰', minRole: 'analyst' },

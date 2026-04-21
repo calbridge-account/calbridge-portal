@@ -29,7 +29,8 @@ import { AdvertiserProvider } from './context/AdvertiserContext';
 import { MarketplaceProvider } from './context/MarketplaceContext';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
-import VendorPerformance from './pages/VendorPerformance';
+import VendorPerformance  from './pages/VendorPerformance';
+import SellerPerformance from './pages/SellerPerformance';
 import Inventory from './pages/Inventory';
 import Advertising from './pages/Advertising';
 import AdvertisingCampaigns from './pages/advertising/AdvertisingCampaigns';
@@ -67,6 +68,7 @@ export default function App() {
           <Routes>
             <Route path="/"            element={<Overview />} />
             <Route path="/vendor"      element={<VendorPerformance />} />
+            <Route path="/seller"      element={<SellerPerformance />} />
             <Route path="/inventory"   element={<Inventory />} />
             <Route path="/advertising" element={<Advertising />} />
             <Route path="/advertising/campaigns" element={<AdvertisingCampaigns />} />
