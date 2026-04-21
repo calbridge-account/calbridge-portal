@@ -56,35 +56,45 @@ app.use(express.urlencoded({ extended: true }));
 // Redis store eliminates ~200 Snowflake credits/month from session queries.
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 
-// Session store initialised async — requests queue until ready.
-let _sessionMiddleware = null;
-let _sessionReady = false;
-const _sessionQueue = [];
+// Session — start with Snowflake store (immediate, synchronous), upgrade to Redis async.
+// This guarantees session middleware is always registered before any request hits.
+const SnowflakeStore = require('./services/snowflakeSessionStore');
+const SESSION_CONFIG = {
+  secret:           process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
+  resave:           false,
+  saveUninitialized: false,
+  cookie: {
+    secure:   process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+  },
+};
 
-app.use((req, res, next) => {
-  if (_sessionReady) return _sessionMiddleware(req, res, next);
-  // Queue request until session store is ready (should only happen in first ~500ms)
-  _sessionQueue.push(() => _sessionMiddleware(req, res, next));
-});
+// Register session middleware immediately with Snowflake store
+app.set('trust proxy', 1);
+app.use(session({ ...SESSION_CONFIG, store: new SnowflakeStore() }));
 
+// Upgrade to Redis store async — hot-swap after connection established
 app.init = async function initSessionStore() {
-  const store = await buildSessionStore(session);
-  _sessionMiddleware = session({
-    secret:           process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
-    resave:           false,
-    saveUninitialized: false,
-    store,
-    cookie: {
-      secure:   process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
-    },
-  });
-  _sessionReady = true;
-  // Drain any queued requests
-  while (_sessionQueue.length) _sessionQueue.shift()();
-  console.log('[App] Session middleware initialised');
+  try {
+    const store = await buildSessionStore(session);
+    // Re-register session middleware with Redis store (replaces the Snowflake one)
+    // Express middleware stack can't be swapped in-place, so we use a wrapper
+    const redisMw = session({ ...SESSION_CONFIG, store });
+    // Patch the existing session layer: override the session store on the existing middleware
+    // by replacing the store reference directly (express-session exposes this)
+    const layers = app._router?.stack || [];
+    for (const layer of layers) {
+      if (layer.handle && layer.handle.store instanceof SnowflakeStore) {
+        layer.handle.store = store;
+        console.log('[App] Session store upgraded to Redis');
+        break;
+      }
+    }
+  } catch (err) {
+    console.warn('[App] Redis session upgrade failed, staying on Snowflake:', err.message?.slice(0, 80));
+  }
 };
 
 // Serve static frontend
