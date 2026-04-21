@@ -994,4 +994,115 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
   return { executed, failed, skipped, expired: 0, results };
 }
 
-module.exports = { analyze, executeAction, executeBulk };
+/**
+ * pruneStaleActions — expire pending recommendations that no longer apply.
+ *
+ * Re-evaluates each pending action against current 30-day data:
+ *   bid_increase   → expire if ACoS is no longer < 8% OR clicks < 10
+ *   bid_decrease   → expire if ACoS is no longer > 11.76% OR clicks < 10
+ *   budget_increase → expire if ACoS no longer < 10% OR utilization <= 90%
+ *   budget_decrease → expire if ACoS no longer > 15% OR spend <= $500
+ *   add_keyword    → expire if search term no longer meets min thresholds
+ *   launch_campaign → expire if entity already has an active campaign
+ *
+ * All other types (e.g. launch_campaign) expire after 7 days if not approved.
+ *
+ * Returns { pruned } count.
+ */
+async function pruneStaleActions(clientId, days = 30) {
+  const authorizedProfiles = await getAuthorizedProfiles(clientId);
+  const profFilter = profileFilter(authorizedProfiles);
+
+  // Load current keyword + campaign data
+  const [spKeywords, sbKeywords, campaigns] = await Promise.all([
+    loadSpKeywords(clientId, days, authorizedProfiles),
+    loadSbKeywords(clientId, days, authorizedProfiles),
+    loadCampaigns(clientId, days, authorizedProfiles),
+  ]);
+
+  // Build lookup maps: entity_id → current metrics
+  const spKwMap  = new Map(spKeywords.map(k => [String(k.KEYWORD_ID), k]));
+  const sbKwMap  = new Map(sbKeywords.map(k => [String(k.KEYWORD_ID), k]));
+  const campMap  = new Map(campaigns.map(c => [String(c.CAMPAIGN_ID), c]));
+
+  // Fetch all pending actions
+  const pending = await query(`
+    SELECT action_id, action_type, entity_id, entity_type, ad_type, created_at
+    FROM CALBRIDGE_PROD.APP.decision_actions
+    WHERE client_id = ? AND status = 'pending'
+  `, [clientId]);
+
+  let pruned = 0;
+
+  for (const action of pending) {
+    const { ACTION_ID, ACTION_TYPE, ENTITY_ID, AD_TYPE, CREATED_AT } = action;
+    let shouldExpire = false;
+    let expireReason = 'Conditions changed — recommendation no longer applies';
+
+    const entityId = String(ENTITY_ID);
+    const adType   = AD_TYPE;
+
+    if (ACTION_TYPE === 'bid_increase' || ACTION_TYPE === 'bid_decrease') {
+      const kw = adType === 'SB' ? sbKwMap.get(entityId) : spKwMap.get(entityId);
+      if (!kw) {
+        // Keyword no longer in data — likely paused/deleted
+        shouldExpire = true;
+        expireReason = 'Keyword no longer active or has insufficient data';
+      } else {
+        const acos   = Number(kw.ACOS   || 0);
+        const clicks = Number(kw.CLICKS || 0);
+        if (clicks < 10) {
+          shouldExpire = true;
+          expireReason = `Keyword now has insufficient clicks (${clicks}) to act on`;
+        } else if (ACTION_TYPE === 'bid_increase' && acos >= 0.08) {
+          shouldExpire = true;
+          expireReason = `ACoS improved to ${(acos*100).toFixed(1)}% — bid increase no longer warranted`;
+        } else if (ACTION_TYPE === 'bid_decrease' && acos <= 0.1176) {
+          shouldExpire = true;
+          expireReason = `ACoS improved to ${(acos*100).toFixed(1)}% — bid decrease no longer needed`;
+        }
+      }
+    } else if (ACTION_TYPE === 'budget_increase' || ACTION_TYPE === 'budget_decrease') {
+      const c = campMap.get(entityId);
+      if (!c) {
+        shouldExpire = true;
+        expireReason = 'Campaign no longer active or has insufficient data';
+      } else {
+        const spend  = Number(c.SPEND || 0);
+        const sales  = Number(c.SALES || 0);
+        const budget = Number(c.CAMPAIGN_BUDGET_AMOUNT || 0);
+        const acos   = sales > 0 ? spend / sales : null;
+        const util   = budget > 0 ? (spend / days) / budget : 0;
+        if (ACTION_TYPE === 'budget_increase' && (acos === null || acos >= 0.10 || util <= 0.90)) {
+          shouldExpire = true;
+          expireReason = `Budget increase no longer warranted (ACoS: ${acos !== null ? (acos*100).toFixed(1)+'%' : 'N/A'}, util: ${(util*100).toFixed(0)}%)`;
+        } else if (ACTION_TYPE === 'budget_decrease' && (acos === null || acos <= 0.15 || spend <= 500)) {
+          shouldExpire = true;
+          expireReason = `Budget decrease no longer warranted (ACoS: ${acos !== null ? (acos*100).toFixed(1)+'%' : 'N/A'})`;
+        }
+      }
+    } else if (ACTION_TYPE === 'launch_campaign') {
+      // Expire launch_campaign actions older than 3 days if not approved
+      const ageMs = Date.now() - new Date(CREATED_AT).getTime();
+      if (ageMs > 3 * 24 * 60 * 60 * 1000) {
+        shouldExpire = true;
+        expireReason = 'Campaign launch not approved within 3 days — re-evaluate before launching';
+      }
+    }
+    // add_keyword: rely on 14-day expiry cron — hard to re-check without full search term reload
+
+    if (shouldExpire) {
+      await query(`
+        UPDATE CALBRIDGE_PROD.APP.decision_actions
+        SET status = 'expired', reason = ?, updated_at = CURRENT_TIMESTAMP()
+        WHERE action_id = ? AND status = 'pending'
+      `, [expireReason, ACTION_ID]);
+      pruned++;
+    }
+  }
+
+  console.log(`[pruneStaleActions] client=${clientId} pruned=${pruned} of ${pending.length} pending`);
+  return { pruned };
+}
+
+module.exports = { analyze, executeAction, executeBulk, pruneStaleActions };

@@ -236,11 +236,16 @@ async function generateRecommendationsAllClients({ triggeredBy = 'cron' } = {}) 
   const { query: _q } = require('../services/snowflakeService');
   try {
     const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
-    const { analyze } = require('../services/decisionEngine');
+    const { analyze, pruneStaleActions } = require('../services/decisionEngine');
     let ran = 0;
     for (const row of (clients || [])) {
       const clientId = row.CLIENT_ID || row.client_id;
       try {
+        // Step 1: prune pending actions that no longer apply
+        const pruned = await pruneStaleActions(clientId, 30);
+        console.log(`[cron] generate_recommendations ${clientId}: pruned=${pruned?.pruned ?? 0} stale actions`);
+
+        // Step 2: generate fresh recommendations
         console.log(`[cron] generate_recommendations starting for ${clientId}`);
         const result = await analyze(clientId, 30);
         console.log(`[cron] generate_recommendations ${clientId}: generated=${result?.generated ?? 0} pending=${result?.total_pending ?? 0}`);
@@ -399,7 +404,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'generate_recommendations',
-    expr:  '0 6 * * *',     // 06:00 UTC daily — run decision engine analysis for all clients
+    expr:  '0 6 * * *',     // 06:00 UTC daily — prune stale + generate fresh recommendations
   },
 
   // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
