@@ -196,6 +196,20 @@ app.get('/landing', (req, res) => res.sendFile('landing.html', { root: path.join
 // calbridge.ai landing redirect handled above (before express.static)
 app.get('/pricing', (req, res) => res.redirect('/landing#pricing'));
 
+// teamcalbridge.com → consulting site (served at /teamcalbridge/ or via domain routing)
+app.use('/teamcalbridge', express.static(path.join(__dirname, '../public/teamcalbridge')));
+
+// Blog pages — static HTML files in /public/blog/
+app.use('/blog', express.static(path.join(__dirname, '../public/blog')));
+app.get(/^\/blog\/([a-z0-9-]+)$/, (req, res, next) => {
+  const slug = req.params[0];
+  res.sendFile(slug + '.html', { root: path.join(__dirname, '../public/blog') }, err => { if (err) next(); });
+});
+
+// Privacy and Terms — public pages
+app.get('/privacy', (req, res) => res.sendFile('privacy.html', { root: path.join(__dirname, '../public') }));
+app.get('/terms', (req, res) => res.sendFile('terms.html', { root: path.join(__dirname, '../public') }));
+
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 

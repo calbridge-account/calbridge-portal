@@ -5,9 +5,10 @@
  *
  * Plan hierarchy:
  *   free     → read-only, 1 connection, 30-day data, no decisions, no AI chat
- *   starter  → vendor reports, 90-day data, 2 connections
- *   growth   → decisions + AI chat, 365-day data, 5 connections, 3 seats
- *   pro      → all features, 730-day data, unlimited connections
+ *   starter  → vendor reports, 90-day data, 2 connections, budget tracking
+ *   growth   → decisions + AI chat, 365-day data, all connections, budget automation, smart alerts, dayparting
+ *   pro      → campaign creation, portfolio budgets, anomaly detection, API access, 3-year data
+ *   agency   → everything in pro + white-label, multi-brand portal, client access
  *
  * Usage in routes:
  *   router.post('/decisions/execute/:id', requireAuth, requirePlan('decisions'), handler)
@@ -20,51 +21,108 @@ const { query } = require('../services/snowflakeService');
 
 const PLAN_LIMITS = {
   free: {
-    decisions:       false,
-    aiChat:          false,
-    vendorReports:   false,
-    dataWindowDays:  30,
-    connections:     1,
-    teamSeats:       1,
+    decisions:          false,
+    aiChat:             false,
+    vendorReports:      false,
+    budgetAutomation:   false,
+    smartAlerts:        false,
+    campaignCreation:   false,
+    portfolioBudgets:   false,
+    apiAccess:          false,
+    whiteLabel:         false,
+    multiBrand:         false,
+    dataWindowDays:     30,
+    connections:        1,
+    teamSeats:          1,
   },
   starter: {
-    decisions:       false,
-    aiChat:          false,
-    vendorReports:   true,
-    dataWindowDays:  90,
-    connections:     2,
-    teamSeats:       1,
+    decisions:          false,
+    aiChat:             false,
+    vendorReports:      true,
+    budgetAutomation:   false,
+    smartAlerts:        false,
+    campaignCreation:   false,
+    portfolioBudgets:   false,
+    apiAccess:          false,
+    whiteLabel:         false,
+    multiBrand:         false,
+    dataWindowDays:     90,
+    connections:        2,
+    teamSeats:          3,
   },
   growth: {
-    decisions:       true,
-    aiChat:          true,
-    vendorReports:   true,
-    dataWindowDays:  365,
-    connections:     5,
-    teamSeats:       3,
+    decisions:          true,
+    aiChat:             true,
+    vendorReports:      true,
+    budgetAutomation:   true,
+    smartAlerts:        true,
+    campaignCreation:   false,
+    portfolioBudgets:   false,
+    apiAccess:          false,
+    whiteLabel:         false,
+    multiBrand:         false,
+    dataWindowDays:     365,
+    connections:        999,
+    teamSeats:          5,
   },
   pro: {
-    decisions:       true,
-    aiChat:          true,
-    vendorReports:   true,
-    dataWindowDays:  730,
-    connections:     999,
-    teamSeats:       999,
+    decisions:          true,
+    aiChat:             true,
+    vendorReports:      true,
+    budgetAutomation:   true,
+    smartAlerts:        true,
+    campaignCreation:   true,
+    portfolioBudgets:   true,
+    apiAccess:          true,
+    whiteLabel:         false,
+    multiBrand:         false,
+    dataWindowDays:     1095,
+    connections:        999,
+    teamSeats:          999,
+  },
+  agency: {
+    decisions:          true,
+    aiChat:             true,
+    vendorReports:      true,
+    budgetAutomation:   true,
+    smartAlerts:        true,
+    campaignCreation:   true,
+    portfolioBudgets:   true,
+    apiAccess:          true,
+    whiteLabel:         true,
+    multiBrand:         true,
+    dataWindowDays:     1095,
+    connections:        999,
+    teamSeats:          999,
   },
 };
 
 // Human-readable minimum plan required per feature
 const FEATURE_MIN_PLAN = {
-  decisions:     'growth',
-  aiChat:        'growth',
-  vendorReports: 'starter',
+  decisions:          'growth',
+  aiChat:             'growth',
+  vendorReports:      'starter',
+  budgetAutomation:   'growth',
+  smartAlerts:        'growth',
+  campaignCreation:   'pro',
+  portfolioBudgets:   'pro',
+  apiAccess:          'pro',
+  whiteLabel:         'agency',
+  multiBrand:         'agency',
 };
 
 // Human-readable feature descriptions for upgrade messages
 const FEATURE_MESSAGES = {
-  decisions:     'AI-powered bid optimization requires Growth plan or above. Upgrade to unlock.',
-  aiChat:        'AI chat assistant requires Growth plan or above. Upgrade to unlock.',
-  vendorReports: 'Vendor analytics reports require Starter plan or above. Upgrade to unlock.',
+  decisions:          'AI-powered bid optimization requires Growth plan or above.',
+  aiChat:             'AI chat assistant requires Growth plan or above.',
+  vendorReports:      'Vendor analytics require Starter plan or above.',
+  budgetAutomation:   'Budget automation requires Growth plan or above.',
+  smartAlerts:        'Smart alerts require Growth plan or above.',
+  campaignCreation:   'Smart campaign creation requires Pro plan or above.',
+  portfolioBudgets:   'Portfolio budget management requires Pro plan or above.',
+  apiAccess:          'API access requires Pro plan or above.',
+  whiteLabel:         'White-label branding requires Agency plan.',
+  multiBrand:         'Multi-brand portal requires Agency plan.',
 };
 
 // Cache TTL: 5 minutes

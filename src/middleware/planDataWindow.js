@@ -7,10 +7,11 @@
  * clients cannot access more historical data than their plan allows.
  *
  * Data window by plan:
- *   free    →  30 days
- *   starter →  90 days
- *   growth  → 365 days
- *   pro     → 730 days
+ *   free    →   30 days
+ *   starter →   90 days
+ *   growth  →  365 days
+ *   pro     → 1095 days (3 years)
+ *   agency  → 1095 days (3 years)
  *
  * Usage:
  *   // Mount globally after requireAuth in app.js, or per-router:
