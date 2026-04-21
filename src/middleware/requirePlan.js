@@ -89,10 +89,23 @@ async function lookupPlan(req) {
   // Fetch from DB
   try {
     const rows = await query(
-      'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+      'SELECT subscription_plan, linked_client_id FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
       [clientId]
     );
-    const raw = rows[0]?.SUBSCRIPTION_PLAN || rows[0]?.subscription_plan || null;
+    let raw = rows[0]?.SUBSCRIPTION_PLAN || rows[0]?.subscription_plan || null;
+
+    // Team members inherit their parent account's plan
+    if (!PLAN_LIMITS[raw]) {
+      const parentId = rows[0]?.LINKED_CLIENT_ID || rows[0]?.linked_client_id;
+      if (parentId) {
+        const parentRows = await query(
+          'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+          [parentId]
+        );
+        raw = parentRows[0]?.SUBSCRIPTION_PLAN || parentRows[0]?.subscription_plan || null;
+      }
+    }
+
     const plan = PLAN_LIMITS[raw] ? raw : 'free';
 
     // Store in session cache
