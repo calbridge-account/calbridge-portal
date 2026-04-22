@@ -584,7 +584,7 @@ async function executeAction(actionId, clientId, executedBy) {
           { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'asinSubstituteRelated' }], bid: defaultBid * 0.7 },
           { campaignId: String(campaignId), adGroupId: String(adGroupId), state: 'ENABLED', expression: [{ type: 'asinAccessoryRelated' }],  bid: defaultBid * 0.6 },
         ]
-      }, { headers: { 'Content-Type': 'application/vnd.spTarget.v3+json', 'Accept': 'application/vnd.spTarget.v3+json' } });
+      }, { headers: { 'Content-Type': 'application/vnd.sptargetingClause.v3+json', 'Accept': 'application/vnd.sptargetingClause.v3+json' } });
 
       result = { campaignId, adGroupId, asin, campaignName };
 
@@ -887,7 +887,7 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
               { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'asinSubstituteRelated' }], bid: x.defaultBid * 0.7 },
               { campaignId: String(x.campaignId), adGroupId: String(x.adGroupId), state: 'ENABLED', expression: [{ type: 'asinAccessoryRelated' }], bid: x.defaultBid * 0.6 },
             ])
-          }, { headers: { 'Content-Type': 'application/vnd.spTarget.v3+json', 'Accept': 'application/vnd.spTarget.v3+json' } });
+          }, { headers: { 'Content-Type': 'application/vnd.sptargetingClause.v3+json', 'Accept': 'application/vnd.sptargetingClause.v3+json' } });
 
           // Mark results
           const errorSet = new Set(campErrors.map(e => e.index));
