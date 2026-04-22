@@ -39,14 +39,15 @@ const ADS_API_BASE    = 'https://advertising-api.amazon.com';
 
 async function adsClient(clientId, profileId) {
   const token = await getValidToken(clientId, 'ads');
+  // NOTE: Do NOT set Content-Type or Accept here — each API call sets its own versioned
+  // media type headers (e.g. application/vnd.spKeyword.v3+json). Setting defaults here
+  // causes axios header merge to sometimes keep the default, producing 415 errors.
   return axios.create({
     baseURL: ADS_API_BASE,
     headers: {
       'Authorization':                   `Bearer ${token}`,
       'Amazon-Advertising-API-ClientId':  process.env.LWA_CLIENT_ID,
-      'Amazon-Advertising-API-Scope':     profileId,
-      'Content-Type':                     'application/json',
-      'Accept':                           'application/json',
+      'Amazon-Advertising-API-Scope':     String(profileId),
     },
     timeout: 30000,
   });
