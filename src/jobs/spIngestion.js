@@ -326,12 +326,25 @@ async function ingestProducts(clientId, connectionType = 'seller') {
     console.log(`[spIngestion] Enriching ${asins.length} ASINs via Catalog API...`);
 
     // Step 3: batch catalog lookups (20 per request)
+    // Catalog API requires seller token (Product Listing role). If connectionType is
+    // 'vendor', try seller token first — fall back to the passed connectionType.
+    let catalogClient = client;
+    if (connectionType !== 'seller') {
+      try {
+        catalogClient = await spClient(clientId, 'seller');
+        console.log(`[spIngestion] Using seller token for Catalog API (connectionType was ${connectionType})`);
+      } catch (err) {
+        console.warn(`[spIngestion] No seller token available, falling back to ${connectionType} for Catalog API`);
+        catalogClient = client;
+      }
+    }
+
     const BATCH = 20;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (let i = 0; i < asins.length; i += BATCH) {
       const batch = asins.slice(i, i + BATCH);
       try {
-        const items = await fetchCatalogBatch(client, batch, marketplaceId);
+        const items = await fetchCatalogBatch(catalogClient, batch, marketplaceId);
         if (items.length) {
           const written = await writeProducts(clientId, connectionType, items);
           totalWritten += written;

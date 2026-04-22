@@ -115,6 +115,7 @@ async function acquireConnection() {
 
 function releaseConnection(entry) {
   entry.inUse = false;
+  entry.lastUsedAt = Date.now();
 
   // If someone is waiting, hand off immediately
   if (waitQueue.length > 0) {
@@ -248,6 +249,30 @@ setInterval(() => {
   if (pruned > 0) console.log(`[Snowflake] Pruned ${pruned} dead connection(s)`);
   if (leaked > 0) console.log(`[Snowflake] Force-released ${leaked} leaked connection(s)`);
 }, 2 * 60 * 1000);
+
+// ─── Keepalive: ping idle connections every 10 min to prevent Snowflake idle timeout ──
+// Snowflake drops idle connections after ~30 min by default. This prevents the
+// "terminated connection" errors that silently drop ingestion runs.
+setInterval(() => {
+  const now = Date.now();
+  for (const entry of pool) {
+    if (entry.inUse || !isAlive(entry)) continue;
+    const idleMs = entry.lastUsedAt ? now - entry.lastUsedAt : now - entry.createdAt;
+    if (idleMs > 8 * 60 * 1000) { // idle >8 min — ping it
+      entry.conn.execute({
+        sqlText: 'SELECT 1',
+        complete: (err) => {
+          if (err) {
+            entry.terminated = true;
+            removeConnection(entry);
+          } else {
+            entry.lastUsedAt = Date.now();
+          }
+        }
+      });
+    }
+  }
+}, 10 * 60 * 1000);
 
 // ─── Batch Merge Helper ───────────────────────────────────────────────────────
 //

@@ -487,10 +487,13 @@ async function executeAction(actionId, clientId, executedBy) {
         }, { headers: { 'Content-Type': 'application/vnd.spKeyword.v3+json', 'Accept': 'application/vnd.spKeyword.v3+json' } });
         result = res.data;
       } else if (action.AD_TYPE === 'SB') {
-        // SB API v4: PUT /sb/v4/keywords
-        const res = await client.put('/sb/v4/keywords', {
-          keywords: [{ keywordId: String(action.ENTITY_ID), bid: { bidValue: Number(action.PROPOSED_VALUE) } }]
-        }, { headers: { 'Content-Type': 'application/vnd.sbKeyword.v4+json', 'Accept': 'application/vnd.sbKeyword.v4+json' } });
+        // SB API v3: PUT /sb/keywords — flat array body, requires adGroupId
+        // NOTE: SB v4 endpoint (/sb/v4/keywords) requires AWS SigV4 auth (not LWA Bearer)
+        //       and is incompatible with our LWA token. Use v3 with flat array format.
+        const res = await client.put('/sb/keywords',
+          [{ keywordId: String(action.ENTITY_ID), bid: Number(action.PROPOSED_VALUE), adGroupId: String(action.AD_GROUP_ID), state: 'ENABLED' }],
+          { headers: { 'Content-Type': 'application/json', 'Accept': 'application/vnd.sbKeywordResponse.v3+json' } }
+        );
         result = res.data;
       } else {
         throw new Error(`Bid update not supported for ad type: ${action.AD_TYPE}`);
@@ -791,9 +794,12 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
           apiResult = res.data;
 
         } else if ((actionType === 'bid_decrease' || actionType === 'bid_increase') && adType === 'SB') {
-          const res = await client.put('/sb/v4/keywords', {
-            keywords: batch.map(a => ({ keywordId: String(a.ENTITY_ID), bid: { bidValue: Number(a.PROPOSED_VALUE) } }))
-          }, { headers: { 'Content-Type': 'application/vnd.sbKeyword.v4+json', 'Accept': 'application/vnd.sbKeyword.v4+json' } });
+          // SB API v3: PUT /sb/keywords — flat array, requires adGroupId per keyword
+          // SB v4 requires AWS SigV4 auth which is incompatible with LWA Bearer tokens.
+          const res = await client.put('/sb/keywords',
+            batch.map(a => ({ keywordId: String(a.ENTITY_ID), bid: Number(a.PROPOSED_VALUE), adGroupId: String(a.AD_GROUP_ID), state: 'ENABLED' })),
+            { headers: { 'Content-Type': 'application/json', 'Accept': 'application/vnd.sbKeywordResponse.v3+json' } }
+          );
           apiResult = res.data;
 
         } else if (actionType === 'pause_keyword' && adType === 'SP') {
@@ -922,15 +928,34 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
           continue;
         }
 
-        // Parse success/error lists from Amazon v3 response
-        const successIds = new Set(
-          (apiResult?.keywords?.success || apiResult?.campaigns?.success || [])
-            .map(s => String(s.keywordId || s.campaignId || ''))
-        );
-        const errorMap = {};
-        for (const e of (apiResult?.keywords?.error || apiResult?.campaigns?.error || [])) {
-          const id = String(e.keywordId || e.campaignId || batch[e.index]?.ENTITY_ID || '');
-          errorMap[id] = e.errorValue || e.message || 'Unknown error';
+        // Parse success/error lists from Amazon API response.
+        // SP v3 and SB v3 have different response shapes:
+        //   SP v3:  { keywords: { success: [{keywordId}], error: [{keywordId, errorValue}] } }
+        //   SB v3:  flat array: [{keywordId, code, description}] — code absent = success
+        //   campaigns v3: { campaigns: { success: [{campaignId}], error: [] } }
+        let successIds, errorMap;
+
+        if (adType === 'SB' && (actionType === 'bid_decrease' || actionType === 'bid_increase')) {
+          // SB v3 flat array response
+          const sbResponse = Array.isArray(apiResult) ? apiResult : [];
+          successIds = new Set(
+            sbResponse.filter(r => !r.code || r.code === 'SUCCESS').map(r => String(r.keywordId || ''))
+          );
+          errorMap = {};
+          for (const r of sbResponse.filter(r => r.code && r.code !== 'SUCCESS')) {
+            errorMap[String(r.keywordId || '')] = r.description || r.code || 'SB error';
+          }
+        } else {
+          // SP v3 / campaign v3 wrapped response
+          successIds = new Set(
+            (apiResult?.keywords?.success || apiResult?.campaigns?.success || [])
+              .map(s => String(s.keywordId || s.campaignId || ''))
+          );
+          errorMap = {};
+          for (const e of (apiResult?.keywords?.error || apiResult?.campaigns?.error || [])) {
+            const id = String(e.keywordId || e.campaignId || batch[e.index]?.ENTITY_ID || '');
+            errorMap[id] = e.errorValue || e.message || 'Unknown error';
+          }
         }
 
         // Bulk-update Snowflake status for this batch
