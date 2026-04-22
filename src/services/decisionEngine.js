@@ -844,14 +844,26 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
           }, { headers: { 'Content-Type': 'application/vnd.spCampaign.v3+json', 'Accept': 'application/vnd.spCampaign.v3+json' } });
 
           // Map index → campaignId from success list
+          // Also handle duplicateValueError — campaign already exists from a prior partial run;
+          // treat as success so we don't re-create and the action gets marked executed.
           const campById = {};
           for (const s of (campRes.data?.campaigns?.success || [])) campById[s.index] = s.campaignId;
-          const campErrors = campRes.data?.campaigns?.error || [];
+          const campErrors = [];
+          for (const e of (campRes.data?.campaigns?.error || [])) {
+            const isDuplicate = e.errors?.some(x => x.errorType === 'duplicateValueError');
+            if (isDuplicate) {
+              // Campaign already exists — mark as success with a sentinel so downstream steps are skipped
+              campById[e.index] = 'ALREADY_EXISTS';
+              console.log(`[executeBulk] launch_campaign duplicate at index ${e.index} — treating as success`);
+            } else {
+              campErrors.push(e);
+            }
+          }
 
-          // Step 2: Create all ad groups in one call (only for successful campaigns)
+          // Step 2: Create all ad groups in one call (only for new campaigns; skip ALREADY_EXISTS)
           const agInputs = batch
             .map((a, i) => ({ actionId: a.ACTION_ID, asin: a.ENTITY_NAME, index: i, campaignId: campById[i], defaultBid: a.METRICS_SNAPSHOT?.suggested_bid || 1.50 }))
-            .filter(x => x.campaignId);
+            .filter(x => x.campaignId && x.campaignId !== 'ALREADY_EXISTS');
 
           const agRes = await client.post('/sp/adGroups', {
             adGroups: agInputs.map(x => ({
