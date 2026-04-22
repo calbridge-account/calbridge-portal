@@ -85,10 +85,14 @@ app.use((req, res, next) => {
   next();
 });
 // calbridge.ai root → landing page (must be BEFORE express.static)
+// teamcalbridge.com root → consulting site
 app.use((req, res, next) => {
   const host = req.hostname || '';
   if ((host === 'calbridge.ai' || host === 'www.calbridge.ai') && req.path === '/') {
     return res.sendFile('landing.html', { root: path.join(__dirname, '../public') });
+  }
+  if ((host === 'teamcalbridge.com' || host === 'www.teamcalbridge.com') && req.path === '/') {
+    return res.sendFile('teamcalbridge/index.html', { root: path.join(__dirname, '../public') });
   }
   next();
 });

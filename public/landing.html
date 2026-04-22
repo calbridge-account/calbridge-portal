@@ -448,9 +448,13 @@
       .pricing-card.featured { transform: none; }
       .pricing-card.featured:hover { transform: translateY(-2px); }
     }
+    @media (max-width: 1000px) {
+      .capabilities-grid { grid-template-columns: repeat(3, 1fr) !important; }
+    }
     @media (max-width: 700px) {
       .features-grid { grid-template-columns: 1fr; }
       .pricing-grid  { grid-template-columns: 1fr; }
+      .capabilities-grid { grid-template-columns: 1fr !important; }
       .pricing-card.featured { transform: none; }
       .hero { padding: 64px 20px 56px; }
       section { padding: 56px 20px; }
@@ -536,6 +540,49 @@
           <h3>Agency Portal</h3>
           <p>White-label multi-brand management. Your clients see your branding. You see everything across the portfolio.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PLATFORM CAPABILITIES (SP-API categories) ── -->
+  <section style="background:var(--gray-50);padding:80px 24px;">
+    <div class="section-inner">
+      <p class="section-label">Platform Capabilities</p>
+      <h2 class="section-title">Five core capability areas.</h2>
+      <p class="section-sub">Calbridge connects to your Amazon account via the Selling Partner API and covers the full operational surface of your business.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:20px;">
+
+        <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px 20px;">
+          <div style="font-size:28px;margin-bottom:14px;">🎯</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:10px;">Advertising</h3>
+          <p style="font-size:13px;color:var(--gray-600);line-height:1.6;">Unified Sponsored Products, Sponsored Brands, Sponsored Display, and DSP management. Campaign creation, bid optimization, dayparting, budget automation, and contribution margin analysis — all in one platform.</p>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px 20px;">
+          <div style="font-size:28px;margin-bottom:14px;">📦</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:10px;">Inventory &amp; Order Management</h3>
+          <p style="font-size:13px;color:var(--gray-600);line-height:1.6;">Purchase order tracking, inbound shipment monitoring, sell-through rates, inventory health scoring, and stockout alerts. Supports both Vendor Central and Seller Central FBA inventory.</p>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px 20px;">
+          <div style="font-size:28px;margin-bottom:14px;">📊</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:10px;">Analytics &amp; Reporting</h3>
+          <p style="font-size:13px;color:var(--gray-600);line-height:1.6;">ASIN-level contribution margin, break-even ACoS, portfolio KPIs, custom date ranges, and automated insights. Data updated daily from Amazon's reporting APIs with historical trending.</p>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px 20px;">
+          <div style="font-size:28px;margin-bottom:14px;">✏️</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:10px;">Listing</h3>
+          <p style="font-size:13px;color:var(--gray-600);line-height:1.6;">Listing performance tracking, keyword coverage analysis mapped to your actual search term reports, ASIN-level indexing status, and optimization recommendations based on live campaign data.</p>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px 20px;">
+          <div style="font-size:28px;margin-bottom:14px;">🔍</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:10px;">Product Research &amp; Scouting</h3>
+          <p style="font-size:13px;color:var(--gray-600);line-height:1.6;">Competitive ASIN benchmarking, market demand sizing, category performance analysis, and new product opportunity scoring. Surfaces high-ROI expansion opportunities across your catalog and adjacent categories.</p>
+        </div>
+
       </div>
     </div>
   </section>
