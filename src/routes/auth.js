@@ -9,12 +9,12 @@ const { query } = require('../services/snowflakeService');
 // POST /auth/signup
 router.post('/signup', async (req, res, next) => {
   try {
-    const { email, password, name, companyName } = req.body;
+    const { email, password, name, companyName, account_type } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'name, email and password are required' });
     }
-    // Pass companyName through to authService for Phase 3 hierarchy creation
-    const client = await authService.signup({ email, password, name, companyName });
+    // Pass companyName and account_type through to authService
+    const client = await authService.signup({ email, password, name, companyName, account_type: account_type || 'brand' });
     req.session.clientId = client.id;
     res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name } });
 

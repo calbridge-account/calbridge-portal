@@ -15,6 +15,28 @@
     <div id="auth-error" class="error-banner hidden"></div>
     <form id="signup-form">
       <div class="form-group">
+        <label>Account Type</label>
+        <div style="display:flex;gap:10px;margin-top:4px;">
+          <label style="flex:1;cursor:pointer;">
+            <input type="radio" name="account_type" value="brand" id="type-brand" checked style="display:none;" />
+            <div class="type-option" id="opt-brand" style="border:2px solid #2d5a27;background:#edf5ec;border-radius:8px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#2d5a27;">
+              🏷️ Brand / Seller
+              <div style="font-weight:400;font-size:11px;color:#6b7280;margin-top:2px;">Single brand account</div>
+            </div>
+          </label>
+          <label style="flex:1;cursor:pointer;">
+            <input type="radio" name="account_type" value="agency" id="type-agency" style="display:none;" />
+            <div class="type-option" id="opt-agency" style="border:2px solid #e5e7eb;background:#fff;border-radius:8px;padding:12px;text-align:center;font-size:13px;font-weight:600;color:#374151;">
+              🏢 Agency / Multi-Brand
+              <div style="font-weight:400;font-size:11px;color:#6b7280;margin-top:2px;">Manage multiple brands</div>
+            </div>
+          </label>
+        </div>
+        <div id="agency-note" style="display:none;background:#edf5ec;border:1px solid #c6e6c3;border-radius:6px;padding:10px 12px;margin-top:8px;font-size:12px;color:#2d5a27;">
+          ℹ️ Agency plan starts at $549/mo + $299 per additional brand. You’ll be contacted to set up white-label access after signup.
+        </div>
+      </div>
+      <div class="form-group">
         <label for="name">Company / Name</label>
         <input type="text" id="name" placeholder="Acme Brands LLC" required />
       </div>
@@ -31,5 +53,27 @@
     <p class="auth-switch">Already have an account? <a href="/">Sign in</a></p>
   </div>
   <script src="/js/auth.js?v=ea8d993"></script>
+  <script>
+    // Account type toggle
+    document.querySelectorAll('input[name="account_type"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const isAgency = this.value === 'agency';
+        document.getElementById('opt-brand').style.border = isAgency ? '2px solid #e5e7eb' : '2px solid #2d5a27';
+        document.getElementById('opt-brand').style.background = isAgency ? '#fff' : '#edf5ec';
+        document.getElementById('opt-brand').style.color = isAgency ? '#374151' : '#2d5a27';
+        document.getElementById('opt-agency').style.border = isAgency ? '2px solid #2d5a27' : '2px solid #e5e7eb';
+        document.getElementById('opt-agency').style.background = isAgency ? '#edf5ec' : '#fff';
+        document.getElementById('opt-agency').style.color = isAgency ? '#2d5a27' : '#374151';
+        document.getElementById('agency-note').style.display = isAgency ? 'block' : 'none';
+      });
+    });
+    document.querySelectorAll('.type-option').forEach(div => {
+      div.addEventListener('click', function() {
+        const radio = this.closest('label').querySelector('input[type="radio"]');
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      });
+    });
+  </script>
 </body>
 </html>

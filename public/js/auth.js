@@ -12,7 +12,7 @@ form.addEventListener('submit', async (e) => {
   btn.textContent = isSignup ? 'Creating account...' : 'Signing in...';
 
   const body = isSignup
-    ? { name: document.getElementById('name').value, email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value }
+    ? { name: document.getElementById('name').value, email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value, account_type: (document.querySelector('input[name="account_type"]:checked') || {}).value || 'brand' }
     : { email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value };
 
   try {

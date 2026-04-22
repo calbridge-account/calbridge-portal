@@ -6,7 +6,7 @@ const { query } = require('./snowflakeService');
  * Auth service — Snowflake-backed client accounts
  */
 
-async function signup({ email, password, name, companyName }) {
+async function signup({ email, password, name, companyName, account_type = 'brand' }) {
   email = email.toLowerCase().trim();
   // Check existing
   const existing = await query(
@@ -37,11 +37,13 @@ async function signup({ email, password, name, companyName }) {
       VALUES (?, ?, NULL, 'free', 'active', DATEADD('day', 14, CURRENT_TIMESTAMP()), CURRENT_TIMESTAMP)
     `, [managerId, orgName]);
 
-    // Also set free plan + trial on the clients row
+    // Also set free plan + trial on the clients row, store account_type
     await query(`
       UPDATE clients SET subscription_plan='free', subscription_status='active',
         trial_ends_at = DATEADD('day', 14, CURRENT_TIMESTAMP()) WHERE client_id=?
-    `, [id]).catch(() => {}); // non-fatal if column doesn't exist yet
+    `, [id]).catch(() => {});
+    // Store account_type (brand or agency) — non-fatal if column doesn't exist yet
+    await query(`UPDATE clients SET account_type=? WHERE client_id=?`, [account_type, id]).catch(() => {});
 
     // 2. Create user row
     const userId = uuidv4();
