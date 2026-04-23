@@ -15,6 +15,17 @@ function stripe() {
   return _stripe;
 }
 
+// ─── Resend client (lazy — only initialised when RESEND_API_KEY is set) ───────
+let _resend = null;
+function resend() {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured');
+    const { Resend } = require('resend');
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
+
 /**
  * Plan definitions — single source of truth
  */
@@ -341,13 +352,9 @@ async function handleCreateCheckout(req, res, next) {
       }
     }
 
-    // TODO: Initialize Stripe here (key is available at runtime)
-    const Stripe = require('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
     // Get or create Stripe customer
     if (!customerId) {
-      const customer = await stripe.customers.create({
+      const customer = await stripe().customers.create({
         email: client.EMAIL,
         name:  client.NAME,
         metadata: { clientId, managerId: managerId || clientId }
@@ -605,6 +612,128 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
         // TODO: Send payment failure email via Resend
         console.warn('[Billing] Payment failed for customer:', invoice.customer);
+        break;
+      }
+
+      case 'customer.subscription.paused': {
+        // Subscription paused (status=paused) — suspend access
+        const sub = event.data.object;
+        try {
+          await query(
+            `UPDATE clients SET subscription_status='paused' WHERE stripe_subscription_id=?`,
+            [sub.id]
+          );
+          console.log('[Billing] Subscription paused:', sub.id);
+        } catch (err) {
+          console.error('[Billing] Failed to handle subscription.paused:', err.message);
+        }
+        break;
+      }
+
+      case 'customer.subscription.resumed': {
+        // Subscription resumed from paused state — restore access
+        const sub = event.data.object;
+        try {
+          await query(
+            `UPDATE clients SET subscription_status='active' WHERE stripe_subscription_id=?`,
+            [sub.id]
+          );
+          console.log('[Billing] Subscription resumed:', sub.id);
+        } catch (err) {
+          console.error('[Billing] Failed to handle subscription.resumed:', err.message);
+        }
+        break;
+      }
+
+      case 'customer.subscription.trial_will_end': {
+        // Trial ending in 3 days — send reminder email
+        const sub = event.data.object;
+        try {
+          const rows = await query(
+            `SELECT email, name FROM clients WHERE stripe_subscription_id=?`,
+            [sub.id]
+          );
+          const client = rows[0];
+          if (client) {
+            const email = client.EMAIL || client.email;
+            const name  = client.NAME  || client.name;
+            const trialEnd = new Date(sub.trial_end * 1000).toLocaleDateString('en-US', {
+              month: 'long', day: 'numeric', year: 'numeric'
+            });
+            await resend().emails.send({
+              from:    process.env.EMAIL_FROM || 'ash@calbridge.ai',
+              to:      email,
+              subject: 'Your Calbridge trial ends in 3 days',
+              html:    `<p>Hi ${name},</p><p>Your Calbridge free trial ends on <strong>${trialEnd}</strong>. Add a payment method to keep your access uninterrupted.</p><p><a href="${process.env.BASE_URL || 'https://app.calbridge.ai'}/billing.html">Manage billing →</a></p><p>The Calbridge Team</p>`,
+            });
+            console.log('[Billing] Trial ending email sent to:', email);
+          }
+        } catch (err) {
+          console.error('[Billing] Failed to handle trial_will_end:', err.message);
+        }
+        break;
+      }
+
+      case 'invoice.paid':
+      case 'invoice.payment_succeeded': {
+        // Successful payment — ensure subscription_status is active
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          try {
+            await query(
+              `UPDATE clients SET subscription_status='active', grace_period_started_at=NULL WHERE stripe_subscription_id=?`,
+              [invoice.subscription]
+            );
+            console.log('[Billing] Invoice paid, subscription active:', invoice.subscription);
+          } catch (err) {
+            console.error('[Billing] Failed to handle invoice.paid:', err.message);
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_action_required': {
+        // 3DS/SCA required — notify client to complete payment
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          try {
+            const rows = await query(
+              `SELECT email, name FROM clients WHERE stripe_subscription_id=?`,
+              [invoice.subscription]
+            );
+            const client = rows[0];
+            if (client) {
+              const email = client.EMAIL || client.email;
+              const name  = client.NAME  || client.name;
+              await resend().emails.send({
+                from:    process.env.EMAIL_FROM || 'ash@calbridge.ai',
+                to:      email,
+                subject: 'Action required: complete your Calbridge payment',
+                html:    `<p>Hi ${name},</p><p>Your payment requires additional verification. Please complete it to keep your access active.</p><p><a href="${invoice.hosted_invoice_url}">Complete payment →</a></p><p>The Calbridge Team</p>`,
+              });
+              console.log('[Billing] Payment action required email sent to:', email);
+            }
+          } catch (err) {
+            console.error('[Billing] Failed to handle payment_action_required:', err.message);
+          }
+        }
+        break;
+      }
+
+      case 'charge.dispute.created': {
+        // Dispute filed — alert Abe immediately
+        const dispute = event.data.object;
+        try {
+          await resend().emails.send({
+            from:    process.env.EMAIL_FROM || 'ash@calbridge.ai',
+            to:      process.env.EMAIL_CC   || 'abe@teamcalbridge.com',
+            subject: `⚠️ Stripe dispute filed — $${(dispute.amount / 100).toFixed(2)}`,
+            html:    `<p>A dispute has been filed for <strong>$${(dispute.amount / 100).toFixed(2)}</strong>.</p><p>Reason: ${dispute.reason}</p><p>Charge ID: ${dispute.charge}</p><p><a href="https://dashboard.stripe.com/disputes/${dispute.id}">View in Stripe →</a></p>`,
+          });
+          console.log('[Billing] Dispute alert sent:', dispute.id, '$' + (dispute.amount / 100).toFixed(2));
+        } catch (err) {
+          console.error('[Billing] Failed to handle dispute.created:', err.message);
+        }
         break;
       }
 

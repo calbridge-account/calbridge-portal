@@ -13,7 +13,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const { requireAuth } = require('../middleware/requireAuth');
-const { checkBrandLimit, getPlanLimits } = require('../middleware/planGate');
+const { checkBrandLimit, getPlanLimits } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 
 // ---------------------------------------------------------------------------

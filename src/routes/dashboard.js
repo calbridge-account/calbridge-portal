@@ -8,7 +8,7 @@ const { getConnectionStatus } = require('../services/amazonAuthService');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, invalidateClient, DEFAULT_TTL_MS } = require('../services/queryCache');
 const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
-const { getPlanLimits } = require('../middleware/planGate');
+const { getPlanLimits } = require('../middleware/requirePlan');
 const { compute: computeMetric } = require('../config/metrics');
 const { responseCache } = require('../middleware/responseCache');
 

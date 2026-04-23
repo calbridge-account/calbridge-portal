@@ -220,11 +220,63 @@ function requirePlan(feature) {
   };
 }
 
+// ─── Brand / connection limit helpers ───────────────────────────────────────
+
+/**
+ * getPlanLimits(plan) → PLAN_LIMITS entry
+ * Convenience wrapper so callers don't need to import PLAN_LIMITS directly.
+ */
+function getPlanLimits(plan) {
+  return PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+}
+
+/**
+ * checkBrandLimit — Express middleware
+ * Blocks brand/connection creation when the client has reached their plan limit.
+ * Uses the `brands` table (is_active = TRUE count per client).
+ */
+async function checkBrandLimit(req, res, next) {
+  try {
+    const plan   = await lookupPlan(req);
+    const limits = getPlanLimits(plan);
+    const clientId = req.session?.clientId || req.session?.client?.id;
+
+    if (!clientId) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Unlimited plans skip the count check
+    if (limits.connections >= 999) return next();
+
+    const rows = await query(
+      'SELECT COUNT(*) AS cnt FROM brands WHERE client_id = ? AND is_active = TRUE',
+      [clientId]
+    );
+    const count = Number(rows[0]?.CNT || rows[0]?.cnt || 0);
+
+    if (count >= limits.connections) {
+      return res.status(403).json({
+        error:   'CONNECTION_LIMIT',
+        message: `Your ${plan} plan allows up to ${limits.connections} connection${
+          limits.connections === 1 ? '' : 's'
+        }. Upgrade to add more.`,
+        current: count,
+        limit:   limits.connections,
+        upgrade: true,
+      });
+    }
+
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
   requirePlan,
   lookupPlan,
+  getPlanLimits,
+  checkBrandLimit,
   PLAN_LIMITS,
   FEATURE_MIN_PLAN,
 };
