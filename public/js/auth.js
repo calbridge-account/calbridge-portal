@@ -34,8 +34,8 @@ form.addEventListener('submit', async (e) => {
       throw new Error(data.message || data.error || 'Something went wrong');
     }
     if (isSignup) {
-      // Auto-approved — redirect straight to onboarding
-      window.location.href = '/onboarding.html?welcome=1';
+      // Auto-approved — redirect straight to brand setup
+      window.location.href = '/brand-setup.html';
     } else {
       // Redirect to onboarding if not completed and no connections exist
       const onboardingDone = data.client?.onboardingCompleted;
@@ -46,7 +46,7 @@ form.addEventListener('submit', async (e) => {
           const connData = connRes.ok ? await connRes.json() : {};
           const hasConnections = Object.values(connData).some(c => c.connected);
           if (!hasConnections) {
-            window.location.href = '/onboarding.html?welcome=1';
+            window.location.href = '/brand-setup.html';
             return;
           }
         } catch {

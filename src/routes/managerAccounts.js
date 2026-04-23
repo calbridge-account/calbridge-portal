@@ -1098,5 +1098,143 @@ router.post('/set-marketplace', requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /agency/brands ─────────────────────────────────────────────────────
+// Create a new brand (manager_account + advertiser_account) under this agency.
+agencyRouter.post('/brands', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+    if (!agencyId) return res.status(403).json({ error: 'Agency account required' });
+
+    const { brandName, contactEmail, marketplace = 'US' } = req.body;
+    if (!brandName) return res.status(400).json({ error: 'brandName is required' });
+
+    const { v4: uuidv4 } = require('uuid');
+    const managerId    = uuidv4();
+    const advertiserId = uuidv4();
+    const clientId     = uuidv4();
+    const userId       = uuidv4();
+    const hash         = require('crypto').randomBytes(32).toString('hex');
+
+    // 1. Create manager_account under agency
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
+        (manager_id, name, agency_id, subscription_plan, subscription_status, created_at)
+       VALUES (?, ?, ?, 'free', 'active', CURRENT_TIMESTAMP())`,
+      [managerId, brandName, agencyId]
+    );
+
+    // 2. Create advertiser_account
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.advertiser_accounts
+        (advertiser_id, manager_id, name, marketplace, is_active, created_at)
+       VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP())`,
+      [advertiserId, managerId, `${brandName} - ${marketplace}`, marketplace]
+    );
+
+    // 3. Create clients row (brand login account)
+    const email = contactEmail || `brand-${managerId.substring(0,8)}@calbridge.internal`;
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.clients
+        (client_id, email, name, client_name, client_type, password_hash, status, created_at)
+       VALUES (?, ?, ?, ?, 'brand', ?, 'active', CURRENT_TIMESTAMP())`,
+      [clientId, email, brandName, brandName, hash]
+    );
+
+    // 4. Create migration map
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.client_migration_map
+        (client_id, manager_id, advertiser_id, agency_id)
+       VALUES (?, ?, ?, ?)`,
+      [clientId, managerId, advertiserId, agencyId]
+    );
+
+    // 5. Create user row
+    await query(
+      `INSERT INTO CALBRIDGE_PROD.APP.users
+        (user_id, client_id, email, name, role, is_active, created_at)
+       VALUES (?, ?, ?, ?, 'manager_owner', TRUE, CURRENT_TIMESTAMP())`,
+      [userId, clientId, email, brandName]
+    );
+
+    // 6. Send invite email if contactEmail provided
+    if (contactEmail && process.env.RESEND_API_KEY) {
+      try {
+        const { Resend } = require('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
+        await resend.emails.send({
+          from: `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+          to: contactEmail,
+          subject: `You've been added to Calbridge - ${brandName}`,
+          html: `<p>Hi,</p><p>Your brand <strong>${brandName}</strong> has been set up on Calbridge.</p><p>Your agency will connect your Amazon accounts and you'll receive access once data is flowing.</p><p><a href="${baseUrl}">View your dashboard</a></p><p>- The Calbridge Team</p>`,
+        });
+      } catch (emailErr) {
+        console.warn('[POST /agency/brands] invite email failed:', emailErr.message);
+      }
+    }
+
+    res.status(201).json({
+      ok: true,
+      brand: { managerId, advertiserId, clientId, brandName, marketplace, contactEmail: contactEmail || null }
+    });
+  } catch (err) {
+    console.error('[POST /agency/brands]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /agency/brands ──────────────────────────────────────────────────────
+// Returns all brands under this agency with connection status.
+agencyRouter.get('/brands', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+    if (!agencyId) return res.status(403).json({ error: 'Agency account required' });
+
+    const managers = await query(
+      `SELECT m.manager_id, m.name, m.subscription_plan, m.subscription_status,
+              m.created_at, c.client_id, c.email, c.status AS client_status,
+              a.advertiser_id, a.marketplace, a.logo_url
+       FROM CALBRIDGE_PROD.APP.manager_accounts m
+       LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
+       LEFT JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = map.client_id
+       LEFT JOIN CALBRIDGE_PROD.APP.advertiser_accounts a ON a.manager_id = m.manager_id AND a.is_active = TRUE
+       WHERE m.agency_id = ?
+       ORDER BY m.created_at ASC`,
+      [agencyId]
+    );
+
+    // Get connection status for each brand
+    const { getConnectionStatus } = require('../services/amazonAuthService');
+    const brands = await Promise.all(managers.map(async (m) => {
+      const cId = m.CLIENT_ID || m.client_id;
+      let connections = { ads: { connected: false }, vendor: { connected: false }, seller: { connected: false } };
+      if (cId) {
+        try { connections = await getConnectionStatus(cId); } catch (e) {}
+      }
+      return {
+        managerId:   m.MANAGER_ID          || m.manager_id,
+        brandName:   m.NAME                || m.name,
+        plan:        m.SUBSCRIPTION_PLAN   || m.subscription_plan   || 'free',
+        status:      m.SUBSCRIPTION_STATUS || m.subscription_status,
+        clientId:    cId,
+        email:       m.EMAIL               || m.email,
+        marketplace: m.MARKETPLACE         || m.marketplace         || 'US',
+        logoUrl:     m.LOGO_URL            || m.logo_url            || null,
+        createdAt:   m.CREATED_AT          || m.created_at,
+        connections: {
+          ads:    connections?.ads?.connected    === true,
+          vendor: connections?.vendor?.connected === true,
+          seller: connections?.seller?.connected === true,
+        },
+      };
+    }));
+
+    res.json({ brands });
+  } catch (err) {
+    console.error('[GET /agency/brands]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.agencyRouter = agencyRouter;

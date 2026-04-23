@@ -73,7 +73,22 @@ async function checkAuth() {
     if (!hasAny)   document.querySelector('[data-section="overview"]')?.closest('a')?.remove();
     if (!hasAds)   document.querySelectorAll('.nav-item-ads').forEach(el => el.remove());
     if (!hasSales) document.querySelector('[data-section="performance"]')?.closest('a')?.remove();
+    // Show empty state banner if no connections exist
+    const banner = document.getElementById('empty-state-banner');
+    if (banner) banner.style.display = hasAny ? 'none' : 'block';
   } catch { window.location.href = '/'; }
+}
+
+async function checkAndShowEmptyState() {
+  try {
+    const res = await fetch('/amazon/status', { credentials: 'include' });
+    if (!res.ok) return;
+    const connections = await res.json();
+    const hasAnyConnection = Object.values(connections).some(c => c?.connected === true);
+    const banner = document.getElementById('empty-state-banner');
+    if (!banner) return;
+    banner.style.display = hasAnyConnection ? 'none' : 'block';
+  } catch (e) {}
 }
 
 // ---- Navigation ----

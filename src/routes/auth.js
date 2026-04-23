@@ -16,7 +16,7 @@ router.post('/signup', async (req, res, next) => {
     // Pass companyName and account_type through to authService
     const client = await authService.signup({ email, password, name, companyName, account_type: account_type || 'brand' });
     req.session.clientId = client.id;
-    res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name } });
+    res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name, accountType: account_type || 'brand' } });
 
     // Send welcome email (non-blocking — don't fail signup if email fails)
     setImmediate(async () => {
@@ -114,11 +114,12 @@ router.post('/login', async (req, res, next) => {
     }
     req.session.userRole = userRole;
 
-    // Fetch onboarding status for redirect logic on the client side
+    // Fetch onboarding status + account type for redirect logic on the client side
     const rows = await query(
-      `SELECT onboarding_completed FROM clients WHERE client_id = ?`, [client.id]
+      `SELECT onboarding_completed, account_type FROM clients WHERE client_id = ?`, [client.id]
     ).catch(() => []);
     const onboardingCompleted = rows[0]?.ONBOARDING_COMPLETED ?? false;
+    const accountType = rows[0]?.ACCOUNT_TYPE || 'brand';
 
     res.json({
       message: 'Logged in',
@@ -127,7 +128,8 @@ router.post('/login', async (req, res, next) => {
         email:               client.email,
         name:                client.name,
         role:                userRole,
-        onboardingCompleted: !!onboardingCompleted
+        onboardingCompleted: !!onboardingCompleted,
+        accountType,
       }
     });
   } catch (err) {
