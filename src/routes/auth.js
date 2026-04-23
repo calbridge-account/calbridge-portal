@@ -45,7 +45,7 @@ router.post('/signup', async (req, res, next) => {
   <div style="background:#f9fafb;border-radius:8px;padding:20px 24px;margin-bottom:20px;">
     <p style="font-weight:600;margin:0 0 12px;">Step 2 — View your dashboard</p>
     <p style="color:#4b5563;margin:0 0 12px;font-size:14px;">Once connected, your advertising and retail data will start syncing automatically.</p>
-    <a href="${baseUrl}/dashboard.html" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;">Open Dashboard</a>
+    <a href="${baseUrl}/analytics/" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;">Open Dashboard</a>
   </div>
 
   <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 8px;">Questions? Just reply to this email — I\'ll get back to you.</p>

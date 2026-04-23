@@ -110,7 +110,16 @@ app.get('/analytics-auth', (req, res) => {
   res.json({ authenticated: true, clientId: req.session.clientId });
 });
 
-// /analytics is deprecated — handled by redirect below (removed React dashboard serving)
+// Serve React app at /analytics (auth-gated)
+app.get('/analytics', (req, res, next) => {
+  if (!req.session || !req.session.clientId) return res.redirect('/?redirect=/analytics/');
+  next();
+});
+app.use('/analytics', express.static(path.join(__dirname, '../calbridge-dash/dist')));
+app.get(/^\/analytics(\/.*)?$/, (req, res, next) => {
+  if (!req.session || !req.session.clientId) return res.redirect('/?redirect=/analytics/');
+  res.sendFile('index.html', { root: path.join(__dirname, '../calbridge-dash/dist') }, (err) => { if (err) next(err); });
+});
 
 // Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
 const apiLimiter = rateLimit({
@@ -137,9 +146,9 @@ app.use('/auth/forgot-password', authLimiter);
 // Routes
 app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
-// /analytics is deprecated — redirect everything to /dashboard.html
-app.get('/analytics', (req, res) => res.redirect(301, '/dashboard.html'));
-app.get('/analytics/*path', (req, res) => res.redirect(301, '/dashboard.html'));
+// /dashboard.html deprecated — redirect to React app
+app.get('/dashboard.html', (req, res) => res.redirect(301, '/analytics/'));
+app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);

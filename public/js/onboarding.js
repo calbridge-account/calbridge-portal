@@ -113,6 +113,6 @@
           credentials: 'include'
         });
       } catch { /* ignore — redirect anyway */ }
-      window.location.href = '/dashboard.html';
+      window.location.href = '/analytics/';
     }
   
