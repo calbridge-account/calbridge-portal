@@ -42,24 +42,20 @@ export function AdvertiserProvider({ children }) {
         // Determine current selection
         let selected = null;
 
-        if (requestedId === 'all' && isAgency) {
+        // Agency with no specific brand requested → stay in agency home (All Brands)
+        if (isAgency && !requestedId) {
+          selected = allBrandsEntry;
+        } else if (requestedId === 'all' && isAgency) {
           selected = allBrandsEntry;
         } else if (requestedId && requestedId !== 'all') {
           selected = safeList.find(a => a.advertiserId === requestedId) || null;
+          // Fall back to All Brands if not found
+          if (!selected && isAgency) selected = allBrandsEntry;
         }
 
         if (!selected) {
-          selected = safeList.find(a => a.isCurrent) || null;
-        }
-
-        // Agency users with no specific brand fall back to "All Brands"
-        if (!selected && isAgency) {
-          selected = allBrandsEntry;
-        }
-
-        // Non-agency fallback to first
-        if (!selected) {
-          selected = safeList[0] || null;
+          // Non-agency: fall back to isCurrent from server, then first
+          selected = safeList.find(a => a.isCurrent) || safeList[0] || null;
         }
 
         setCurrent(selected);

@@ -181,8 +181,10 @@ router.get('/advertisers/list', async (req, res) => {
           isCurrent:      r.ADVERTISER_ID === effectiveId,
           logoUrl:        r.LOGO_URL || null,
         }));
-        // Ensure at least one isCurrent is set
-        if (!result.some(a => a.isCurrent) && result.length > 0) {
+        // Only force isCurrent when there's an explicit active advertiser in session;
+        // for agency home (no activeAdvertiserId) leave all as isCurrent=false so the
+        // frontend can default to "All Brands" view.
+        if (effectiveId && !result.some(a => a.isCurrent) && result.length > 0) {
           result[0].isCurrent = true;
         }
         return res.json(result);

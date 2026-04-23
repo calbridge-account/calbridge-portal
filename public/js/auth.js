@@ -36,7 +36,7 @@ form.addEventListener('submit', async (e) => {
     if (isSignup) {
       // Route by account type
       if (data.client?.accountType === 'agency') {
-        window.location.href = '/agency.html';
+        window.location.href = '/analytics/brands';
       } else {
         window.location.href = '/brand-setup.html';
       }
@@ -47,7 +47,7 @@ form.addEventListener('submit', async (e) => {
       if (redirect) {
         window.location.href = redirect;
       } else if (data.client?.accountType === 'agency') {
-        window.location.href = '/agency.html';
+        window.location.href = '/analytics/brands';
       } else if (!data.client?.onboardingCompleted) {
         // Check connections to decide brand-setup vs dashboard
         try {
