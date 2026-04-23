@@ -1268,13 +1268,18 @@ agencyRouter.post('/switch-brand', async (req, res) => {
     // Save agency client ID so user can return to agency view
     req.session.agencyClientId = req.session.clientId;
 
-    // Switch session to brand
+    // Switch session to brand — clear all caches so fresh data loads
     req.session.clientId = brandClientId;
     req.session.activeAdvertiserId = null;
     req.session.activeMarketplace = null;
     req.session.isBrandSession = true;
+    req.session.planCache = null; // force re-fetch of plan for the brand account
 
-    res.json({ ok: true, brandClientId, brandName: rows[0].NAME || rows[0].name });
+    // Explicitly save session before responding so the client redirect lands on the new session
+    req.session.save((err) => {
+      if (err) console.warn('[switch-brand] session save error:', err.message);
+      res.json({ ok: true, brandClientId, brandName: rows[0].NAME || rows[0].name });
+    });
   } catch (err) {
     console.error('[POST /agency/switch-brand]', err);
     res.status(500).json({ error: err.message });
@@ -1295,8 +1300,12 @@ agencyRouter.post('/exit-brand', async (req, res) => {
     req.session.agencyClientId = null;
     req.session.activeAdvertiserId = null;
     req.session.isBrandSession = false;
+    req.session.planCache = null;
 
-    res.json({ ok: true });
+    req.session.save((err) => {
+      if (err) console.warn('[exit-brand] session save error:', err.message);
+      res.json({ ok: true });
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
