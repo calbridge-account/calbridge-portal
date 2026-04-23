@@ -1244,6 +1244,25 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
     return { inserted, updated };
   } catch (err) {
+    // Retry once with a fresh Snowflake connection on terminated-connection errors
+    const isTerminated = err.message && (
+      err.message.toLowerCase().includes('terminated') ||
+      err.message.toLowerCase().includes('connection is closed')
+    );
+    if (isTerminated) {
+      console.warn('[rebuildMart] Terminated connection — retrying once with fresh connection...');
+      try {
+        const { resetPool } = require('../services/snowflakeService');
+        if (typeof resetPool === 'function') await resetPool();
+        // Wait briefly before retry
+        await new Promise(r => setTimeout(r, 2000));
+        // Recurse once (no further retry to avoid infinite loop)
+        return rebuildMart({ triggeredBy: `${triggeredBy}:retry` });
+      } catch (retryErr) {
+        console.error('[rebuildMart] Retry also failed:', retryErr.message);
+        throw retryErr;
+      }
+    }
     console.error('[rebuildMart] Failed:', err.message);
     throw err;
   }

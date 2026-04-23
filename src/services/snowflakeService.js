@@ -381,4 +381,13 @@ async function batchMerge({ table, keyColumns, dataColumns, dateColumns = [], ro
   return totalWritten;
 }
 
-module.exports = { getConnection, query, exec, batchMerge };
+// ─── resetPool: evict all terminated connections, force-fresh on next acquire ──
+function resetPool() {
+  const terminated = pool.filter(e => e.terminated || e.inUse === false);
+  for (const entry of terminated) {
+    removeConnection(entry);
+  }
+  console.log(`[Snowflake] resetPool — evicted ${terminated.length} connections`);
+}
+
+module.exports = { getConnection, query, exec, batchMerge, resetPool };
