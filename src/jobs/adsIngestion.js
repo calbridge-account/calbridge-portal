@@ -2132,13 +2132,15 @@ async function writeDspCreativeReport(clientId, profileId, reportDate, rows) {
 
 // Known platform profile IDs → source platform label
 const DSP_PLATFORM_MAP = {
-  '590465275620100345': 'sparkx',       // CyberPower SparkX
-  '591210185781978252': 'calbridge',    // CyberPower Calbridge-managed
+  '590465275620100345': 'sparkx',       // CyberPower SparkX (inactive)
+  '594346877165070240': 'sparkx',       // CyberPower_US SparkX duplicate (inactive)
+  '591210185781978252': 'calbridge',    // CyberPower Calbridge-managed (primary)
+  '591210185781978200': 'calbridge',    // CyberPower Calbridge-managed (secondary)
   '577089618135015300': 'acer',         // Acer US DSP
   '3252964120201':      'acer',         // Acer America
 };
 function dspSourcePlatform(advertiserId) {
-  return DSP_PLATFORM_MAP[String(advertiserId)] || 'unknown';
+  return DSP_PLATFORM_MAP[String(advertiserId)] || 'calbridge'; // default to calbridge for unknown IDs
 }
 
 async function writeDspRawCampaign(clientId, profileId, rows) {
