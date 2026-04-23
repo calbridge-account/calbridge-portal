@@ -889,5 +889,142 @@ router.get('/cache/stats', requireAdmin, (req, res) => {
   res.json(cacheStats());
 });
 
+/**
+ * GET /admin/agencies-roster
+ * Returns all agencies with brand count, Stripe status, and MRR
+ */
+router.get('/agencies-roster', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT
+        a.agency_id,
+        a.name,
+        a.subscription_plan,
+        a.subscription_status,
+        a.stripe_customer_id,
+        a.stripe_subscription_id,
+        a.created_at,
+        COUNT(DISTINCT m.manager_id) AS brand_count,
+        MAX(c.email) AS primary_email,
+        MAX(c.last_login_at) AS last_login_at
+      FROM CALBRIDGE_PROD.APP.agency_accounts a
+      LEFT JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.agency_id = a.agency_id
+      LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.agency_id = a.agency_id AND map.manager_id = map.advertiser_id
+      LEFT JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = map.client_id AND c.account_type = 'agency'
+      GROUP BY a.agency_id, a.name, a.subscription_plan, a.subscription_status,
+               a.stripe_customer_id, a.stripe_subscription_id, a.created_at
+      ORDER BY a.name
+    `, []);
+
+    const PLAN_MRR = { free: 0, starter: 99, growth: 249, pro: 499, agency: 549, enterprise: 549 };
+
+    res.json(rows.map(r => ({
+      agencyId:         r.AGENCY_ID,
+      name:             r.NAME,
+      plan:             r.SUBSCRIPTION_PLAN || 'free',
+      status:           r.SUBSCRIPTION_STATUS || 'active',
+      stripeCustomerId: r.STRIPE_CUSTOMER_ID || null,
+      stripeSubId:      r.STRIPE_SUBSCRIPTION_ID || null,
+      brandCount:       Number(r.BRAND_COUNT || 0),
+      primaryEmail:     r.PRIMARY_EMAIL || null,
+      lastLoginAt:      r.LAST_LOGIN_AT || null,
+      mrr:              PLAN_MRR[r.SUBSCRIPTION_PLAN] || 0,
+      createdAt:        r.CREATED_AT,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /admin/brands-roster
+ * Returns all brands (manager_accounts) with agency name, status, and connection count
+ */
+router.get('/brands-roster', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT
+        m.manager_id,
+        m.name AS brand_name,
+        m.subscription_plan,
+        m.subscription_status,
+        m.agency_id,
+        a.name AS agency_name,
+        c.client_id,
+        c.email,
+        c.status AS client_status,
+        c.last_login_at,
+        c.created_at,
+        COUNT(DISTINCT adv.advertiser_id) AS advertiser_count
+      FROM CALBRIDGE_PROD.APP.manager_accounts m
+      LEFT JOIN CALBRIDGE_PROD.APP.agency_accounts a ON a.agency_id = m.agency_id
+      LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
+      LEFT JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = map.client_id
+      LEFT JOIN CALBRIDGE_PROD.APP.advertiser_accounts adv ON adv.manager_id = m.manager_id AND adv.is_active = TRUE
+      GROUP BY m.manager_id, m.name, m.subscription_plan, m.subscription_status, m.agency_id,
+               a.name, c.client_id, c.email, c.status, c.last_login_at, c.created_at
+      ORDER BY a.name NULLS LAST, m.name
+    `, []);
+
+    res.json(rows.map(r => ({
+      managerId:       r.MANAGER_ID,
+      brandName:       r.BRAND_NAME,
+      plan:            r.SUBSCRIPTION_PLAN || 'free',
+      status:          r.CLIENT_STATUS || r.SUBSCRIPTION_STATUS || 'active',
+      agencyId:        r.AGENCY_ID || null,
+      agencyName:      r.AGENCY_NAME || '(No Agency)',
+      clientId:        r.CLIENT_ID || null,
+      email:           r.EMAIL || null,
+      lastLoginAt:     r.LAST_LOGIN_AT || null,
+      advertiserCount: Number(r.ADVERTISER_COUNT || 0),
+      createdAt:       r.CREATED_AT,
+    })));
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/agencies/:agencyId/assign-email
+ * Assign a primary contact email to an agency owner client
+ */
+router.post('/agencies/:agencyId/assign-email', requireAdmin, async (req, res, next) => {
+  try {
+    const { agencyId } = req.params;
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email required' });
+    await query(
+      `UPDATE CALBRIDGE_PROD.APP.clients SET email = ?
+       WHERE client_id IN (
+         SELECT map.client_id FROM CALBRIDGE_PROD.APP.client_migration_map map
+         JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = map.manager_id
+         WHERE m.agency_id = ? AND map.client_id = map.advertiser_id
+       )`,
+      [email, agencyId]
+    );
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /admin/brands/:managerId/status
+ * Change brand active/inactive/suspended status
+ */
+router.post('/brands/:managerId/status', requireAdmin, async (req, res, next) => {
+  try {
+    const { managerId } = req.params;
+    const { status } = req.body;
+    if (!['active', 'inactive', 'suspended'].includes(status)) {
+      return res.status(400).json({ error: 'invalid status' });
+    }
+    await query(
+      `UPDATE CALBRIDGE_PROD.APP.manager_accounts SET subscription_status = ? WHERE manager_id = ?`,
+      [status, managerId]
+    );
+    await query(
+      `UPDATE CALBRIDGE_PROD.APP.clients SET status = ?
+       WHERE client_id IN (SELECT client_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE manager_id = ?)`,
+      [status === 'active' ? 'active' : 'inactive', managerId]
+    );
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
 

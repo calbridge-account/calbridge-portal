@@ -91,6 +91,8 @@
         <button class="admin-tab" data-tab="spend-adjustments">💰 Spend Adjustments</button>
         <button class="admin-tab" data-tab="logs">📋 Sync Logs</button>
         <button class="admin-tab" data-tab="nav-visibility">🗂️ Nav Visibility</button>
+        <button class="admin-tab" data-tab="agencies">🏢 Agencies</button>
+        <button class="admin-tab" data-tab="brands">🏷️ Brands</button>
         <button class="admin-tab" data-tab="admins" id="admins-tab" style="display:none">🔐 Admin Users</button>
       </div>
 
@@ -355,6 +357,64 @@
 
     </div>
   </div>
+
+      <!-- Agencies Tab -->
+      <div id="tab-agencies" class="admin-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h2 style="font-size:16px;font-weight:600;margin:0;">Agencies</h2>
+          <span id="agencies-summary" style="font-size:12px;color:var(--gray-400);"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table" style="width:100%">
+            <thead>
+              <tr>
+                <th>Agency</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Brands</th>
+                <th>MRR</th>
+                <th>Primary Email</th>
+                <th>Last Login</th>
+                <th>Stripe</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="agencies-table-body">
+              <tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:24px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Brands Tab -->
+      <div id="tab-brands" class="admin-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h2 style="font-size:16px;font-weight:600;margin:0;">Brands</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="brands-search" placeholder="Search brands…" style="padding:6px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;width:200px;" />
+            <span id="brands-count" style="font-size:12px;color:var(--gray-400);"></span>
+          </div>
+        </div>
+        <div class="table-card">
+          <table class="data-table" style="width:100%">
+            <thead>
+              <tr>
+                <th>Brand</th>
+                <th>Agency</th>
+                <th>Status</th>
+                <th>Plan</th>
+                <th>Email</th>
+                <th>Connections</th>
+                <th>Last Login</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="brands-table-body">
+              <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:24px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <!-- Admin Users Tab -->
       <div id="tab-admins" class="admin-section">

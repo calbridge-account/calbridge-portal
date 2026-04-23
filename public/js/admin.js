@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'nav-visibility')     initNavVisibility();
       if (tab.dataset.tab === 'account-structure')  loadAccountStructure();
       if (tab.dataset.tab === 'accounts')           loadAccounts();
+      if (tab.dataset.tab === 'agencies')           initAgenciesRoster();
+      if (tab.dataset.tab === 'brands')             initBrandsRoster();
     });
   });
 
@@ -807,6 +809,134 @@ window.retireAccount = async function(accountId, accountName) {
     const res2 = await adminFetch('/admin/accounts');
     if (res2.ok) { allAccounts = await res2.json(); renderAccountsTable(); }
   } catch { alert('Request failed.'); }
+};
+
+// ── Agencies Roster ──────────────────────────────────────────────────────────
+async function initAgenciesRoster() {
+  const tbody   = document.getElementById('agencies-table-body');
+  const summary = document.getElementById('agencies-summary');
+  if (!tbody) return;
+  try {
+    const res      = await adminFetch('/admin/agencies-roster');
+    const agencies = await res.json();
+    summary.textContent = `${agencies.length} agenc${agencies.length === 1 ? 'y' : 'ies'} · $${agencies.reduce((s, a) => s + a.mrr, 0).toLocaleString()} MRR`;
+
+    if (!agencies.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:24px;">No agencies yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = agencies.map(a => `
+      <tr>
+        <td><strong>${a.name}</strong><div style="font-size:11px;color:var(--gray-400);font-family:monospace">${a.agencyId.substring(0, 8)}</div></td>
+        <td><span class="status-pill" style="background:${a.plan === 'agency' || a.plan === 'enterprise' ? '#edf5ec' : '#f3f4f6'};color:${a.plan === 'agency' || a.plan === 'enterprise' ? '#2d5a27' : '#374151'}">${a.plan}</span></td>
+        <td><span class="status-pill ${a.status === 'active' ? 'status-active' : 'status-inactive'}">${a.status}</span></td>
+        <td style="text-align:center;font-weight:600">${a.brandCount}</td>
+        <td style="font-weight:600;color:var(--brand)">$${a.mrr.toLocaleString()}/mo</td>
+        <td style="font-size:12px">${a.primaryEmail || '<span style="color:var(--gray-400)">—</span>'}</td>
+        <td style="font-size:12px;color:var(--gray-400)">${a.lastLoginAt ? new Date(a.lastLoginAt).toLocaleDateString() : '—'}</td>
+        <td style="font-size:11px">${a.stripeCustomerId ? '<span style="color:#2d5a27">✓ Stripe</span>' : '<span style="color:var(--gray-400)">No Stripe</span>'}</td>
+        <td>
+          <button class="action-btn btn-approve" onclick="viewAgencyBrands('${a.agencyId}')">View Brands</button>
+          ${a.stripeCustomerId ? `<button class="action-btn" onclick="openStripeCustomer('${a.stripeCustomerId}')" style="margin-left:4px">Stripe ↗</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" style="color:red;text-align:center;padding:16px;">${e.message}</td></tr>`;
+  }
+}
+
+window.viewAgencyBrands = function(agencyId) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+  const brandsTab = document.querySelector('[data-tab="brands"]');
+  if (brandsTab) {
+    brandsTab.classList.add('active');
+    document.getElementById('tab-brands').classList.add('active');
+  }
+  window._filterAgencyId = agencyId;
+  initBrandsRoster();
+};
+
+window.openStripeCustomer = function(customerId) {
+  window.open(`https://dashboard.stripe.com/customers/${customerId}`, '_blank');
+};
+
+// ── Brands Roster ────────────────────────────────────────────────────────────
+async function initBrandsRoster() {
+  const tbody    = document.getElementById('brands-table-body');
+  const countEl  = document.getElementById('brands-count');
+  const searchEl = document.getElementById('brands-search');
+  if (!tbody) return;
+  try {
+    const res   = await adminFetch('/admin/brands-roster');
+    let brands  = await res.json();
+
+    // Filter by agency if navigated from "View Brands"
+    if (window._filterAgencyId) {
+      brands = brands.filter(b => b.agencyId === window._filterAgencyId);
+      window._filterAgencyId = null;
+      if (searchEl) searchEl.value = '';
+    }
+
+    const renderBrands = (list) => {
+      countEl.textContent = `${list.length} brand${list.length !== 1 ? 's' : ''}`;
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:24px;">No brands found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(b => `
+        <tr>
+          <td>
+            <strong>${b.brandName}</strong>
+            <div style="font-size:11px;color:var(--gray-400);font-family:monospace">${b.clientId ? b.clientId.substring(0, 8) : '—'}</div>
+          </td>
+          <td style="font-size:12px">${b.agencyName || '<span style="color:var(--gray-400)">—</span>'}</td>
+          <td><span class="status-pill ${b.status === 'active' ? 'status-active' : 'status-inactive'}">${b.status}</span></td>
+          <td><span class="status-pill" style="background:#f3f4f6;color:#374151">${b.plan}</span></td>
+          <td style="font-size:12px">${b.email || '<span style="color:var(--gray-400)">—</span>'}</td>
+          <td style="font-size:12px;color:var(--gray-400)">${b.advertiserCount} connection${b.advertiserCount !== 1 ? 's' : ''}</td>
+          <td style="font-size:12px;color:var(--gray-400)">${b.lastLoginAt ? new Date(b.lastLoginAt).toLocaleDateString() : 'Never'}</td>
+          <td style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button class="action-btn btn-approve" onclick="showUpdatePlan('${b.managerId || b.clientId}','${b.brandName}','${b.plan}','${b.status}')">✏️ Plan</button>
+            ${b.status === 'active'
+              ? `<button class="action-btn btn-suspend" onclick="setBrandStatus('${b.managerId}','inactive')">Deactivate</button>`
+              : `<button class="action-btn btn-approve" onclick="setBrandStatus('${b.managerId}','active')">Activate</button>`
+            }
+          </td>
+        </tr>
+      `).join('');
+    };
+
+    renderBrands(brands);
+
+    if (searchEl) {
+      searchEl.oninput = () => {
+        const q = searchEl.value.toLowerCase();
+        renderBrands(q ? brands.filter(b =>
+          b.brandName?.toLowerCase().includes(q) ||
+          b.agencyName?.toLowerCase().includes(q) ||
+          b.email?.toLowerCase().includes(q)
+        ) : brands);
+      };
+    }
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:red;text-align:center;padding:16px;">${e.message}</td></tr>`;
+  }
+}
+
+window.setBrandStatus = async function(managerId, status) {
+  try {
+    const res = await adminFetch(`/admin/brands/${managerId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error('Failed to update status');
+    initBrandsRoster();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 };
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
