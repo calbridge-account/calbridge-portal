@@ -147,12 +147,6 @@ const JOB_HANDLERS = {
   },
 
   // ── Daily cleanup — ads_report_queue TTL (keep 7 days, delete older completed) ─
-  // Keep Snowflake warehouse warm — prevents cold-start latency on user requests
-  snowflake_keepalive: () => {
-    const { query: _q } = require('../services/snowflakeService');
-    return _q('SELECT 1').catch(() => {});
-  },
-
   cleanup_report_queue:         () => {
     const { query: _q } = require('../services/snowflakeService');
     return _q("DELETE FROM CALBRIDGE_PROD.APP.ads_report_queue WHERE status IN ('completed','skipped','failed') AND requested_at < DATEADD('day',-7,CURRENT_TIMESTAMP())")
@@ -425,10 +419,6 @@ const CRON_SCHEDULE = [
   {
     jobId: 'archive_job_runs',
     expr:  '0 2 * * 0',   // weekly Sunday 02:00 UTC — archive Redis job_runs to Snowflake
-  },
-  {
-    jobId: 'snowflake_keepalive',
-    expr:  '*/4 * * * *',  // every 4 minutes — keeps warehouse warm, prevents cold-start
   },
   {
     jobId: 'cleanup_report_queue',
