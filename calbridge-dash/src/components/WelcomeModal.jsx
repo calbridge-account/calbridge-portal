@@ -16,6 +16,7 @@ const BRAND_PLANS = [
     id: 'starter',
     name: 'Starter',
     price: '$99',
+    annualPrice: 89,
     period: '/mo',
     description: 'Full visibility for growing brands.',
     highlight: false,
@@ -26,6 +27,7 @@ const BRAND_PLANS = [
     id: 'growth',
     name: 'Growth',
     price: '$249',
+    annualPrice: 224,
     period: '/mo',
     description: 'AI automation for serious sellers.',
     highlight: true,
@@ -37,6 +39,7 @@ const BRAND_PLANS = [
     id: 'pro',
     name: 'Pro',
     price: '$499',
+    annualPrice: 449,
     period: '/mo',
     description: 'Full power. White-label ready.',
     highlight: false,
@@ -60,6 +63,7 @@ const AGENCY_PLAN = {
 export default function WelcomeModal({ onDismiss }) {
   const { user } = useUser() || {};
   const isAgency = user?.accountType === 'agency' || user?.account_type === 'agency';
+  const [annual, setAnnual] = useState(false);
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState(null);
   const firstName = (user?.name || '').split(' ')[0] || 'there';
@@ -89,7 +93,7 @@ export default function WelcomeModal({ onDismiss }) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, annual }),
       });
       const data = await res.json();
       if (data.checkoutUrl) {
@@ -129,6 +133,25 @@ export default function WelcomeModal({ onDismiss }) {
           </p>
         </div>
 
+        {/* Billing toggle — only show for non-agency */}
+        {!isAgency && (
+          <div className="flex items-center justify-center gap-3 py-4 border-b border-gray-100">
+            <span className={`text-sm font-medium ${!annual ? 'text-gray-900' : 'text-gray-400'}`}>Monthly</span>
+            <button
+              onClick={() => setAnnual(a => !a)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${annual ? 'bg-green-600' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${annual ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+            <span className={`text-sm font-medium ${annual ? 'text-gray-900' : 'text-gray-400'}`}>
+              Annual
+              <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                Save 10%
+              </span>
+            </span>
+          </div>
+        )}
+
         {/* Plans */}
         <div className={`p-8 grid gap-4 ${isAgency ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-2 lg:grid-cols-4'}`}>
           {plans.map(plan => (
@@ -151,8 +174,12 @@ export default function WelcomeModal({ onDismiss }) {
               <div className="mb-4">
                 <h3 className="font-bold text-gray-900 text-sm">{plan.name}</h3>
                 <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-2xl font-bold text-gray-900">{plan.price}</span>
-                  <span className="text-xs text-gray-500">{plan.period}</span>
+                  <span className="text-2xl font-bold text-gray-900">
+                    {plan.id === 'free' ? '$0' : annual && plan.annualPrice ? `$${plan.annualPrice}` : plan.price}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {plan.id === 'free' ? 'forever' : annual ? '/mo, billed annually' : '/mo'}
+                  </span>
                 </div>
                 {plan.priceSub && (
                   <div className="text-xs text-gray-500 mt-0.5">{plan.priceSub}</div>
