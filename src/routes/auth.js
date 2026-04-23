@@ -73,6 +73,9 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     const client = await authService.login({ email, password });
     req.session.clientId = client.id;
+    // Always clear advertiser override on fresh login — prevents data bleed between accounts
+    req.session.activeAdvertiserId = null;
+    req.session.activeMarketplace  = null;
 
     // Phase 3F: Enrich session with new account model (non-fatal if map not found)
     try {
