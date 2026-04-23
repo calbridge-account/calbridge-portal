@@ -122,10 +122,81 @@
     }
   }
 
+  // ── Nav config: lock unavailable sections ──────────────────────────────
+  /**
+   * Fetches /nav-config and grays out nav items that require a connection
+   * the client hasn't made yet. Non-fatal — nav still works without it.
+   *
+   * Path → selector mapping reflects the actual nav HTML:
+   *   /advertising → a[href="/advertising.html"] + a[href="/campaigns.html"] (both ads)
+   *   /pacing      → a[data-section="pacing"] (dashboard #pacing anchor)
+   *   /forecasting → a[data-section="forecast"] (dashboard #forecast anchor)
+   *   /vendor      → a[data-section="vendor"] (future page, no-op until added)
+   *   /cogs        → a[data-section="cogs"] (future page, no-op until added)
+   */
+  async function applyNavConfig() {
+    try {
+      const res = await fetch('/nav-config', { credentials: 'include' });
+      if (!res.ok) return; // Not authenticated or server error — leave nav as-is
+      const { config, reasons } = await res.json();
+
+      // Map nav-config path → CSS selectors that match real nav <a> elements
+      const pathSelectors = {
+        '/advertising': [
+          'a[href="/advertising.html"]',
+          'a[href="/campaigns.html"]',        // Campaigns is also ads-gated
+        ],
+        '/pacing':      ['a[data-section="pacing"]'],
+        '/forecasting': ['a[data-section="forecast"]'],
+        '/vendor':      ['a[data-section="vendor"]',  'a[href*="vendor.html"]'],
+        '/cogs':        ['a[data-section="cogs"]',    'a[href*="cogs.html"]'],
+      };
+
+      for (const [path, visibility] of Object.entries(config)) {
+        const selectors = pathSelectors[path];
+        if (!selectors) continue;
+
+        selectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(link => {
+            if (visibility === 'locked') {
+              link.classList.add('nav-locked');
+              link.style.opacity      = '0.45';
+              link.style.pointerEvents = 'none';
+              link.style.cursor       = 'not-allowed';
+              // Add lock icon once
+              if (!link.querySelector('.nav-lock-icon')) {
+                const icon = document.createElement('span');
+                icon.className   = 'nav-lock-icon';
+                icon.textContent = ' 🔒';
+                icon.style.fontSize = '10px';
+                link.appendChild(icon);
+              }
+              // Tooltip with reason
+              const reason = reasons && reasons[path];
+              if (reason) link.title = reason;
+            } else {
+              // Visible — remove any previously applied locked state
+              link.classList.remove('nav-locked');
+              link.style.opacity      = '';
+              link.style.pointerEvents = '';
+              link.style.cursor       = '';
+              link.title              = '';
+              const icon = link.querySelector('.nav-lock-icon');
+              if (icon) icon.remove();
+            }
+          });
+        });
+      }
+    } catch (e) {
+      // Non-fatal — nav still works, just without locked states
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
-    // Load brand logo and geo selector after DOM is ready
+    // Load brand logo, geo selector, and nav-config locks after DOM is ready
     loadActiveBrand();
     loadGeoSelector();
+    applyNavConfig();
     const sidebar  = document.querySelector('.sidebar');
     const main     = document.querySelector('.main-content');
     if (!sidebar) return;
