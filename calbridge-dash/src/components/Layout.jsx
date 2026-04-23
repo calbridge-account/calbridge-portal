@@ -4,6 +4,7 @@ import { useUser } from '../context/UserContext';
 import { useAdvertiser } from '../context/AdvertiserContext';
 import DateRangePicker from './DateRangePicker';
 import AdvertiserSelector from './AdvertiserSelector';
+import WelcomeModal from './WelcomeModal';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
 
@@ -397,13 +398,24 @@ function TopBar() {
 
 export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
-  const { hasRole, user } = useUser() || { hasRole: () => true, user: null };
+  const { hasRole, user, ready } = useUser() || { hasRole: () => true, user: null, ready: false };
   const navConfig = useNavConfig();
   const { plan, trialEndsAt } = useBillingPlan();
   const showTrialBanner = plan === 'free' && trialEndsAt !== null;
 
+  // First-login welcome modal — show when onboardingCompleted is false or null/undefined
+  const [showWelcome, setShowWelcome] = useState(false);
+  useEffect(() => {
+    if (ready && user && !user.onboardingCompleted) {
+      setShowWelcome(true);
+    }
+  }, [ready, user]);
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* First-login plan selection modal */}
+      {showWelcome && <WelcomeModal onDismiss={() => setShowWelcome(false)} />}
+
       {/* Trial banner — full-width, above everything */}
       {showTrialBanner && <TrialBanner trialEndsAt={trialEndsAt} />}
 
