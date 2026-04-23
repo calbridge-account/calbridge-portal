@@ -534,7 +534,8 @@ function startCron({ runImmediately = false } = {}) {
   if (runImmediately) {
     console.log('[cron] Running startup jobs...');
     // Only run the cheap health checks on startup, not the heavy daily jobs
-    const startupJobs = ['check_connector_health', 'poll_report_status', 'refresh_queue_status'];
+    // Also run ingest jobs on startup so missed runs self-heal after worker restarts
+    const startupJobs = ['check_connector_health', 'poll_report_status', 'refresh_queue_status', 'ingest_dsp', 'ingest_vendor_reports', 'ingest_seller_reports'];
     for (const jobId of startupJobs) {
       setImmediate(() => withLock(jobId, JOB_HANDLERS[jobId] || (() => {})));
     }

@@ -967,7 +967,7 @@ async function executeBulk(clientId, { type = null, ids = null, executedBy = 'sy
           errorMap = {};
           for (const e of (apiResult?.keywords?.error || apiResult?.campaigns?.error || [])) {
             const id = String(e.keywordId || e.campaignId || batch[e.index]?.ENTITY_ID || '');
-            errorMap[id] = e.errorValue || e.message || 'Unknown error';
+            errorMap[id] = e.errorValue || e.errorCode || e.code || e.message || e.description || JSON.stringify(e).slice(0, 200) || 'Unknown error';
           }
         }
 
