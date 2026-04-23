@@ -97,8 +97,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// /onboarding.html deprecated — redirect to brand-setup
-app.get('/onboarding.html', (req, res) => res.redirect(301, '/brand-setup.html'));
+// /onboarding.html + /brand-setup.html deprecated — redirect to React account tab
+app.get('/onboarding.html', (req, res) => res.redirect(301, '/analytics/account'));
+app.get('/brand-setup.html', (req, res) => res.redirect(301, '/analytics/account'));
 
 // /dashboard.html + /index.html deprecated — redirect to React app (must be BEFORE express.static)
 app.get('/dashboard.html', (req, res) => res.redirect(301, '/analytics/'));

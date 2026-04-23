@@ -54,9 +54,9 @@ form.addEventListener('submit', async (e) => {
           const connRes = await fetch('/amazon/status', { credentials: 'include' });
           const connData = connRes.ok ? await connRes.json() : {};
           const hasConnections = Object.values(connData).some(c => c?.connected);
-          window.location.href = hasConnections ? '/analytics/' : '/brand-setup.html';
+          window.location.href = '/analytics/';
         } catch {
-          window.location.href = '/brand-setup.html';
+          window.location.href = '/analytics/';
         }
       } else {
         window.location.href = '/analytics/';
