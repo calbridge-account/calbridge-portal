@@ -2182,7 +2182,11 @@ async function writeDspRawCampaign(clientId, profileId, rows) {
   }));
   return batchMerge({
     table: 'dsp_raw_campaign',
-    keyColumns:  ['advertiser_id', 'profile_id', 'client_id', 'order_id', 'date'],
+    // Key on order_name (not order_id) — Amazon 64-bit order IDs get truncated differently
+    // by JSON.parse() across ingest runs, causing the same campaign to land under multiple
+    // order_ids. order_name is stable and unique per order, so it prevents duplicate inserts.
+    // Same fix applied to writeDspCampaignReport (Apr 7) and dsp_raw_flight (Apr 14).
+    keyColumns:  ['profile_id', 'client_id', 'order_name', 'date'],
     dataColumns: ['order_name','advertiser_name','order_budget','order_start_date','order_end_date',
       'order_currency','entity_id','impressions','clicks','total_cost','viewable_impressions',
       'viewability_rate','detail_page_views','detail_page_view_clicks','add_to_cart','add_to_cart_clicks',
