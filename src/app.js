@@ -107,24 +107,7 @@ app.get('/analytics-auth', (req, res) => {
   res.json({ authenticated: true, clientId: req.session.clientId });
 });
 
-// Serve Calbridge analytics dashboard at /analytics — redirect to login if not authenticated
-app.get('/analytics', (req, res, next) => {
-  if (!req.session || !req.session.clientId) {
-    return res.redirect('/?redirect=/analytics/');
-  }
-  next();
-});
-app.use('/analytics', express.static(path.join(__dirname, '../calbridge-dash/dist')));
-// Catch-all for React Router deep links (e.g. /analytics/advertising, /analytics/vendor)
-// Regex instead of /*path wildcard to avoid Express 5 NotFoundError on sendFile
-app.get(/^\/analytics(\/.*)?$/, (req, res, next) => {
-  if (!req.session || !req.session.clientId) {
-    return res.redirect('/?redirect=/analytics/');
-  }
-  res.sendFile('index.html', {
-    root: path.join(__dirname, '../calbridge-dash/dist')
-  }, (err) => { if (err) next(err); });
-});
+// /analytics is deprecated — handled by redirect below (removed React dashboard serving)
 
 // Rate limiting — applied AFTER static files so HTML/CSS/JS are never throttled
 const apiLimiter = rateLimit({
@@ -151,9 +134,9 @@ app.use('/auth/forgot-password', authLimiter);
 // Routes
 app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
-// /dashboard is deprecated — redirect everything to /analytics
-app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
-app.get('/dashboard/*path', (req, res) => res.redirect(301, '/analytics/'));
+// /analytics is deprecated — redirect everything to /dashboard.html
+app.get('/analytics', (req, res) => res.redirect(301, '/dashboard.html'));
+app.get('/analytics/*path', (req, res) => res.redirect(301, '/dashboard.html'));
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);
