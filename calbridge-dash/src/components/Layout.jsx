@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '../context/UserContext';
 import { useAdvertiser } from '../context/AdvertiserContext';
 import DateRangePicker from './DateRangePicker';
@@ -158,7 +157,6 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const { isAgencyView, isAgency, current, setCurrent, advertisers } = useAdvertiser() || { isAgencyView: true, isAgency: false, current: null, setCurrent: () => {}, advertisers: [] };
   const userIsAgency = isAgency || user?.accountType === 'agency' || user?.account_type === 'agency';
   const activeNav = (userIsAgency && isAgencyView) ? AGENCY_NAV : NAV;
-  const queryClient = useQueryClient();
 
   return (
     <aside
@@ -229,21 +227,13 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
               const val = e.target.value;
               if (val === 'all') {
                 sessionStorage.removeItem('calbridge_advertiser_id');
-                // Tell server to clear active advertiser
                 try { await fetch('/manager/advertisers/list?advertiserId=all', { credentials: 'include' }); } catch(_) {}
-                const allEntry = advertisers.find(a => a.advertiserId === 'all') || { advertiserId: 'all', advertiserName: 'All Brands', managerName: 'All Brands' };
-                setCurrent(allEntry);
-                queryClient.clear();
-                navigate('/brands');
+                window.location.href = '/analytics/brands';
                 return;
               }
               sessionStorage.setItem('calbridge_advertiser_id', val);
-              // Tell server which advertiser is active
               try { await fetch(`/manager/advertisers/list?advertiserId=${encodeURIComponent(val)}`, { credentials: 'include' }); } catch(_) {}
-              const selected = advertisers.find(a => a.advertiserId === val);
-              if (selected) setCurrent(selected);
-              queryClient.clear();
-              navigate('/');
+              window.location.href = '/analytics/';
             }}
             className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-green-600"
           >
@@ -264,10 +254,7 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
             onClick={async () => {
               sessionStorage.removeItem('calbridge_advertiser_id');
               try { await fetch('/manager/advertisers/list?advertiserId=all', { credentials: 'include' }); } catch(_) {}
-              const allEntry = advertisers.find(a => a.advertiserId === 'all') || { advertiserId: 'all', advertiserName: 'All Brands', managerName: 'All Brands' };
-              setCurrent(allEntry);
-              queryClient.clear();
-              navigate('/brands');
+              window.location.href = '/analytics/brands';
             }}
             className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-500 hover:text-green-700 hover:bg-green-50 transition-colors border-b border-gray-100 mb-1 w-full text-left"
           >
