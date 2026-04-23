@@ -424,6 +424,27 @@ REPORT_TYPES.push(
   }
 );
 
+REPORT_TYPES.push(
+  {
+    key: 'spAudiences',
+    adProduct: 'SPONSORED_PRODUCTS',
+    reportTypeId: 'spAudiences',
+    groupBy: ['bidBoost'],
+    columns: ['campaignId', 'campaignName', 'campaignBidBoostSegment', 'impressions', 'clicks', 'cost', 'purchases30d', 'sales30d', 'date'],
+    table: 'sp_audience_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'campaign_bid_boost_segment', 'date']
+  },
+  {
+    key: 'sbAudiences',
+    adProduct: 'SPONSORED_BRANDS',
+    reportTypeId: 'sbAudiences',
+    groupBy: ['audience'],
+    columns: ['campaignId', 'campaignName', 'audienceSegmentId', 'audienceSegmentName', 'impressions', 'clicks', 'cost', 'purchases', 'sales', 'date'],
+    table: 'sb_audience_report',
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'audience_segment_id', 'date']
+  }
+);
+
 // Build a lookup map: key → REPORT_TYPES entry
 const REPORT_TYPE_MAP = Object.fromEntries(REPORT_TYPES.map(rt => [rt.key, rt]));
 
@@ -1055,6 +1076,57 @@ async function writeSpCampaignPlacementReport(clientId, profileId, reportDate, r
     table: 'sp_campaign_placement_report',
     keyColumns: ['client_id', 'profile_id', 'campaign_id', 'placement', 'date'],
     dataColumns: ['impressions', 'clicks', 'cost', 'purchases_30_d', 'sales_30_d', 'units_sold_clicks_30_d'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+async function writeSpAudienceReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : toISODate(String(reportDate).substring(0,8));
+  const mapped = rows.map(r => ({
+    client_id: clientId,
+    profile_id: profileId,
+    campaign_id: String(r.campaignId || ''),
+    campaign_bid_boost_segment: r.campaignBidBoostSegment || r.bidBoostSegment || null,
+    date: getIsoDate(r),
+    campaign_name: r.campaignName || null,
+    impressions: r.impressions || 0,
+    clicks: r.clicks || 0,
+    cost: r.cost || 0,
+    purchases_30_d: r.purchases30d || null,
+    sales_30_d: r.sales30d || null,
+  }));
+  return batchMerge({
+    table: 'sp_audience_report',
+    keyColumns: ['client_id', 'profile_id', 'campaign_id', 'campaign_bid_boost_segment', 'date'],
+    dataColumns: ['campaign_name', 'impressions', 'clicks', 'cost', 'purchases_30_d', 'sales_30_d'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+async function writeSbAudienceReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : toISODate(String(reportDate).substring(0,8));
+  const mapped = rows.map(r => ({
+    client_id: clientId,
+    profile_id: profileId,
+    campaign_id: String(r.campaignId || ''),
+    audience_segment_id: String(r.audienceSegmentId || r.audienceId || ''),
+    date: getIsoDate(r),
+    campaign_name: r.campaignName || null,
+    audience_segment_name: r.audienceSegmentName || null,
+    impressions: r.impressions || 0,
+    clicks: r.clicks || 0,
+    cost: r.cost || 0,
+    purchases: r.purchases || null,
+    sales: r.sales || null,
+  }));
+  return batchMerge({
+    table: 'sb_audience_report',
+    keyColumns: ['client_id', 'profile_id', 'campaign_id', 'audience_segment_id', 'date'],
+    dataColumns: ['campaign_name', 'audience_segment_name', 'impressions', 'clicks', 'cost', 'purchases', 'sales'],
     dateColumns: ['date'],
     rows: mapped,
   });
@@ -2355,6 +2427,62 @@ async function writeDspProductReport(clientId, profileId, reportDate, rows) {
 }
 
 // ── Generic Gross & Invalid Traffic writer ──────────────────────────────────
+async function writeDspAudienceReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    client_id: clientId,
+    profile_id: realProfileId,
+    advertiser_id: String(r.advertiserId || advertiserId),
+    date: String(r.date || '').substring(0, 10) || null,
+    order_id: String(r.orderId || ''),
+    order_name: r.orderName || null,
+    audience_segment_id: String(r.audienceSegmentId || ''),
+    audience_segment_name: r.audienceSegmentName || null,
+    impressions: r.impressions || 0,
+    clicks: r.clicks || 0,
+    total_cost: r.totalCost || 0,
+    purchases: r.purchases || null,
+    sales: r.sales || null,
+    new_to_brand_purchases: r.newToBrandPurchases || null,
+    detail_page_views: r.detailPageViews || null,
+  }));
+  return batchMerge({
+    table: 'CALBRIDGE_PROD.APP.dsp_audience_report',
+    keyColumns: ['client_id', 'profile_id', 'date', 'order_name', 'audience_segment_id'],
+    dataColumns: ['advertiser_id', 'order_id', 'audience_segment_name', 'impressions', 'clicks', 'total_cost', 'purchases', 'sales', 'new_to_brand_purchases', 'detail_page_views'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+async function writeDspGeoReport(clientId, profileId, reportDate, rows) {
+  if (!rows.length) return 0;
+  const [advertiserId, realProfileId] = profileId.includes('|') ? profileId.split('|') : [profileId, profileId];
+  const mapped = rows.map(r => ({
+    client_id: clientId,
+    profile_id: realProfileId,
+    advertiser_id: String(r.advertiserId || advertiserId),
+    date: String(r.date || '').substring(0, 10) || null,
+    order_id: String(r.orderId || ''),
+    order_name: r.orderName || null,
+    region: r.region || null,
+    impressions: r.impressions || 0,
+    clicks: r.clicks || 0,
+    total_cost: r.totalCost || 0,
+    purchases: r.purchases || null,
+    sales: r.sales || null,
+    detail_page_views: r.detailPageViews || null,
+  }));
+  return batchMerge({
+    table: 'CALBRIDGE_PROD.APP.dsp_geo_report',
+    keyColumns: ['client_id', 'profile_id', 'date', 'order_name', 'region'],
+    dataColumns: ['advertiser_id', 'order_id', 'impressions', 'clicks', 'total_cost', 'purchases', 'sales', 'detail_page_views'],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
 async function writeGrossAndInvalidReport(table, clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
   const getIsoDateLocal = (r) => (r && (r.date || r.DATE))
@@ -2430,9 +2558,11 @@ const WRITE_FNS = {
   spAdvertisedProduct:  writeSpAdvertisedProductReport,
   spCampaignPlacement:  writeSpCampaignPlacementReport,
   spPurchasedProduct:   writeSpPurchasedProductReport,
+  spAudiences:          writeSpAudienceReport,
   sbCampaigns:          writeSbCampaignReport,
   sbTargeting:          writeSbKeywordReport,
   sbSearchTerms:        writeSbSearchTermReport,
+  sbAudiences:          writeSbAudienceReport,
   // sbTargets removed — report type no longer queued (returns 0 rows for all clients)
   sbPlacements:         writeSbPlacementReport,
   sdCampaigns:          writeSdCampaignReport,
@@ -2450,6 +2580,9 @@ const WRITE_FNS = {
   dspFlight:    writeDspFlightReport,      // groupBy: ['flight']   — line-item grain
   dspAd:        writeDspAdReport,          // groupBy: ['ad']       — ad grain
   dspCreative:  writeDspCreativeReport,    // groupBy: ['creative'] — creative performance
+  dspProduct:   writeDspProductReport,     // groupBy: ['product']  — ASIN-level
+  dspAudience:  writeDspAudienceReport,    // groupBy: ['audience'] — audience segment
+  dspGeo:       writeDspGeoReport,         // groupBy: ['geography'] — region
 };
 
 // ============================================================
@@ -3089,6 +3222,38 @@ const DSP_REPORT_TYPES = [
       'impressions', 'clicks', 'totalCost',
       'viewableImpressions', 'viewabilityRate',
       'videoAdStart', 'videoAdMidpoint', 'videoAdComplete',
+    ],
+  },
+  {
+    key:          'dspProduct',
+    reportTypeId: 'dspProduct',
+    groupBy:      ['product'],
+    columns:      [
+      'date', 'orderId', 'orderName', 'advertiserId', 'asin', 'productName',
+      'impressions', 'clicks', 'totalCost',
+      'purchases', 'purchasesClicks', 'sales',
+      'newToBrandPurchases', 'detailPageViews', 'addToCart',
+    ],
+  },
+  {
+    key:          'dspAudience',
+    reportTypeId: 'dspAudience',
+    groupBy:      ['audience'],
+    columns:      [
+      'date', 'orderId', 'orderName', 'advertiserId',
+      'audienceSegmentId', 'audienceSegmentName',
+      'impressions', 'clicks', 'totalCost',
+      'purchases', 'sales', 'newToBrandPurchases', 'detailPageViews',
+    ],
+  },
+  {
+    key:          'dspGeo',
+    reportTypeId: 'dspGeo',
+    groupBy:      ['geography'],
+    columns:      [
+      'date', 'orderId', 'orderName', 'advertiserId', 'region',
+      'impressions', 'clicks', 'totalCost',
+      'purchases', 'sales', 'detailPageViews',
     ],
   },
 ];

@@ -163,6 +163,12 @@ const JOB_HANDLERS = {
   // Score all campaigns for efficiency and write to CAMPAIGN_MARGINAL_ROAS.
   score_marginal_roas: () => require('../services/marginalRoasService').scoreAllClients(),
 
+  // ── Data settlement — Amazon attribution windows ───────────────────────────
+  // D-3→D-14: daily re-pull (attribution still closing)
+  settle_recent_data:      () => require('./dataSettlement').settleRecentData({ triggeredBy: 'cron' }),
+  // D-15→D-60: weekly re-pull (near-final, rare adjustments)
+  finalize_historical_data: () => require('./dataSettlement').finalizeHistoricalData({ triggeredBy: 'cron' }),
+
 
   // ── Daily post-models ─────────────────────────────────────────────────────
   // score_opportunities: () => economist().scoreOpportunities({ triggeredBy: 'cron' }),
@@ -416,6 +422,16 @@ const CRON_SCHEDULE = [
   {
     jobId: 'score_marginal_roas',
     expr:  '30 6 * * *',    // 06:30 UTC daily — score campaign marginal ROAS after recommendations
+  },
+
+  // ── Data settlement — Amazon attribution windows ───────────────────────────
+  {
+    jobId: 'settle_recent_data',
+    expr:  '0 1 * * *',     // daily 01:00 UTC — reset D-3→D-14 rows for settling attribution
+  },
+  {
+    jobId: 'finalize_historical_data',
+    expr:  '0 2 * * 0',     // weekly Sunday 02:00 UTC — reset D-15→D-60 rows for near-final pass
   },
 
   // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────

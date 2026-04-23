@@ -1242,6 +1242,239 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const inserted = result?.[0]?.['number of rows inserted'] ?? 0;
     const elapsedS = ((Date.now() - startMs) / 1000).toFixed(1);
     console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
+
+    // ── MARTS.AD_PERFORMANCE_DAILY ─────────────────────────────────────────────
+    try {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
+        USING (
+          SELECT client_id, date, 'SP' AS ad_type,
+            COUNT(DISTINCT campaign_id) AS active_campaigns,
+            SUM(COALESCE(impressions,0)) AS impressions,
+            SUM(COALESCE(clicks,0)) AS clicks,
+            SUM(COALESCE(cost,0)) AS spend,
+            SUM(COALESCE(sales_30_d, sales_14_d, sales_7_d, 0)) AS sales,
+            SUM(COALESCE(purchases_30_d, purchases_14_d, purchases_7_d, 0)) AS orders,
+            NULL::FLOAT AS ntb_orders, NULL::FLOAT AS ntb_sales,
+            NULL::FLOAT AS viewable_impressions, NULL::FLOAT AS detail_page_views,
+            NULL::FLOAT AS add_to_cart, NULL::FLOAT AS new_to_brand_pct
+          FROM CALBRIDGE_PROD.APP.sp_campaign_report
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+          GROUP BY client_id, date
+
+          UNION ALL
+
+          SELECT client_id, report_date::DATE AS date, 'SB' AS ad_type,
+            COUNT(DISTINCT campaign_id),
+            SUM(COALESCE(impressions,0)), SUM(COALESCE(clicks,0)), SUM(COALESCE(cost,0)),
+            SUM(COALESCE(sales,0)), SUM(COALESCE(purchases,0)),
+            SUM(COALESCE(new_to_brand_purchases,0)), SUM(COALESCE(new_to_brand_sales,0)),
+            SUM(COALESCE(viewable_impressions,0)), SUM(COALESCE(detail_page_views,0)),
+            SUM(COALESCE(add_to_cart,0)),
+            CASE WHEN SUM(COALESCE(purchases,0)) > 0
+              THEN SUM(COALESCE(new_to_brand_purchases,0)) / SUM(COALESCE(purchases,0))
+              ELSE NULL END
+          FROM CALBRIDGE_PROD.APP.sb_campaign_report
+          WHERE report_date >= DATEADD('day', -60, CURRENT_DATE())
+            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+          GROUP BY client_id, report_date
+
+          UNION ALL
+
+          SELECT client_id, date, 'SD' AS ad_type,
+            COUNT(DISTINCT campaign_id),
+            SUM(COALESCE(impressions,0)), SUM(COALESCE(clicks,0)), SUM(COALESCE(cost,0)),
+            SUM(COALESCE(sales,0)), SUM(COALESCE(purchases,0)),
+            SUM(COALESCE(new_to_brand_purchases,0)), SUM(COALESCE(new_to_brand_sales,0)),
+            NULL::FLOAT, SUM(COALESCE(detail_page_views,0)), SUM(COALESCE(add_to_cart,0)),
+            NULL::FLOAT
+          FROM CALBRIDGE_PROD.APP.sd_campaign_report
+          WHERE date >= DATEADD('day', -65, CURRENT_DATE())
+          GROUP BY client_id, date
+
+          UNION ALL
+
+          SELECT client_id, date::DATE AS date, 'DSP' AS ad_type,
+            COUNT(DISTINCT order_name),
+            SUM(COALESCE(impressions,0)), SUM(COALESCE(clicks,0)), SUM(COALESCE(total_cost,0)),
+            SUM(COALESCE(total_sales,0)), SUM(COALESCE(total_purchases,0)),
+            SUM(COALESCE(new_to_brand_purchases,0)), SUM(COALESCE(new_to_brand_product_sales,0)),
+            SUM(COALESCE(viewable_impressions,0)), SUM(COALESCE(detail_page_views,0)),
+            SUM(COALESCE(add_to_cart,0)), NULL::FLOAT
+          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND (line_item_id IS NULL OR line_item_id = '')
+          GROUP BY client_id, date::DATE
+        ) src
+        ON tgt.client_id = src.client_id AND tgt.date = src.date AND tgt.ad_type = src.ad_type
+        WHEN MATCHED THEN UPDATE SET
+          active_campaigns=src.active_campaigns, impressions=src.impressions, clicks=src.clicks,
+          spend=src.spend, sales=src.sales, orders=src.orders,
+          ntb_orders=src.ntb_orders, ntb_sales=src.ntb_sales,
+          viewable_impressions=src.viewable_impressions, detail_page_views=src.detail_page_views,
+          add_to_cart=src.add_to_cart, new_to_brand_pct=src.new_to_brand_pct,
+          rebuilt_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,date,ad_type,active_campaigns,impressions,clicks,spend,sales,orders,
+           ntb_orders,ntb_sales,viewable_impressions,detail_page_views,add_to_cart,new_to_brand_pct,rebuilt_at)
+        VALUES
+          (src.client_id,src.date,src.ad_type,src.active_campaigns,src.impressions,src.clicks,
+           src.spend,src.sales,src.orders,src.ntb_orders,src.ntb_sales,
+           src.viewable_impressions,src.detail_page_views,src.add_to_cart,src.new_to_brand_pct,CURRENT_TIMESTAMP())
+      `);
+      console.log('[rebuildMart] ✅ MARTS.AD_PERFORMANCE_DAILY updated');
+    } catch (apeErr) {
+      console.warn('[rebuildMart] MARTS.AD_PERFORMANCE_DAILY failed (non-fatal):', apeErr.message?.substring(0,150));
+    }
+
+    // ── MARTS.CAMPAIGN_PERFORMANCE ─────────────────────────────────────────────
+    try {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE tgt
+        USING (
+          SELECT client_id, date, 'SP' AS ad_type, campaign_id, campaign_name, campaign_status,
+            campaign_budget_amount AS daily_budget, impressions, clicks, cost AS spend,
+            COALESCE(sales_30_d, sales_14_d, sales_7_d) AS sales,
+            COALESCE(purchases_30_d, purchases_14_d, purchases_7_d) AS orders,
+            sales_7_d AS sales_7d, purchases_7_d AS orders_7d,
+            NULL::FLOAT AS ntb_purchases, NULL::FLOAT AS ntb_sales,
+            NULL::FLOAT AS detail_page_views, NULL::FLOAT AS add_to_cart,
+            NULL::FLOAT AS viewable_impressions, top_of_search_impression_share
+          FROM CALBRIDGE_PROD.APP.sp_campaign_report
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+
+          UNION ALL
+
+          SELECT client_id, report_date::DATE AS date, 'SB' AS ad_type,
+            campaign_id, campaign_name, campaign_status,
+            campaign_budget_amount AS daily_budget, impressions, clicks, cost AS spend,
+            sales, purchases AS orders, NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
+            new_to_brand_purchases::FLOAT AS ntb_purchases, new_to_brand_sales AS ntb_sales,
+            detail_page_views::FLOAT AS detail_page_views, add_to_cart::FLOAT AS add_to_cart,
+            viewable_impressions AS viewable_impressions, top_of_search_impression_share
+          FROM CALBRIDGE_PROD.APP.sb_campaign_report
+          WHERE report_date >= DATEADD('day', -60, CURRENT_DATE())
+            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
+
+          UNION ALL
+
+          SELECT client_id, date, 'SD' AS ad_type,
+            campaign_id, campaign_name, NULL AS campaign_status,
+            NULL::FLOAT AS daily_budget, impressions, clicks, cost AS spend,
+            sales, purchases AS orders, NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
+            new_to_brand_purchases::FLOAT AS ntb_purchases, new_to_brand_sales AS ntb_sales,
+            detail_page_views::FLOAT AS detail_page_views, add_to_cart::FLOAT AS add_to_cart,
+            NULL::FLOAT AS viewable_impressions, NULL::FLOAT AS top_of_search_impression_share
+          FROM CALBRIDGE_PROD.APP.sd_campaign_report
+          WHERE date >= DATEADD('day', -65, CURRENT_DATE())
+
+          UNION ALL
+
+          SELECT client_id, date::DATE AS date, 'DSP' AS ad_type,
+            order_name AS campaign_id, order_name AS campaign_name, NULL AS campaign_status,
+            MAX(order_budget) AS daily_budget,
+            SUM(COALESCE(impressions,0)) AS impressions,
+            SUM(COALESCE(clicks,0)) AS clicks,
+            SUM(COALESCE(total_cost,0)) AS spend,
+            SUM(COALESCE(total_sales,0)) AS sales,
+            SUM(COALESCE(total_purchases,0)) AS orders,
+            NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
+            SUM(COALESCE(new_to_brand_purchases,0))::FLOAT AS ntb_purchases,
+            SUM(COALESCE(new_to_brand_product_sales,0)) AS ntb_sales,
+            SUM(COALESCE(detail_page_views,0)) AS detail_page_views,
+            SUM(COALESCE(add_to_cart,0)) AS add_to_cart,
+            SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
+            NULL::FLOAT AS top_of_search_impression_share
+          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND (line_item_id IS NULL OR line_item_id = '')
+          GROUP BY client_id, date::DATE, order_name
+        ) src
+        ON tgt.client_id=src.client_id AND tgt.date=src.date
+           AND tgt.ad_type=src.ad_type AND tgt.campaign_id=src.campaign_id
+        WHEN MATCHED THEN UPDATE SET
+          campaign_name=src.campaign_name, campaign_status=src.campaign_status,
+          daily_budget=src.daily_budget, impressions=src.impressions, clicks=src.clicks,
+          spend=src.spend, sales=src.sales, orders=src.orders,
+          sales_7d=src.sales_7d, orders_7d=src.orders_7d,
+          ntb_purchases=src.ntb_purchases, ntb_sales=src.ntb_sales,
+          detail_page_views=src.detail_page_views, add_to_cart=src.add_to_cart,
+          viewable_impressions=src.viewable_impressions,
+          top_of_search_impression_share=src.top_of_search_impression_share,
+          rebuilt_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,date,ad_type,campaign_id,campaign_name,campaign_status,daily_budget,
+           impressions,clicks,spend,sales,orders,sales_7d,orders_7d,ntb_purchases,ntb_sales,
+           detail_page_views,add_to_cart,viewable_impressions,top_of_search_impression_share,rebuilt_at)
+        VALUES
+          (src.client_id,src.date,src.ad_type,src.campaign_id,src.campaign_name,src.campaign_status,
+           src.daily_budget,src.impressions,src.clicks,src.spend,src.sales,src.orders,
+           src.sales_7d,src.orders_7d,src.ntb_purchases,src.ntb_sales,src.detail_page_views,
+           src.add_to_cart,src.viewable_impressions,src.top_of_search_impression_share,CURRENT_TIMESTAMP())
+      `);
+      console.log('[rebuildMart] ✅ MARTS.CAMPAIGN_PERFORMANCE updated');
+    } catch (cpErr) {
+      console.warn('[rebuildMart] MARTS.CAMPAIGN_PERFORMANCE failed (non-fatal):', cpErr.message?.substring(0,150));
+    }
+
+    // ── MARTS.DSP_LINE_ITEM ─────────────────────────────────────────────────────
+    try {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.MARTS.DSP_LINE_ITEM tgt
+        USING (
+          SELECT
+            client_id, date::DATE AS date, order_name,
+            MAX(advertiser_id) AS advertiser_id,
+            MAX(order_id) AS order_id,
+            MAX(order_budget) AS order_budget,
+            MIN(order_start_date) AS order_start_date,
+            MAX(order_end_date) AS order_end_date,
+            SUM(COALESCE(impressions,0)) AS impressions,
+            SUM(COALESCE(clicks,0)) AS clicks,
+            SUM(COALESCE(total_cost,0)) AS spend,
+            SUM(COALESCE(sales,0)) AS sales,
+            SUM(COALESCE(total_sales,0)) AS total_sales,
+            SUM(COALESCE(purchases,0)) AS purchases,
+            SUM(COALESCE(total_purchases,0)) AS total_purchases,
+            SUM(COALESCE(new_to_brand_purchases,0)) AS ntb_purchases,
+            SUM(COALESCE(new_to_brand_product_sales,0)) AS ntb_product_sales,
+            SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
+            SUM(COALESCE(detail_page_views,0)) AS detail_page_views,
+            SUM(COALESCE(add_to_cart,0)) AS add_to_cart
+          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND (line_item_id IS NULL OR line_item_id = '')
+            AND order_name IS NOT NULL AND order_name != ''
+          GROUP BY client_id, date::DATE, order_name
+        ) src
+        ON tgt.client_id=src.client_id AND tgt.date=src.date AND tgt.order_name=src.order_name
+        WHEN MATCHED THEN UPDATE SET
+          advertiser_id=src.advertiser_id, order_id=src.order_id,
+          order_budget=src.order_budget, order_start_date=src.order_start_date,
+          order_end_date=src.order_end_date, impressions=src.impressions,
+          clicks=src.clicks, spend=src.spend, sales=src.sales, total_sales=src.total_sales,
+          purchases=src.purchases, total_purchases=src.total_purchases,
+          ntb_purchases=src.ntb_purchases, ntb_product_sales=src.ntb_product_sales,
+          viewable_impressions=src.viewable_impressions, detail_page_views=src.detail_page_views,
+          add_to_cart=src.add_to_cart, rebuilt_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT
+          (client_id,date,order_name,advertiser_id,order_id,order_budget,order_start_date,
+           order_end_date,impressions,clicks,spend,sales,total_sales,purchases,total_purchases,
+           ntb_purchases,ntb_product_sales,viewable_impressions,detail_page_views,add_to_cart,rebuilt_at)
+        VALUES
+          (src.client_id,src.date,src.order_name,src.advertiser_id,src.order_id,
+           src.order_budget,src.order_start_date,src.order_end_date,
+           src.impressions,src.clicks,src.spend,src.sales,src.total_sales,
+           src.purchases,src.total_purchases,src.ntb_purchases,src.ntb_product_sales,
+           src.viewable_impressions,src.detail_page_views,src.add_to_cart,CURRENT_TIMESTAMP())
+      `);
+      console.log('[rebuildMart] ✅ MARTS.DSP_LINE_ITEM updated');
+    } catch (dliErr) {
+      console.warn('[rebuildMart] MARTS.DSP_LINE_ITEM failed (non-fatal):', dliErr.message?.substring(0,150));
+    }
+
     return { inserted, updated };
   } catch (err) {
     // Retry once with a fresh Snowflake connection on terminated-connection errors
