@@ -1311,5 +1311,36 @@ agencyRouter.post('/exit-brand', async (req, res) => {
   }
 });
 
+// ─── DELETE /agency/brands/:managerId ───────────────────────────────────────
+// Detach a brand from the agency (soft remove — data preserved, brand keeps its login).
+agencyRouter.delete('/brands/:managerId', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+    if (!agencyId) return res.status(403).json({ error: 'Agency account required' });
+
+    const { managerId } = req.params;
+
+    // Verify brand belongs to this agency
+    const rows = await query(
+      'SELECT manager_id, name FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ? AND agency_id = ?',
+      [managerId, agencyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Brand not found in this agency' });
+
+    // Detach from agency — keeps all data, brand login still works
+    await query(
+      'UPDATE CALBRIDGE_PROD.APP.manager_accounts SET agency_id = NULL WHERE manager_id = ?',
+      [managerId]
+    );
+
+    const brandName = rows[0].NAME || rows[0].name;
+    console.log(`[agency] Detached brand ${brandName} (${managerId}) from agency ${agencyId}`);
+    res.json({ ok: true, brandName });
+  } catch (err) {
+    console.error('[DELETE /agency/brands/:managerId]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.agencyRouter = agencyRouter;

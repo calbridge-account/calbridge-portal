@@ -14,6 +14,8 @@ export default function Brands() {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [entering, setEntering] = useState(null);
+  const [removing, setRemoving] = useState(null);
+  const [confirmRemove, setConfirmRemove] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ brandName: '', contactEmail: '', marketplace: 'US' });
   const [saving, setSaving] = useState(false);
@@ -60,6 +62,25 @@ export default function Brands() {
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function removeBrand(managerId) {
+    setRemoving(managerId);
+    setConfirmRemove(null);
+    try {
+      const res = await fetch(`/agency/brands/${managerId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to remove brand');
+      setToast('Brand removed from agency');
+      setTimeout(() => setToast(null), 3000);
+      await loadBrands();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRemoving(null);
     }
   }
 
@@ -158,19 +179,41 @@ export default function Brands() {
                 <ConnectionDot connected={brand.connections?.seller} label="Seller" />
               </div>
 
-              {/* Enter brand button */}
-              <div className="mt-3 pt-3 border-t border-gray-100">
+              {/* Actions */}
+              <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
                 <button
                   onClick={() => selectBrand(brand)}
-                  disabled={entering !== null}
-                  className="w-full flex items-center justify-center gap-2 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+                  disabled={entering !== null || removing !== null}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {entering === brand.clientId ? (
-                    <span>Entering…</span>
-                  ) : (
-                    <><span>Enter Brand</span><span>→</span></>
-                  )}
+                  {entering === brand.clientId ? <span>Entering…</span> : <><span>Enter</span><span>→</span></>}
                 </button>
+                {confirmRemove === brand.managerId ? (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => removeBrand(brand.managerId)}
+                      disabled={removing !== null}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {removing === brand.managerId ? '…' : 'Remove'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmRemove(null)}
+                      className="px-3 py-2 border border-gray-300 text-gray-600 text-xs rounded-lg hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmRemove(brand.managerId)}
+                    disabled={entering !== null || removing !== null}
+                    className="px-3 py-2 border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-300 text-xs rounded-lg transition-colors disabled:opacity-50"
+                    title="Remove from agency"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             </div>
           ))}
