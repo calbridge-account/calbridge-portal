@@ -3439,6 +3439,378 @@ async function ingestDsp(clientId, connectionType, daysBack = 95) {
   });
 }
 
+// ============================================================
+// DIRECT RAW WRITE FUNCTIONS (Step 2 of 3-hop migration)
+// Bypasses APP tables — writes directly to RAW.AD_CAMPAIGN at download time.
+// Activated via PIPELINE_DIRECT_RAW_WRITE=true feature flag (default: false).
+// Column mappings mirror stageAdCampaignRaw() in stageRawData.js exactly.
+// ============================================================
+
+/**
+ * Write SP campaign report rows directly to RAW.AD_CAMPAIGN.
+ * Replaces the writeSpCampaignReport → APP.SP_CAMPAIGN_REPORT → stageAdCampaignRaw chain.
+ */
+async function writeSpCampaignToRaw(clientId, profileId, reportDate, rows) {
+  if (!rows || !rows.length) return 0;
+  const toDate = (r) => {
+    const d = r.date || r.DATE;
+    if (d) return String(d).substring(0, 10);
+    // Fallback: parse from reportDate range key (YYYYMMDD_YYYYMMDD or YYYYMMDD)
+    const s = String(reportDate);
+    return s.length >= 8 ? `${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}` : null;
+  };
+  const now = new Date().toISOString();
+  const mapped = rows.map(r => {
+    const date = toDate(r);
+    const campaignId = String(r.campaignId || r.campaign_id || '');
+    return {
+      client_id:        clientId,
+      campaign_id:      campaignId,
+      date:             date,
+      ad_product:       'SPONSORED_PRODUCTS',
+      platform:         'amazon',
+      marketplace:      r.campaignBudgetCurrencyCode === 'CAD' ? 'A2EUQ1WTGCTBG2' : 'ATVPDKIKX0DER',
+      report_id:        `${profileId}_${campaignId}_SP_${(date||'').replace(/-/g,'')}`,
+      pipeline_run_id:  null,
+      data_maturity:    'preliminary',
+      ingested_at:      now,
+      last_refreshed_at: now,
+      campaign_name:    r.campaignName || null,
+      campaign_type:    'SP',
+      status:           r.campaignStatus || null,
+      daily_budget:     r.campaignBudgetAmount || null,
+      impressions:      r.impressions || 0,
+      clicks:           r.clicks || 0,
+      cost:             r.cost || r.spend || 0,
+      purchases_1d:     r.purchases1d ?? null,
+      purchases_7d:     r.purchases7d ?? null,
+      purchases_14d:    r.purchases14d ?? null,
+      purchases_30d:    r.purchases30d ?? null,
+      sales_1d:         r.sales1d ?? null,
+      sales_7d:         r.sales7d ?? null,
+      sales_14d:        r.sales14d ?? null,
+      sales_30d:        r.sales30d ?? null,
+      ntb_orders_14d:   null,
+      ntb_sales_14d:    null,
+      ntb_units_14d:    null,
+      impression_share: r.topOfSearchImpressionShare ?? null,
+      impression_share_lost_budget: null,
+      impression_share_lost_rank:   null,
+      video_views_25pct:  null,
+      video_views_50pct:  null,
+      video_views_75pct:  null,
+      video_views_100pct: null,
+      viewable_impressions: null,
+    };
+  });
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
+    keyColumns:  ['client_id', 'campaign_id', 'ad_product', 'date'],
+    dataColumns: [
+      'platform', 'marketplace', 'report_id', 'pipeline_run_id',
+      'campaign_name', 'campaign_type', 'status', 'daily_budget',
+      'impressions', 'clicks', 'cost',
+      'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'ntb_orders_14d', 'ntb_sales_14d', 'ntb_units_14d',
+      'impression_share', 'impression_share_lost_budget', 'impression_share_lost_rank',
+      'video_views_25pct', 'video_views_50pct', 'video_views_75pct', 'video_views_100pct',
+      'viewable_impressions', 'data_maturity', 'ingested_at', 'last_refreshed_at',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+/**
+ * Write SB campaign report rows directly to RAW.AD_CAMPAIGN.
+ * Replaces the writeSbCampaignReport → APP.SB_CAMPAIGN_REPORT → stageAdCampaignRaw chain.
+ * SB date field: r.date (populated by writeSbCampaignReport from reportDate fallback).
+ * SB attribution windows: purchases=30d, purchasesClicks=14d, sales=30d, salesClicks=14d.
+ */
+async function writeSbCampaignToRaw(clientId, profileId, reportDate, rows) {
+  if (!rows || !rows.length) return 0;
+  const toDate = (r) => {
+    // SB API returns date as 'date' field (same as SP). reportDate fallback for safety.
+    const d = r.date || r.DATE || r.reportDate || r.report_date;
+    if (d) return String(d).substring(0, 10);
+    const s = String(reportDate);
+    return s.length >= 8 ? `${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}` : null;
+  };
+  const now = new Date().toISOString();
+  const mapped = rows.map(r => {
+    const date = toDate(r);
+    const campaignId = String(r.campaignId || r.CAMPAIGN_ID || '');
+    return {
+      client_id:        clientId,
+      campaign_id:      campaignId,
+      date:             date,
+      ad_product:       'SPONSORED_BRANDS',
+      platform:         'amazon',
+      marketplace:      'ATVPDKIKX0DER',
+      report_id:        `${profileId}_${campaignId}_SB_${(date||'').replace(/-/g,'')}`,
+      pipeline_run_id:  null,
+      data_maturity:    'preliminary',
+      ingested_at:      now,
+      last_refreshed_at: now,
+      campaign_name:    r.campaignName || null,
+      campaign_type:    'SB',
+      status:           r.campaignStatus || null,
+      daily_budget:     r.campaignBudgetAmount || null,
+      impressions:      r.impressions || 0,
+      clicks:           r.clicks || 0,
+      cost:             r.cost || 0,
+      purchases_1d:     null,
+      purchases_7d:     null,
+      purchases_14d:    r.purchasesClicks || null,   // SB 14d window = purchasesClicks
+      purchases_30d:    r.purchases || null,          // SB 30d window = purchases
+      sales_1d:         null,
+      sales_7d:         null,
+      sales_14d:        r.salesClicks || null,        // SB 14d window = salesClicks
+      sales_30d:        r.sales || null,              // SB 30d window = sales
+      ntb_orders_14d:   r.newToBrandPurchasesClicks || null,
+      ntb_sales_14d:    r.newToBrandSalesClicks || null,
+      ntb_units_14d:    r.newToBrandUnitsSoldClicks || null,
+      impression_share: r.topOfSearchImpressionShare || null,
+      impression_share_lost_budget: null,
+      impression_share_lost_rank:   null,
+      video_views_25pct:  null,
+      video_views_50pct:  null,
+      video_views_75pct:  null,
+      video_views_100pct: r.videoCompleteViews || null,
+      viewable_impressions: r.viewableImpressions || null,
+    };
+  });
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
+    keyColumns:  ['client_id', 'campaign_id', 'ad_product', 'date'],
+    dataColumns: [
+      'platform', 'marketplace', 'report_id', 'pipeline_run_id',
+      'campaign_name', 'campaign_type', 'status', 'daily_budget',
+      'impressions', 'clicks', 'cost',
+      'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'ntb_orders_14d', 'ntb_sales_14d', 'ntb_units_14d',
+      'impression_share', 'impression_share_lost_budget', 'impression_share_lost_rank',
+      'video_views_25pct', 'video_views_50pct', 'video_views_75pct', 'video_views_100pct',
+      'viewable_impressions', 'data_maturity', 'ingested_at', 'last_refreshed_at',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+/**
+ * Write SD campaign report rows directly to RAW.AD_CAMPAIGN.
+ * Replaces the writeSdCampaignReport → APP.SD_CAMPAIGN_REPORT → stageAdCampaignRaw chain.
+ * SD attribution windows: purchases=30d, purchasesClicks=14d, sales=30d, salesClicks=14d.
+ * SD viewable_impressions comes from r.viewableImpressions (API field).
+ */
+async function writeSdCampaignToRaw(clientId, profileId, reportDate, rows) {
+  if (!rows || !rows.length) return 0;
+  const toDate = (r) => {
+    const d = r.date || r.DATE;
+    if (d) return String(d).substring(0, 10);
+    const s = String(reportDate);
+    return s.length >= 8 ? `${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}` : null;
+  };
+  const now = new Date().toISOString();
+  const mapped = rows.map(r => {
+    const date = toDate(r);
+    const campaignId = String(r.campaignId || '');
+    return {
+      client_id:        clientId,
+      campaign_id:      campaignId,
+      date:             date,
+      ad_product:       'SPONSORED_DISPLAY',
+      platform:         'amazon',
+      marketplace:      'ATVPDKIKX0DER',
+      report_id:        `${profileId}_${campaignId}_SD_${(date||'').replace(/-/g,'')}`,
+      pipeline_run_id:  null,
+      data_maturity:    'preliminary',
+      ingested_at:      now,
+      last_refreshed_at: now,
+      campaign_name:    r.campaignName || null,
+      campaign_type:    'SD',
+      status:           r.campaignStatus || null,
+      daily_budget:     r.campaignBudgetAmount || null,
+      impressions:      r.impressions || 0,
+      clicks:           r.clicks || 0,
+      cost:             r.cost || 0,
+      purchases_1d:     null,
+      purchases_7d:     null,
+      purchases_14d:    r.purchasesClicks || null,   // SD 14d window = purchasesClicks
+      purchases_30d:    r.purchases || null,          // SD 30d window = purchases
+      sales_1d:         null,
+      sales_7d:         null,
+      sales_14d:        r.salesClicks || null,        // SD 14d window = salesClicks
+      sales_30d:        r.sales || null,              // SD 30d window = sales
+      ntb_orders_14d:   r.newToBrandPurchasesClicks || null,
+      ntb_sales_14d:    r.newToBrandSalesClicks || null,
+      ntb_units_14d:    r.newToBrandUnitsSoldClicks || null,
+      impression_share: null,
+      impression_share_lost_budget: null,
+      impression_share_lost_rank:   null,
+      video_views_25pct:  null,
+      video_views_50pct:  null,
+      video_views_75pct:  null,
+      video_views_100pct: r.videoCompleteViews || null,
+      viewable_impressions: r.viewableImpressions || null,
+    };
+  });
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
+    keyColumns:  ['client_id', 'campaign_id', 'ad_product', 'date'],
+    dataColumns: [
+      'platform', 'marketplace', 'report_id', 'pipeline_run_id',
+      'campaign_name', 'campaign_type', 'status', 'daily_budget',
+      'impressions', 'clicks', 'cost',
+      'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'ntb_orders_14d', 'ntb_sales_14d', 'ntb_units_14d',
+      'impression_share', 'impression_share_lost_budget', 'impression_share_lost_rank',
+      'video_views_25pct', 'video_views_50pct', 'video_views_75pct', 'video_views_100pct',
+      'viewable_impressions', 'data_maturity', 'ingested_at', 'last_refreshed_at',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
+/**
+ * Write DSP campaign report rows directly to RAW.AD_CAMPAIGN.
+ * Replaces the writeDspCampaignReport → APP.DSP_CAMPAIGN_REPORT → stageAdCampaignRaw chain.
+ *
+ * CRITICAL design decisions (mirror stageAdCampaignRaw DSP exactly):
+ * - Dedup key: (client_id, campaign_name, ad_product, date) — order_name is stable key
+ * - Grain selection: use order-level rows (line_item_id IS NULL) when cost > 0, else ad-grain
+ * - MAX semantics for sales/purchases (order-grain wins over ad-grain subsets)
+ * - profileId may be 'advertiserId|realProfileId' — split on '|'
+ */
+async function writeDspCampaignToRaw(clientId, profileId, reportDate, rows) {
+  if (!rows || !rows.length) return 0;
+  // DSP profileId format: 'advertiserId|realProfileId'
+  const [advertiserId] = profileId.includes('|')
+    ? profileId.split('|')
+    : [profileId];
+
+  const now = new Date().toISOString();
+
+  // Aggregate rows by (order_name, date) — mirrors stageAdCampaignRaw DSP GROUP BY logic
+  const groups = new Map();
+  for (const r of rows) {
+    const orderName = r.orderName || r.order_name || '';
+    const date = String(r.date || r.DATE || '').substring(0, 10);
+    if (!orderName || !date) continue;
+    const key = `${orderName}|${date}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        orderName, date,
+        orderId: r.orderId || r.order_id || null,
+        orderBudget: null,
+        orderLevelCost: 0, adLevelCost: 0,
+        orderLevelImpr: 0, adLevelImpr: 0,
+        orderLevelClicks: 0, adLevelClicks: 0,
+        purchasesClicks: 0, totalPurchases: 0, totalSales: 0,
+        ntbPurchasesClicks: 0, ntbProductSales: 0,
+        videoComplete: 0, viewableImpr: 0,
+      });
+    }
+    const g = groups.get(key);
+    // Order-level rows have no lineItemId (mirrors DSP CASE WHEN line_item_id IS NULL)
+    const isOrderLevel = !r.lineItemId && !r.line_item_id;
+    const cost   = Number(r.totalCost || r.total_cost || 0);
+    const impr   = Number(r.impressions || 0);
+    const clicks = Number(r.clicks || 0);
+    if (isOrderLevel) {
+      g.orderLevelCost   += cost;
+      g.orderLevelImpr   += impr;
+      g.orderLevelClicks += clicks;
+    } else {
+      g.adLevelCost   += cost;
+      g.adLevelImpr   += impr;
+      g.adLevelClicks += clicks;
+    }
+    // MAX semantics for sales/purchases — order-grain total always wins
+    g.purchasesClicks    = Math.max(g.purchasesClicks,    Number(r.purchasesClicks    || r.purchases_clicks    || 0));
+    g.totalPurchases     = Math.max(g.totalPurchases,     Number(r.totalPurchases     || r.total_purchases     || 0));
+    g.totalSales         = Math.max(g.totalSales,         Number(r.totalSales         || r.total_sales         || 0));
+    g.ntbPurchasesClicks = Math.max(g.ntbPurchasesClicks, Number(r.newToBrandPurchasesClicks || 0));
+    g.ntbProductSales    = Math.max(g.ntbProductSales,    Number(r.newToBrandProductSales    || 0));
+    g.videoComplete     += Number(r.videoAdComplete || r.video_ad_complete || 0);
+    g.viewableImpr      += Number(r.viewableImpressions  || r.viewable_impressions    || 0);
+    if (r.orderBudget || r.order_budget) g.orderBudget = r.orderBudget || r.order_budget;
+    if (r.orderId    || r.order_id)    g.orderId     = r.orderId    || r.order_id;   // last wins
+  }
+
+  if (!groups.size) return 0;
+
+  const mapped = [];
+  for (const [, g] of groups) {
+    const useOrderLevel = g.orderLevelCost > 0;
+    const dateStr = (g.date || '').replace(/-/g, '');
+    mapped.push({
+      client_id:        clientId,
+      // DSP dedup key uses campaign_name (order_name) — NOT campaign_id — to match stageAdCampaignRaw
+      campaign_name:    g.orderName,
+      date:             g.date,
+      ad_product:       'DSP',
+      platform:         'amazon',
+      marketplace:      'ATVPDKIKX0DER',
+      report_id:        `${clientId}_${g.orderName}_DSP_${dateStr}`,
+      pipeline_run_id:  null,
+      data_maturity:    'preliminary',
+      ingested_at:      now,
+      last_refreshed_at: now,
+      campaign_id:      g.orderId ? String(g.orderId) : null,
+      campaign_type:    'DSP',
+      status:           'ACTIVE',
+      daily_budget:     g.orderBudget || null,
+      impressions:      useOrderLevel ? g.orderLevelImpr   : g.adLevelImpr,
+      clicks:           useOrderLevel ? g.orderLevelClicks : g.adLevelClicks,
+      cost:             useOrderLevel ? g.orderLevelCost   : g.adLevelCost,
+      purchases_1d:     null,
+      purchases_7d:     null,
+      purchases_14d:    g.purchasesClicks || null,
+      purchases_30d:    g.totalPurchases  || null,
+      sales_1d:         null,
+      sales_7d:         null,
+      sales_14d:        null,
+      sales_30d:        g.totalSales      || null,
+      ntb_orders_14d:   g.ntbPurchasesClicks || null,
+      ntb_sales_14d:    g.ntbProductSales    || null,
+      ntb_units_14d:    null,
+      impression_share: null,
+      impression_share_lost_budget: null,
+      impression_share_lost_rank:   null,
+      video_views_25pct:  null,
+      video_views_50pct:  null,
+      video_views_75pct:  null,
+      video_views_100pct: g.videoComplete || null,
+      viewable_impressions: g.viewableImpr || null,
+    });
+  }
+
+  // DSP uses (client_id, campaign_name, ad_product, date) as dedup key — same as stageAdCampaignRaw
+  return batchMerge({
+    table:       'CALBRIDGE_PROD.RAW.AD_CAMPAIGN',
+    keyColumns:  ['client_id', 'campaign_name', 'ad_product', 'date'],
+    dataColumns: [
+      'campaign_id', 'platform', 'marketplace', 'report_id', 'pipeline_run_id',
+      'campaign_type', 'status', 'daily_budget',
+      'impressions', 'clicks', 'cost',
+      'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'ntb_orders_14d', 'ntb_sales_14d', 'ntb_units_14d',
+      'impression_share', 'impression_share_lost_budget', 'impression_share_lost_rank',
+      'video_views_25pct', 'video_views_50pct', 'video_views_75pct', 'video_views_100pct',
+      'viewable_impressions', 'data_maturity', 'ingested_at', 'last_refreshed_at',
+    ],
+    dateColumns: ['date'],
+    rows: mapped,
+  });
+}
+
 module.exports = {
   // Core ingestion
   ingestCampaigns,
@@ -3456,6 +3828,12 @@ module.exports = {
   // Write functions (exported for direct use)
   writeDspAdReport,
   writeDspCampaignReport,
+
+  // Direct RAW write functions (Step 2 of 3-hop migration, PIPELINE_DIRECT_RAW_WRITE flag)
+  writeSpCampaignToRaw,
+  writeSbCampaignToRaw,
+  writeSdCampaignToRaw,
+  writeDspCampaignToRaw,
 
   // Utilities (exported for testing)
   adsClient,

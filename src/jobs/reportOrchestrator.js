@@ -473,7 +473,25 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
           continue;
         }
 
-        const written = await writeFn(clientId, profileId, reportDate, rows);
+        // Feature flag: route campaign-level reports directly to RAW.AD_CAMPAIGN
+        // when PIPELINE_DIRECT_RAW_WRITE=true. Other report types always use APP tables.
+        // Flag starts false — zero-impact deploy. Flip to true to cut over.
+        const DIRECT_RAW_TYPES = new Set(['spCampaigns', 'sbCampaigns', 'sdCampaigns', 'dspCampaign']);
+        const useDirectRaw = process.env.PIPELINE_DIRECT_RAW_WRITE === 'true';
+        let actualWriteFn = writeFn;
+        if (useDirectRaw && DIRECT_RAW_TYPES.has(reportType)) {
+          const { writeSpCampaignToRaw, writeSbCampaignToRaw, writeSdCampaignToRaw, writeDspCampaignToRaw } = getAdsIngestion();
+          const RAW_WRITE_FNS = {
+            spCampaigns: writeSpCampaignToRaw,
+            sbCampaigns: writeSbCampaignToRaw,
+            sdCampaigns: writeSdCampaignToRaw,
+            dspCampaign: writeDspCampaignToRaw,
+          };
+          actualWriteFn = RAW_WRITE_FNS[reportType] || writeFn;
+          console.log(`[downloadReports] PIPELINE_DIRECT_RAW_WRITE: routing ${reportType} → RAW.AD_CAMPAIGN`);
+        }
+
+        const written = await actualWriteFn(clientId, profileId, reportDate, rows);
         totalRows += written;
         downloaded++;
 
