@@ -128,6 +128,7 @@ router.get('/clients', requireAdmin, async (req, res, next) => {
       FROM clients c
       LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.client_id = c.client_id
       LEFT JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = map.manager_id
+      WHERE c.linked_client_id IS NULL
       ORDER BY c.created_at DESC
     `);
     res.json(rows.map(r => ({
