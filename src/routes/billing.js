@@ -60,10 +60,13 @@ const PLANS = {
     },
   },
   starter: {
-    id:           'starter',
-    name:         'Starter',
-    price:        99,
-    priceMonthly: '$99/mo',
+    id:              'starter',
+    name:            'Starter',
+    price:           99,
+    priceMonthly:    '$99/mo',
+    priceAnnual:     89,
+    priceAnnualNote: '$89/mo billed annually — save 10%',
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_STARTER_ANNUAL,
     description:  'Clean data and full visibility. You make the calls.',
     features: [
       '2 Amazon connections',
@@ -92,10 +95,13 @@ const PLANS = {
     },
   },
   growth: {
-    id:           'growth',
-    name:         'Growth',
-    price:        249,
-    priceMonthly: '$249/mo',
+    id:              'growth',
+    name:            'Growth',
+    price:           249,
+    priceMonthly:    '$249/mo',
+    priceAnnual:     224,
+    priceAnnualNote: '$224/mo billed annually — save 10%',
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_GROWTH_ANNUAL,
     description:  'AI tells you what to do — and does it.',
     features: [
       'All Amazon connections',
@@ -126,10 +132,13 @@ const PLANS = {
     },
   },
   pro: {
-    id:           'pro',
-    name:         'Pro',
-    price:        499,
-    priceMonthly: '$499/mo',
+    id:              'pro',
+    name:            'Pro',
+    price:           499,
+    priceMonthly:    '$499/mo',
+    priceAnnual:     449,
+    priceAnnualNote: '$449/mo billed annually — save 10%',
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_ANNUAL,
     description:  'Full automation. AI manages and creates campaigns.',
     features: [
       'Everything in Growth',
@@ -324,9 +333,11 @@ router.get('/status', requireAuth, async (req, res, next) => {
 async function handleCreateCheckout(req, res, next) {
 
   try {
-    const { planId } = req.body;
+    const { planId, annual = false } = req.body;
     const plan = PLANS[planId];
     if (!plan) return res.status(400).json({ error: 'Invalid plan' });
+    // Use annual price ID if requested and available
+    const priceId = (annual && plan.stripePriceIdAnnual) ? plan.stripePriceIdAnnual : plan.stripePriceId;
 
     const clientId = req.session.clientId;
 
@@ -380,7 +391,7 @@ async function handleCreateCheckout(req, res, next) {
     const session = await stripe().checkout.sessions.create({
       customer:   customerId,
       mode:       'subscription',
-      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${baseUrl}/billing/cancel`,
       metadata: {
