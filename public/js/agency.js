@@ -158,8 +158,18 @@ async function initSession() {
     const res  = await fetch('/auth/me', { credentials: 'include' });
     if (!res.ok) { window.location.href = '/login.html'; return; }
     const data = await res.json();
+    const displayName = data.client?.name || data.client?.email || '';
     const nameEl = document.getElementById('client-name');
-    if (nameEl) nameEl.textContent = data.client?.name || data.client?.email || '';
+    if (nameEl) nameEl.textContent = displayName;
+    // Set initials in sidebar badge
+    const initialsEl = document.getElementById('client-initials');
+    if (initialsEl && displayName) {
+      const parts = displayName.trim().split(/\s+/);
+      const initials = parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : displayName.slice(0, 2).toUpperCase();
+      initialsEl.textContent = initials;
+    }
   } catch {
     window.location.href = '/login.html';
   }

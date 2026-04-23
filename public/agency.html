@@ -4,173 +4,208 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Calbridge — Agency Portal</title>
-  <link rel="stylesheet" href="/css/style.css" />
   <style>
-    /* ── Agency Portal page ── */
-    .agency-page { display: flex; min-height: 100vh; }
+    *, *::before, *::after { box-sizing: border-box; }
 
-    /* Sidebar — identical to brand-setup */
-    .sidebar { width: var(--sidebar-w); background: var(--brand-dark); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; }
-    .sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; align-items: center; justify-content: center; background: #d8d0c4; }
-    .sidebar-logo img { height: 56px; width: auto; }
-    .sidebar-nav { flex: 1; padding: 16px 0; }
-    .nav-item { display: block; padding: 10px 20px; color: rgba(255,255,255,.65); text-decoration: none; transition: all .15s; font-size: 14px; }
-    .nav-item:hover, .nav-item.active { background: rgba(255,255,255,.10); color: #fff; border-left: 3px solid rgba(255,255,255,.5); }
-    .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.08); }
-    .sidebar-footer #client-name { display: block; font-size: 12px; color: rgba(255,255,255,.5); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .btn-logout { width: 100%; padding: 8px; background: transparent; color: rgba(255,255,255,.5); border: 1px solid rgba(255,255,255,.15); border-radius: var(--radius); cursor: pointer; font-size: 13px; transition: all .15s; }
-    .btn-logout:hover { background: rgba(255,255,255,.08); color: #fff; }
+    /* ── Sidebar collapse ── */
+    #sidebar.collapsed { width: 64px !important; }
+    #sidebar.collapsed #client-badge,
+    #sidebar.collapsed .nav-label,
+    #sidebar.collapsed .nav-group-label,
+    #sidebar.collapsed #signout-label { display: none !important; }
+    #sidebar.collapsed #sidebar-toggle { margin-left: 0; }
+    #sidebar.collapsed .nav-link { justify-content: center; padding: 8px 0; }
+    #sidebar.collapsed .nav-link .nav-icon { margin-left: 0; }
+    #sidebar.collapsed #brand-logo { display: none; }
+    #main-wrapper.sidebar-collapsed { margin-left: 64px !important; }
 
-    /* Main content */
-    .main-content { margin-left: var(--sidebar-w); flex: 1; padding: 0; overflow-x: hidden; min-height: 100vh; }
+    /* ── Nav hover ── */
+    .nav-link:hover { background: #f9fafb !important; color: #111827 !important; }
+    .nav-link.active { border-left-color: #15803d !important; background: #f0fdf4 !important; color: #166534 !important; }
 
-    /* Page header */
-    .page-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 28px; background: #fff; border-bottom: 1px solid var(--gray-200); }
-    .page-header h1 { font-size: 20px; font-weight: 600; }
-    .page-header p { color: var(--gray-400); font-size: 13px; margin-top: 2px; }
-
-    /* Add brand button */
-    .btn-add-brand { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; background: var(--brand); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; transition: background .15s; }
-    .btn-add-brand:hover { background: var(--brand-dark); }
-
-    /* Content area */
-    .content-area { padding: 28px; }
-
-    /* Loading */
-    #loading-state { padding: 48px; text-align: center; color: var(--gray-400); font-size: 14px; }
-
-    /* Brand grid */
+    /* ── Brand grid ── */
     .brand-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
     @media (max-width: 700px) { .brand-grid { grid-template-columns: 1fr; } }
 
-    /* Brand card */
-    .brand-card { background: #fff; border: 1px solid var(--gray-200); border-radius: 10px; box-shadow: var(--shadow); padding: 20px; display: flex; flex-direction: column; gap: 14px; transition: box-shadow .15s; }
-    .brand-card:hover { box-shadow: var(--shadow-md); }
+    /* ── Brand card ── */
+    .brand-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); padding: 20px; display: flex; flex-direction: column; gap: 14px; transition: box-shadow .15s; }
+    .brand-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 
     .brand-card-header { display: flex; align-items: center; gap: 14px; }
-    .brand-logo-img { width: 48px; height: 48px; border-radius: 8px; object-fit: contain; border: 1px solid var(--gray-200); }
-    .brand-logo-placeholder { width: 48px; height: 48px; border-radius: 8px; background: var(--brand-light); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: var(--brand); border: 1px solid #b6d9b2; flex-shrink: 0; }
+    .brand-logo-img { width: 48px; height: 48px; border-radius: 8px; object-fit: contain; border: 1px solid #e5e7eb; }
+    .brand-logo-placeholder { width: 48px; height: 48px; border-radius: 8px; background: #f0fdf4; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #15803d; border: 1px solid #bbf7d0; flex-shrink: 0; }
 
     .brand-card-meta { min-width: 0; }
-    .brand-card-name { font-size: 15px; font-weight: 600; color: var(--gray-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-card-name { font-size: 15px; font-weight: 600; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .brand-card-badges { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 
     .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-    .badge-mp { background: var(--gray-100); color: var(--gray-600); border: 1px solid var(--gray-200); }
-    .badge-plan { text-transform: capitalize; }
-    .badge-free { background: var(--gray-100); color: var(--gray-600); border: 1px solid var(--gray-200); }
+    .badge-mp { background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+    .badge-free { background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
     .badge-starter { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
     .badge-pro { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
     .badge-scale { background: #fdf4ff; color: #7e22ce; border: 1px solid #e9d5ff; }
 
     /* Connection status */
     .brand-card-connections { display: flex; gap: 14px; }
-    .conn-dot-wrap { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--gray-600); }
+    .conn-dot-wrap { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #4b5563; }
     .conn-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .conn-dot.dot-connected { background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.2); }
-    .conn-dot.dot-disconnected { background: var(--gray-200); }
-    .conn-label { font-size: 12px; color: var(--gray-400); }
+    .conn-dot.dot-disconnected { background: #e5e7eb; }
+    .conn-label { font-size: 12px; color: #9ca3af; }
 
     /* Card footer */
     .brand-card-footer { margin-top: auto; }
-    .btn-manage { display: inline-block; padding: 7px 16px; background: var(--brand-light); color: var(--brand); border: 1px solid #b6d9b2; border-radius: var(--radius); font-size: 13px; font-weight: 600; text-decoration: none; transition: all .15s; }
-    .btn-manage:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .btn-manage { display: inline-block; padding: 7px 16px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; transition: all .15s; }
+    .btn-manage:hover { background: #15803d; color: #fff; border-color: #15803d; }
 
     /* Empty state */
     #empty-state { display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 80px 24px; gap: 16px; }
     .empty-icon { font-size: 52px; }
-    .empty-title { font-size: 18px; font-weight: 600; color: var(--gray-800); }
-    .empty-sub { font-size: 14px; color: var(--gray-400); max-width: 320px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: #1f2937; }
+    .empty-sub { font-size: 14px; color: #9ca3af; max-width: 320px; }
+
+    /* ── Buttons ── */
+    .btn-primary { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #15803d; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; font-family: inherit; text-decoration: none; }
+    .btn-primary:hover { background: #166534; }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-secondary { padding: 8px 16px; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; color: #374151; transition: all .15s; font-family: inherit; }
+    .btn-secondary:hover { background: #f9fafb; }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-weight: 500; font-size: 13px; margin-bottom: 6px; color: #4b5563; }
+    .form-group input, .form-group select { width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background: #fff; transition: border-color .15s; font-family: inherit; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #15803d; box-shadow: 0 0 0 3px rgba(21,128,61,.10); }
+    .form-group .field-hint { font-size: 11px; color: #9ca3af; margin-top: 4px; }
 
     /* ── Modal ── */
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 500; align-items: center; justify-content: center; }
     .modal-backdrop.open { display: flex; }
     .modal-box { background: #fff; border-radius: 12px; box-shadow: 0 20px 48px rgba(0,0,0,.18); padding: 28px; width: 100%; max-width: 440px; position: relative; }
-    .modal-box h2 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
-    .modal-box .modal-sub { font-size: 13px; color: var(--gray-400); margin-bottom: 22px; }
-    .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--gray-400); padding: 4px 6px; border-radius: 6px; }
-    .modal-close:hover { background: var(--gray-100); color: var(--gray-800); }
+    .modal-box h2 { font-size: 17px; font-weight: 700; margin-bottom: 4px; color: #1f2937; }
+    .modal-box .modal-sub { font-size: 13px; color: #9ca3af; margin-bottom: 22px; }
+    .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 20px; line-height: 1; cursor: pointer; color: #9ca3af; padding: 4px 6px; border-radius: 6px; }
+    .modal-close:hover { background: #f3f4f6; color: #1f2937; }
 
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-weight: 500; font-size: 13px; margin-bottom: 6px; color: var(--gray-600); }
-    .form-group input, .form-group select { width: 100%; padding: 9px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 13px; background: #fff; transition: border-color .15s; }
-    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(45,90,39,.10); }
-    .form-group .field-hint { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
-
-    .modal-error { color: var(--danger); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+    .modal-error { color: #dc2626; font-size: 13px; margin-bottom: 12px; min-height: 18px; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
-    .btn-secondary { padding: 9px 18px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer; color: var(--gray-600); transition: all .15s; }
-    .btn-secondary:hover { background: var(--gray-100); }
-    .btn-primary { padding: 9px 22px; background: var(--brand); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
-    .btn-primary:hover { background: var(--brand-dark); }
-    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
 
-    /* Toast */
-    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-800); color: #fff; border-radius: var(--radius); padding: 12px 18px; font-size: 13px; z-index: 1000; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    /* ── Toast ── */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1f2937; color: #fff; border-radius: 6px; padding: 12px 18px; font-size: 13px; z-index: 1000; opacity: 0; transition: opacity .25s; pointer-events: none; }
     .toast.show { opacity: 1; }
-    .toast.success { background: var(--brand); }
-    .toast.error { background: var(--danger); }
+    .toast.success { background: #15803d; }
+    .toast.error { background: #dc2626; }
 
-    /* Mobile */
-    @media (max-width: 768px) {
-      .main-content { margin-left: 0; padding-top: 52px; }
-      .content-area { padding: 16px; }
-      .page-header { padding: 16px; }
-    }
+    /* ── Misc ── */
+    .hidden { display: none !important; }
   </style>
 </head>
-<body class="agency-page">
+<body style="background:#f9fafb;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 
-  <!-- Mobile hamburger -->
-  <button class="hamburger" id="hamburger-btn" aria-label="Open menu">
-    <span></span><span></span><span></span>
-  </button>
-  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+  <!-- ═══════════════════════════ SIDEBAR ═══════════════════════════ -->
+  <aside id="sidebar" style="position:fixed;top:0;left:0;height:100vh;width:224px;background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;z-index:50;transition:width 0.2s;overflow:hidden;">
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">
-      <img src="/images/calbridge-logo.png" alt="Calbridge" />
+    <!-- Logo + collapse -->
+    <div style="height:64px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
+      <img id="brand-logo" src="/images/calbridge-logo.png" alt="Calbridge" style="height:32px;object-fit:contain;flex:1;min-width:0;" />
+      <button id="sidebar-toggle" onclick="toggleSidebar()" style="margin-left:8px;padding:6px;border:none;background:none;border-radius:6px;cursor:pointer;color:#9ca3af;flex-shrink:0;font-size:16px;line-height:1;" title="Collapse">‹</button>
     </div>
-    <nav class="sidebar-nav">
-      <a href="/agency.html" class="nav-item active">🏢 Brands</a>
-      <a href="/account.html" class="nav-item">⚙️ Account</a>
+
+    <!-- Client badge -->
+    <div id="client-badge" style="padding:12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#15803d;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span id="client-initials" style="font-size:11px;font-weight:700;color:#fff;line-height:1;">CB</span>
+        </div>
+        <div style="min-width:0;">
+          <div style="font-size:11px;color:#9ca3af;line-height:1.2;">Agency</div>
+          <div id="client-name" style="font-size:13px;font-weight:500;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <nav style="flex:1;overflow-y:auto;padding:8px 0;" id="sidebar-nav">
+
+      <a href="/analytics/" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">📊</span><span class="nav-label">Overview</span>
+      </a>
+
+      <div class="nav-group-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;padding:8px 12px 4px 14px;margin-top:4px;">Retail</div>
+      <a href="/analytics/vendor" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">📦</span><span class="nav-label">Vendor Sales</span>
+      </a>
+      <a href="/analytics/seller" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">🛒</span><span class="nav-label">Seller Sales</span>
+      </a>
+      <a href="/analytics/inventory" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">🏭</span><span class="nav-label">Inventory</span>
+      </a>
+      <a href="/analytics/forecasting" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">📈</span><span class="nav-label">Forecasting</span>
+      </a>
+      <a href="/analytics/cogs" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">💰</span><span class="nav-label">COGS &amp; Margins</span>
+      </a>
+
+      <div class="nav-group-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;padding:8px 12px 4px 14px;margin-top:4px;">Advertising</div>
+      <a href="/analytics/advertising" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">📢</span><span class="nav-label">Performance</span>
+      </a>
+      <a href="/analytics/pacing" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">🎯</span><span class="nav-label">Budget Pacing</span>
+      </a>
+      <a href="/analytics/recommendations" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">⚡</span><span class="nav-label">Recommendations</span>
+      </a>
+
+      <div class="nav-group-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;padding:8px 12px 4px 14px;margin-top:4px;">Settings</div>
+      <a href="/analytics/account" class="nav-link" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid transparent;color:#4b5563;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">⚙️</span><span class="nav-label">Account</span>
+      </a>
+      <a href="/agency.html" class="nav-link active" style="display:flex;align-items:center;gap:10px;padding:8px 12px;text-decoration:none;font-size:14px;font-weight:500;border-left:2px solid #15803d;background:#f0fdf4;color:#166534;transition:all 0.15s;">
+        <span class="nav-icon" style="font-size:16px;line-height:1;flex-shrink:0;margin-left:4px;">🏢</span><span class="nav-label">Brands</span>
+      </a>
     </nav>
-    <div class="sidebar-footer">
-      <span id="client-name">Loading…</span>
-      <button class="btn-logout" id="logout-btn">Sign Out</button>
+
+    <!-- Sign out -->
+    <div style="border-top:1px solid #e5e7eb;flex-shrink:0;">
+      <a href="/auth/logout" id="logout-btn" style="display:flex;align-items:center;gap:8px;padding:12px;text-decoration:none;font-size:14px;color:#6b7280;transition:background 0.15s;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'">
+        <span style="font-size:16px;line-height:1;">🚪</span><span id="signout-label" class="nav-label">Sign Out</span>
+      </a>
     </div>
   </aside>
 
-  <!-- Main -->
-  <main class="main-content">
+  <!-- ═══════════════════════════ MAIN ═══════════════════════════ -->
+  <div id="main-wrapper" style="margin-left:224px;min-height:100vh;display:flex;flex-direction:column;transition:margin-left 0.2s;">
 
-    <header class="page-header">
-      <div>
-        <h1>Your Brands</h1>
-        <p>Manage all brands under your agency</p>
-      </div>
-      <button class="btn-add-brand" onclick="openAddBrandModal()">＋ Add Brand</button>
+    <!-- Top bar -->
+    <header style="height:56px;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,0.05);display:flex;align-items:center;padding:0 24px;flex-shrink:0;position:sticky;top:0;z-index:40;">
+      <h1 style="font-size:15px;font-weight:600;color:#1f2937;flex:1;margin:0;">Your Brands</h1>
+      <button class="btn-primary" onclick="openAddBrandModal()">＋ Add Brand</button>
     </header>
 
-    <div class="content-area">
-      <div id="loading-state">Loading your brands…</div>
+    <!-- Page content -->
+    <main style="flex:1;padding:24px;">
+
+      <div id="loading-state" style="padding:48px;text-align:center;color:#9ca3af;font-size:14px;">Loading your brands…</div>
 
       <!-- Empty state -->
-      <div id="empty-state">
+      <div id="empty-state" style="display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 24px;gap:16px;">
         <div class="empty-icon">🏷️</div>
         <div class="empty-title">No brands yet</div>
-        <p class="empty-sub">Add your first brand to get started. You can connect their Amazon accounts once the brand is created.</p>
-        <button class="btn-add-brand" onclick="openAddBrandModal()">＋ Add Your First Brand</button>
+        <p class="empty-sub" style="font-size:14px;color:#9ca3af;max-width:320px;margin:0;">Add your first brand to get started. You can connect their Amazon accounts once the brand is created.</p>
+        <button class="btn-primary" onclick="openAddBrandModal()">＋ Add Your First Brand</button>
       </div>
 
       <!-- Brand grid -->
       <div class="brand-grid" id="brand-grid"></div>
-    </div>
 
-  </main>
+    </main>
+  </div>
 
-  <!-- Add Brand Modal -->
+  <!-- ═══════════════════════════ ADD BRAND MODAL ═══════════════════════════ -->
   <div class="modal-backdrop" id="add-brand-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-box">
       <button class="modal-close" onclick="closeAddBrandModal()" aria-label="Close">×</button>
@@ -179,11 +214,11 @@
 
       <form id="add-brand-form" novalidate>
         <div class="form-group">
-          <label for="modal-brand-name">Brand Name <span style="color:var(--danger)">*</span></label>
+          <label for="modal-brand-name">Brand Name <span style="color:#dc2626">*</span></label>
           <input type="text" id="modal-brand-name" name="brandName" placeholder="e.g. Apex Outdoors" required />
         </div>
         <div class="form-group">
-          <label for="modal-contact-email">Brand Contact Email <span style="color:var(--gray-400);font-weight:400">(optional)</span></label>
+          <label for="modal-contact-email">Brand Contact Email <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
           <input type="email" id="modal-contact-email" name="contactEmail" placeholder="brand@example.com" />
           <div class="field-hint">We'll send them an invite email so they can log in.</div>
         </div>
@@ -210,6 +245,16 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <script>
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      const wrapper = document.getElementById('main-wrapper');
+      const btn = document.getElementById('sidebar-toggle');
+      const collapsed = sidebar.classList.toggle('collapsed');
+      wrapper.classList.toggle('sidebar-collapsed', collapsed);
+      btn.textContent = collapsed ? '›' : '‹';
+    }
+  </script>
   <script src="/js/agency.js"></script>
 </body>
 </html>

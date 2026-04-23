@@ -26,7 +26,17 @@
         const r = await fetch('/auth/me', { credentials: 'include' });
         if (!r.ok) { window.location.href = '/'; return; }
         const d = await r.json();
-        document.getElementById('client-name').textContent = d.client?.name || d.name || '';
+        const displayName = d.client?.name || d.name || '';
+        document.getElementById('client-name').textContent = displayName;
+        // Set initials in sidebar badge
+        const initialsEl = document.getElementById('client-initials');
+        if (initialsEl && displayName) {
+          const parts = displayName.trim().split(/\s+/);
+          const initials = parts.length >= 2
+            ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+            : displayName.slice(0, 2).toUpperCase();
+          initialsEl.textContent = initials;
+        }
       } catch { /* silent */ }
     }
 
