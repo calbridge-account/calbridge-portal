@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useUser } from './UserContext';
 
 const AdvertiserContext = createContext(null);
@@ -7,12 +7,20 @@ export function AdvertiserProvider({ children }) {
   const [advertisers, setAdvertisers] = useState([]);
   const [current, setCurrent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const hasFetched = useRef(false);
 
   // Get accountType from UserContext (AdvertiserProvider is inside UserProvider)
-  const { user } = useUser() || {};
+  const { user, ready } = useUser() || {};
   const isAgency = user?.accountType === 'agency' || user?.account_type === 'agency';
 
   useEffect(() => {
+    // Wait until UserContext has resolved so isAgency is accurate
+    if (!ready) return;
+    // Only fetch once — don't re-run when isAgency changes after initial load
+    // This prevents the URL param being stripped then the effect re-running without it
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     // Check if a specific advertiserId was requested via query param (from selector switch)
     const params = new URLSearchParams(window.location.search);
     const requestedId = params.get('advertiserId');
@@ -69,8 +77,7 @@ export function AdvertiserProvider({ children }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAgency]);
+  }, [ready]); // depend on ready — fires once when UserContext resolves
 
   // isAgencyView = true when in agency-level view (no specific brand selected)
   const isAgencyView = !current || current?.advertiserId === 'all';
