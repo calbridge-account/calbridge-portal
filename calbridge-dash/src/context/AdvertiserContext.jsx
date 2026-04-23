@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { useUser } from './UserContext';
 
 const AdvertiserContext = createContext(null);
@@ -7,7 +7,6 @@ export function AdvertiserProvider({ children }) {
   const [advertisers, setAdvertisers] = useState([]);
   const [current, setCurrent] = useState(null);
   const [loading, setLoading] = useState(true);
-  const hasFetched = useRef(false);
 
   // Get accountType from UserContext (AdvertiserProvider is inside UserProvider)
   const { user, ready } = useUser() || {};
@@ -16,20 +15,13 @@ export function AdvertiserProvider({ children }) {
   useEffect(() => {
     // Wait until UserContext has resolved so isAgency is accurate
     if (!ready) return;
-    // Only fetch once — don't re-run when isAgency changes after initial load
-    // This prevents the URL param being stripped then the effect re-running without it
-    if (hasFetched.current) return;
-    hasFetched.current = true;
 
     // Resolve which advertiser to activate:
-    // 1. URL param (explicit switch from brand card / dropdown)
-    // 2. sessionStorage (persisted from previous selection, survives page reload)
-    // 3. null (default to All Brands for agency, or server isCurrent for brand)
+    // 1. URL param (explicit switch)
+    // 2. null (default to server isCurrent for brand accounts; agency uses brand session model)
     const params = new URLSearchParams(window.location.search);
     const urlParam = params.get('advertiserId');
-    const stored   = sessionStorage.getItem('calbridge_advertiser_id');
-    // Agency: only use stored value if it's a real brand (not 'all')
-    const requestedId = urlParam || (stored && stored !== 'all' ? stored : null);
+    const requestedId = urlParam || null;
 
     // Build the list URL — pass advertiserId as hint so server can update session
     const listUrl = requestedId && requestedId !== 'all'
@@ -73,13 +65,6 @@ export function AdvertiserProvider({ children }) {
         }
 
         setCurrent(selected);
-
-        // Persist selection in sessionStorage so it survives page reloads
-        if (selected?.advertiserId && selected.advertiserId !== 'all') {
-          sessionStorage.setItem('calbridge_advertiser_id', selected.advertiserId);
-        } else {
-          sessionStorage.removeItem('calbridge_advertiser_id');
-        }
 
         // Strip ?advertiserId from URL bar without triggering a reload
         if (requestedId && window.history.replaceState) {

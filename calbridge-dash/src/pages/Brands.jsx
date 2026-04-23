@@ -13,6 +13,7 @@ function ConnectionDot({ connected, label }) {
 export default function Brands() {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [entering, setEntering] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ brandName: '', contactEmail: '', marketplace: 'US' });
   const [saving, setSaving] = useState(false);
@@ -62,9 +63,22 @@ export default function Brands() {
     }
   }
 
-  function selectBrand(brand) {
-    sessionStorage.setItem('calbridge_advertiser_id', brand.advertiserId);
-    window.location.href = `/analytics/?advertiserId=${encodeURIComponent(brand.advertiserId)}`;
+  async function selectBrand(brand) {
+    setEntering(brand.clientId);
+    try {
+      const res = await fetch('/agency/switch-brand', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: brand.clientId }),
+      });
+      if (!res.ok) throw new Error('Failed to enter brand');
+      sessionStorage.removeItem('calbridge_advertiser_id');
+      window.location.href = '/analytics/';
+    } catch (e) {
+      setEntering(null);
+      setError(e.message);
+    }
   }
 
   if (loading) {
@@ -120,8 +134,7 @@ export default function Brands() {
           {brands.map(brand => (
             <div
               key={brand.managerId || brand.advertiserId}
-              className="bg-white rounded-xl border border-gray-200 p-5 hover:border-green-400 hover:shadow-md transition-all cursor-pointer group"
-              onClick={() => selectBrand(brand)}
+              className="bg-white rounded-xl border border-gray-200 p-5 transition-all group"
             >
               {/* Logo + name */}
               <div className="flex items-center gap-3 mb-4">
@@ -133,10 +146,9 @@ export default function Brands() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-800 truncate group-hover:text-green-800">{brand.brandName}</div>
+                  <div className="text-sm font-semibold text-gray-800 truncate">{brand.brandName}</div>
                   <div className="text-xs text-gray-400">{brand.marketplace}</div>
                 </div>
-
               </div>
 
               {/* Connection status */}
@@ -146,8 +158,19 @@ export default function Brands() {
                 <ConnectionDot connected={brand.connections?.seller} label="Seller" />
               </div>
 
-              <div className="mt-3 text-xs text-green-700 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                Open brand →
+              {/* Enter brand button */}
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <button
+                  onClick={() => selectBrand(brand)}
+                  disabled={entering !== null}
+                  className="w-full flex items-center justify-center gap-2 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {entering === brand.clientId ? (
+                    <span>Entering…</span>
+                  ) : (
+                    <><span>Enter Brand</span><span>→</span></>
+                  )}
+                </button>
               </div>
             </div>
           ))}

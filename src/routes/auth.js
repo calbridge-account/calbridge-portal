@@ -186,6 +186,8 @@ router.get('/me', requireAuth, async (req, res, next) => {
         role:                req.session.userRole || 'owner',
         accountType:         extra.ACCOUNT_TYPE || extra.account_type || 'brand',
         onboardingCompleted: !!onboardingCompleted,
+        isBrandSession:      !!req.session.isBrandSession,
+        agencyClientId:      req.session.agencyClientId || null,
       }
     });
   } catch (err) {

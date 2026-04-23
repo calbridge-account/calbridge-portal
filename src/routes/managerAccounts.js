@@ -1239,5 +1239,68 @@ agencyRouter.get('/brands', async (req, res) => {
   }
 });
 
+// ─── POST /agency/switch-brand ───────────────────────────────────────────────
+// Enter a brand's session as the agency admin.
+// Sets session.clientId to the brand's clientId, preserving agencyClientId for back-navigation.
+agencyRouter.post('/switch-brand', async (req, res) => {
+  try {
+    const { clientId: brandClientId } = req.body;
+    if (!brandClientId) return res.status(400).json({ error: 'clientId required' });
+
+    // Verify this brand belongs to the agency the user is logged into
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+    if (!agencyId) return res.status(403).json({ error: 'Agency account required' });
+
+    // Check the brand is under this agency
+    const rows = await query(
+      `SELECT c.client_id, c.name, map.manager_id, map.agency_id
+       FROM CALBRIDGE_PROD.APP.clients c
+       JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.client_id = c.client_id
+       JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = map.manager_id
+       WHERE c.client_id = ? AND m.agency_id = ?`,
+      [brandClientId, agencyId]
+    );
+
+    if (!rows.length) {
+      return res.status(403).json({ error: 'Brand not found in this agency' });
+    }
+
+    // Save agency client ID so user can return to agency view
+    req.session.agencyClientId = req.session.clientId;
+
+    // Switch session to brand
+    req.session.clientId = brandClientId;
+    req.session.activeAdvertiserId = null;
+    req.session.activeMarketplace = null;
+    req.session.isBrandSession = true;
+
+    res.json({ ok: true, brandClientId, brandName: rows[0].NAME || rows[0].name });
+  } catch (err) {
+    console.error('[POST /agency/switch-brand]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /agency/exit-brand ──────────────────────────────────────────────────
+// Return to agency session from a brand session.
+agencyRouter.post('/exit-brand', async (req, res) => {
+  try {
+    const agencyClientId = req.session.agencyClientId;
+    if (!agencyClientId) {
+      return res.status(400).json({ error: 'No agency session to return to' });
+    }
+
+    // Restore agency session
+    req.session.clientId = agencyClientId;
+    req.session.agencyClientId = null;
+    req.session.activeAdvertiserId = null;
+    req.session.isBrandSession = false;
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.agencyRouter = agencyRouter;
