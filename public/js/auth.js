@@ -54,7 +54,7 @@ form.addEventListener('submit', async (e) => {
         }
       }
       const params = new URLSearchParams(window.location.search);
-      window.location.href = params.get('redirect') || '/analytics/';
+      window.location.href = params.get('redirect') || '/dashboard.html';
     }
   } catch (err) {
     errorEl.textContent = err.message;
