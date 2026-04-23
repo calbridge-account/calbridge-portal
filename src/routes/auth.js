@@ -26,7 +26,7 @@ router.post('/signup', async (req, res, next) => {
         const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
         const firstName = (name || '').split(' ')[0] || 'there';
         await resend.emails.send({
-          from: 'Ash at Calbridge <ash@calbridge.ai>',
+          from: `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
           to: email,
           subject: 'Welcome to Calbridge — let\'s connect your Amazon account',
           html: `

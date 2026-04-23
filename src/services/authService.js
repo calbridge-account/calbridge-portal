@@ -20,9 +20,9 @@ async function signup({ email, password, name, companyName, account_type = 'bran
   const hash = await bcrypt.hash(password, 12);
 
   await query(`
-    INSERT INTO clients (client_id, email, name, password_hash, status, created_at)
-    VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
-  `, [id, email, name, hash]);
+    INSERT INTO clients (client_id, email, name, client_name, client_type, password_hash, status, created_at)
+    VALUES (?, ?, ?, ?, 'brand', ?, 'active', CURRENT_TIMESTAMP)
+  `, [id, email, name, (companyName || name).trim(), hash]);
 
   // ── Phase 3F: Create 4-tier account hierarchy entries ──────────────────────
   // This is purely additive — existing client row is preserved above.

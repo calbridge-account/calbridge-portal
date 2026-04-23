@@ -34,11 +34,8 @@ form.addEventListener('submit', async (e) => {
       throw new Error(data.message || data.error || 'Something went wrong');
     }
     if (isSignup) {
-      errorEl.style.background = 'var(--success-bg)';
-      errorEl.style.color = 'var(--success)';
-      errorEl.innerHTML = 'Account created! Your access is pending approval.<br>You will receive an email once approved.';
-      errorEl.classList.remove('hidden');
-      document.getElementById('signup-form').style.display = 'none';
+      // Auto-approved — redirect straight to onboarding
+      window.location.href = '/onboarding.html?welcome=1';
     } else {
       // Redirect to onboarding if not completed and no connections exist
       const onboardingDone = data.client?.onboardingCompleted;
