@@ -34,27 +34,33 @@ form.addEventListener('submit', async (e) => {
       throw new Error(data.message || data.error || 'Something went wrong');
     }
     if (isSignup) {
-      // Auto-approved — redirect straight to brand setup
-      window.location.href = '/brand-setup.html';
+      // Route by account type
+      if (data.client?.accountType === 'agency') {
+        window.location.href = '/agency.html';
+      } else {
+        window.location.href = '/brand-setup.html';
+      }
     } else {
-      // Redirect to onboarding if not completed and no connections exist
-      const onboardingDone = data.client?.onboardingCompleted;
-      if (!onboardingDone) {
-        // Check if the client has any Amazon connections before deciding
+      // Smart post-login routing by account type
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get('redirect');
+      if (redirect) {
+        window.location.href = redirect;
+      } else if (data.client?.accountType === 'agency') {
+        window.location.href = '/agency.html';
+      } else if (!data.client?.onboardingCompleted) {
+        // Check connections to decide brand-setup vs dashboard
         try {
           const connRes = await fetch('/amazon/status', { credentials: 'include' });
           const connData = connRes.ok ? await connRes.json() : {};
-          const hasConnections = Object.values(connData).some(c => c.connected);
-          if (!hasConnections) {
-            window.location.href = '/brand-setup.html';
-            return;
-          }
+          const hasConnections = Object.values(connData).some(c => c?.connected);
+          window.location.href = hasConnections ? '/dashboard.html' : '/brand-setup.html';
         } catch {
-          // If connection check fails, fall through to dashboard
+          window.location.href = '/brand-setup.html';
         }
+      } else {
+        window.location.href = '/dashboard.html';
       }
-      const params = new URLSearchParams(window.location.search);
-      window.location.href = params.get('redirect') || '/dashboard.html';
     }
   } catch (err) {
     errorEl.textContent = err.message;
