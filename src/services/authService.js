@@ -18,11 +18,12 @@ async function signup({ email, password, name, companyName, account_type = 'bran
 
   const id = uuidv4();
   const hash = await bcrypt.hash(password, 12);
+  const verifyToken = require('crypto').randomBytes(32).toString('hex');
 
   await query(`
-    INSERT INTO clients (client_id, email, name, client_name, client_type, password_hash, status, created_at)
-    VALUES (?, ?, ?, ?, 'brand', ?, 'active', CURRENT_TIMESTAMP)
-  `, [id, email, name, (companyName || name).trim(), hash]);
+    INSERT INTO clients (client_id, email, name, client_name, client_type, password_hash, status, email_verification_token, email_verification_expires_at, created_at)
+    VALUES (?, ?, ?, ?, 'brand', ?, 'pending_verification', ?, DATEADD('hour', 48, CURRENT_TIMESTAMP()), CURRENT_TIMESTAMP)
+  `, [id, email, name, (companyName || name).trim(), hash, verifyToken]);
 
   // ── Phase 3F: Create 4-tier account hierarchy entries ──────────────────────
   // This is purely additive — existing client row is preserved above.
@@ -99,12 +100,37 @@ async function signup({ email, password, name, companyName, account_type = 'bran
     console.warn('[Auth] Nav config init failed (non-fatal):', navErr.message);
   }
 
-  // Notify Abe
+  // Send verification email to user
+  const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
+  const verifyUrl = `${baseUrl}/auth/verify-email?token=${verifyToken}`;
+  try {
+    const { Resend } = require('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    await resend.emails.send({
+      from: `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+      to: email,
+      subject: 'Verify your Calbridge email',
+      html: `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1a1a1a;">
+          <img src="${baseUrl}/images/calbridge-logo.png" alt="Calbridge" style="height:40px;margin-bottom:24px;" />
+          <h2 style="font-size:20px;font-weight:700;margin:0 0 8px;">Verify your email</h2>
+          <p style="color:#4b5563;margin:0 0 24px;line-height:1.6;">Click the button below to verify your email and activate your Calbridge account.</p>
+          <a href="${verifyUrl}" style="display:inline-block;background:#15803d;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px;">Verify Email &rarr;</a>
+          <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;line-height:1.5;">This link expires in 48 hours. If you didn't sign up for Calbridge, you can safely ignore this email.</p>
+          <p style="color:#9ca3af;font-size:11px;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:16px;">&copy; 2026 Calbridge &middot; <a href="https://calbridge.ai" style="color:#9ca3af;">calbridge.ai</a></p>
+        </div>`,
+    });
+  } catch (emailErr) {
+    console.warn('[Auth] Verification email failed:', emailErr.message);
+    // Non-fatal — account still created, user can request resend
+  }
+
+  // Notify Abe (pending verification)
   await sendWelcomeEmailToAbe({ id, email, name }).catch(err =>
     console.warn('[Auth] Welcome email failed:', err.message)
   );
 
-  return { id, email, name, status: 'active' };
+  return { id, email, name, status: 'pending_verification' };
 }
 
 async function sendWelcomeEmailToAbe({ id, email, name }) {
@@ -113,8 +139,8 @@ async function sendWelcomeEmailToAbe({ id, email, name }) {
   await resend.emails.send({
     from: `Calbridge Portal <${process.env.EMAIL_FROM}>`,
     to: [process.env.EMAIL_CC],
-    subject: `New beta signup: ${name}`,
-    text: `${name} (${email}) just signed up for the Calbridge beta.\n\nClient ID: ${id}\n\nThey have immediate access on the free plan.\n\nView in admin panel: https://app.calbridge.ai/admin`
+    subject: `New signup (pending verification): ${name}`,
+    text: `${name} (${email}) just signed up for the Calbridge beta.\n\nClient ID: ${id}\n\nAccount status: pending_verification (awaiting email confirmation).\n\nView in admin panel: https://app.calbridge.ai/admin`
   });
 }
 
@@ -127,6 +153,7 @@ async function login({ email, password }) {
   const row = rows[0];
   const valid = await bcrypt.compare(password, row.PASSWORD_HASH);
   if (!valid) throw new Error('INVALID_CREDENTIALS');
+  if (row.STATUS === 'pending_verification') { const err = new Error('EMAIL_NOT_VERIFIED'); err.status = 403; throw err; }
   if (row.STATUS === 'pending') throw new Error('PENDING_APPROVAL');
   if (row.STATUS === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
   // Stamp last login time

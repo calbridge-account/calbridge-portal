@@ -63,12 +63,7 @@ export default function Brands() {
   }
 
   function selectBrand(brand) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('advertiserId', brand.advertiserId);
-    // Navigate to overview for that brand
-    const base = url.pathname.replace(/\/brands\/?$/, '/');
-    url.pathname = base;
-    window.location.href = url.toString();
+    window.location.href = `/analytics/?advertiserId=${encodeURIComponent(brand.advertiserId)}`;
   }
 
   if (loading) {

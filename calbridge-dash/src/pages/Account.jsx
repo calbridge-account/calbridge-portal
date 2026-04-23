@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import PageHeader from '../components/PageHeader';
 import { useUser } from '../context/UserContext';
+import { useAdvertiser } from '../context/AdvertiserContext';
 import {
   useBudgets,
   useBudgetCampaigns,
@@ -630,7 +631,9 @@ export default function Account() {
   const [connStatus, setConnStatus]   = useState(null);
   const [loading, setLoading]         = useState(true);
   const [toast, setToast]             = useState(null);
-  const { hasRole } = useUser() || { hasRole: () => true };
+  const { hasRole, user } = useUser() || { hasRole: () => true, user: null };
+  const { isAgencyView } = useAdvertiser() || {};
+  const isAgency = user?.accountType === 'agency' || user?.account_type === 'agency';
   const canManage = hasRole('manager');
 
   // Profile form state
@@ -810,6 +813,11 @@ export default function Account() {
 
   return (
     <div className="max-w-2xl">
+      {isAgency && isAgencyView && (
+        <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          <strong>Agency Account Settings</strong> — To manage connections, logo, and users for a specific brand, select that brand from the sidebar first.
+        </div>
+      )}
       <PageHeader title="Account" subtitle="Manage your profile, connections, and team" />
 
       {/* ── Tab navigation ───────────────────────────────────────────────── */}

@@ -31,15 +31,31 @@ form.addEventListener('submit', async (e) => {
         btn.textContent = isSignup ? 'Create Account' : 'Sign In';
         return;
       }
+      if (data.error === 'EMAIL_NOT_VERIFIED') {
+        errorEl.textContent = 'Please verify your email before signing in. Check your inbox for a verification link.';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        return;
+      }
       throw new Error(data.message || data.error || 'Something went wrong');
     }
     if (isSignup) {
-      // Route by account type
-      if (data.client?.accountType === 'agency') {
-        window.location.href = '/analytics/brands';
-      } else {
-        window.location.href = '/brand-setup.html';
-      }
+      // Show "check your email" instead of redirecting — account is pending_verification
+      const email = body.email;
+      form.style.display = 'none';
+      errorEl.style.background = '#f0fdf4';
+      errorEl.style.color = '#15803d';
+      errorEl.style.border = '1px solid #bbf7d0';
+      errorEl.style.borderRadius = '8px';
+      errorEl.style.padding = '16px';
+      errorEl.innerHTML = `
+        <strong>Check your email!</strong><br>
+        We sent a verification link to <strong>${email}</strong>.<br>
+        <span style="font-size:12px;color:#6b7280;margin-top:4px;display:block;">Didn't get it? Check your spam folder or <a href="mailto:ash@teamcalbridge.com?subject=Resend verification email&body=Please resend my verification email. Account: ${email}" style="color:#15803d;">contact us to resend</a>.</span>
+      `;
+      errorEl.classList.remove('hidden');
+      return; // Don't redirect
     } else {
       // Smart post-login routing by account type
       const params = new URLSearchParams(window.location.search);

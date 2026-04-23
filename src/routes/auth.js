@@ -15,11 +15,14 @@ router.post('/signup', async (req, res, next) => {
     }
     // Pass companyName and account_type through to authService
     const client = await authService.signup({ email, password, name, companyName, account_type: account_type || 'brand' });
-    req.session.clientId = client.id;
-    res.status(201).json({ message: 'Account created', client: { id: client.id, email: client.email, name: client.name, accountType: account_type || 'brand' } });
+    // Don't set session — account is pending_verification until email confirmed
+    res.status(201).json({ message: 'Account created', status: 'pending_verification', client: { id: client.id, email: client.email, name: client.name, accountType: account_type || 'brand' } });
 
-    // Send welcome email (non-blocking — don't fail signup if email fails)
-    setImmediate(async () => {
+    // Send welcome email to user is now handled in authService.signup (verification email)
+    // Still send the brand-setup onboarding email non-blocking after verification —
+    // keeping this block but it will only fire after the account is later activated.
+    // For now we suppress it on signup (user hasn't verified yet).
+    if (false) setImmediate(async () => {
       try {
         const { Resend } = require('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
@@ -57,7 +60,7 @@ router.post('/signup', async (req, res, next) => {
       } catch (emailErr) {
         console.error('[Auth] Welcome email failed (non-fatal):', emailErr.message);
       }
-    });
+    }); // end if(false)
   } catch (err) {
     next(err);
   }
@@ -141,6 +144,9 @@ router.post('/login', async (req, res, next) => {
     }
     if (err.message === 'ACCOUNT_SUSPENDED') {
       return res.status(403).json({ error: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended. Please contact support.' });
+    }
+    if (err.message === 'EMAIL_NOT_VERIFIED') {
+      return res.status(403).json({ error: 'EMAIL_NOT_VERIFIED', message: 'Please verify your email before signing in. Check your inbox for a verification link.' });
     }
     next(err);
   }
@@ -283,6 +289,53 @@ router.post('/reset-password', async (req, res, next) => {
 
     res.json({ message: 'Password reset successfully. You can now log in.' });
   } catch (err) { next(err); }
+});
+
+// GET /auth/verify-email?token=xxx
+router.get('/verify-email', async (req, res, next) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.redirect('/index.html?error=invalid_token');
+
+    const rows = await query(
+      `SELECT client_id, email_verification_expires_at, status
+       FROM clients
+       WHERE email_verification_token = ?
+         AND status = 'pending_verification'`,
+      [token]
+    );
+
+    if (!rows.length) {
+      return res.redirect('/index.html?error=invalid_token');
+    }
+
+    const row = rows[0];
+    const expires = new Date(row.EMAIL_VERIFICATION_EXPIRES_AT || row.email_verification_expires_at);
+    if (expires < new Date()) {
+      return res.redirect('/index.html?error=token_expired');
+    }
+
+    const clientId = row.CLIENT_ID || row.client_id;
+
+    // Activate account
+    await query(
+      `UPDATE clients
+       SET status = 'active',
+           email_verified_at = CURRENT_TIMESTAMP(),
+           email_verification_token = NULL,
+           approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP())
+       WHERE client_id = ?`,
+      [clientId]
+    );
+
+    // Auto-login: set session
+    req.session.clientId = clientId;
+
+    // Redirect to app — Welcome modal will fire since onboarding_completed is false
+    res.redirect('/analytics/');
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

@@ -133,6 +133,19 @@ const JOB_HANDLERS = {
   detect_anomalies:          () => buildCanonical().detectAnomalies({ triggeredBy: 'cron' }),
   generate_operator_summary: () => buildCanonical().generateOperatorSummary({ triggeredBy: 'cron' }),
 
+  // ── Daily cleanup — expire unverified accounts after 48h ────────────────────
+  expire_unverified_accounts: () => {
+    const { query: _q } = require('../services/snowflakeService');
+    return _q(`
+      DELETE FROM CALBRIDGE_PROD.APP.clients
+      WHERE status = 'pending_verification'
+        AND email_verification_expires_at < CURRENT_TIMESTAMP()
+        AND created_at < DATEADD('hour', -48, CURRENT_TIMESTAMP())
+    `)
+    .then(r => console.log('[cleanup] expired unverified accounts:', r[0]?.['number of rows deleted'] ?? 0))
+    .catch(e => console.warn('[cleanup] expire_unverified_accounts failed:', e.message));
+  },
+
   // ── Daily cleanup — ads_report_queue TTL (keep 7 days, delete older completed) ─
   cleanup_report_queue:         () => {
     const { query: _q } = require('../services/snowflakeService');
@@ -410,6 +423,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'cleanup_report_queue',
     expr:  '30 3 * * *',  // 03:30 UTC daily
+  },
+  {
+    jobId: 'expire_unverified_accounts',
+    expr:  '0 3 * * *',   // daily 03:00 UTC
   },
   {
     jobId: 'expire_stale_actions',
