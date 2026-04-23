@@ -813,11 +813,40 @@ export default function Account() {
 
   return (
     <div className="max-w-2xl">
-      {isAgency && isAgencyView && (
-        <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-          <strong>Agency Account Settings</strong> — To manage connections, logo, and users for a specific brand, select that brand from the sidebar first.
-        </div>
-      )}
+      {/* Agency view — completely different layout */}
+      {isAgency && isAgencyView ? (
+        <AgencyAccountView
+          user={user}
+          profile={profile}
+          loading={loading}
+          logoUrl={logoUrl}
+          uploadingLogo={uploadingLogo}
+          logoInputRef={logoInputRef}
+          uploadLogo={uploadLogo}
+          deleteLogo={deleteLogo}
+          companyName={companyName}
+          setCompanyName={setCompanyName}
+          contactName={contactName}
+          setContactName={setContactName}
+          saveProfile={saveProfile}
+          savingProfile={savingProfile}
+          showToast={showToast}
+          canManage={canManage}
+          inputClass={inputClass}
+          btnPrimary={btnPrimary}
+          team={team}
+          newEmail={newEmail}
+          setNewEmail={setNewEmail}
+          newName={newName}
+          setNewMemberName={setNewMemberName}
+          newRole={newRole}
+          setNewRole={setNewRole}
+          addingMember={addingMember}
+          addTeamMember={addTeamMember}
+          removeTeamMember={removeTeamMember}
+        />
+      ) : (<>
+
       <PageHeader title="Account" subtitle="Manage your profile, connections, and team" />
 
       {/* ── Tab navigation ───────────────────────────────────────────────── */}
@@ -1014,6 +1043,142 @@ export default function Account() {
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
+
+      </> /* end brand view */
+      )} {/* end isAgency && isAgencyView ternary */}
+    </div>
+  );
+}
+
+// ─── Agency-only Account layout ───────────────────────────────────────────────
+
+function AgencyAccountView({
+  profile, loading,
+  logoUrl, uploadingLogo, logoInputRef, uploadLogo, deleteLogo,
+  companyName, setCompanyName, contactName, setContactName,
+  saveProfile, savingProfile,
+  showToast, canManage, inputClass, btnPrimary,
+  team, newEmail, setNewEmail, newName, setNewMemberName,
+  newRole, setNewRole, addingMember, addTeamMember, removeTeamMember,
+}) {
+  return (
+    <div className="max-w-2xl">
+      <PageHeader
+        title="Agency Settings"
+        subtitle="Manage your agency account, billing, and team"
+      />
+
+      {/* ── Agency Settings (name + logo) ─────────────────────────────────── */}
+      {canManage && (
+        <Section title="🏢 Agency Settings">
+          <div className="space-y-4">
+            <form onSubmit={saveProfile} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Agency Name</label>
+                <input
+                  value={companyName}
+                  onChange={e => setCompanyName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Acme Agency LLC"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Contact Name</label>
+                <input
+                  value={contactName}
+                  onChange={e => setContactName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Jane Smith"
+                />
+              </div>
+              <button type="submit" disabled={savingProfile} className={btnPrimary}>
+                {savingProfile ? 'Saving…' : 'Save'}
+              </button>
+            </form>
+
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-medium text-gray-500 mb-2">Agency Logo</p>
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {logoUrl
+                    ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+                    : <span className="text-xs text-gray-400 text-center px-1">No logo</span>
+                  }
+                </div>
+                <div className="space-y-1">
+                  <input type="file" ref={logoInputRef} accept="image/*" onChange={uploadLogo} className="hidden" />
+                  <button
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploadingLogo}
+                    className={btnPrimary}
+                  >
+                    {uploadingLogo ? 'Uploading…' : 'Upload Logo'}
+                  </button>
+                  {logoUrl && (
+                    <button onClick={deleteLogo} className="ml-2 text-sm text-red-600 hover:text-red-700">
+                      Remove
+                    </button>
+                  )}
+                  <p className="text-xs text-gray-400">Appears in the sidebar and reports.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ── Billing ───────────────────────────────────────────────────────── */}
+      <Section title="💳 Billing & Plan">
+        <BillingSection showToast={showToast} />
+      </Section>
+
+      {/* ── Team ──────────────────────────────────────────────────────────── */}
+      <Section title="👥 Team Members">
+        {team.length > 0 && (
+          <div className="mb-4 divide-y divide-gray-100">
+            {team.map(m => (
+              <div key={m.id} className="flex items-center justify-between py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{m.name || m.email}</p>
+                  <p className="text-xs text-gray-400">{m.email} · <span className="capitalize">{m.role}</span></p>
+                </div>
+                {canManage && (
+                  <button onClick={() => removeTeamMember(m.id)} className="text-xs text-red-500 hover:text-red-700">
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {team.length === 0 && <p className="text-sm text-gray-400 mb-3">No team members yet.</p>}
+        {canManage && (
+          <form onSubmit={addTeamMember} className="space-y-2 pt-2 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-500 mb-2">Add team member</p>
+            <div className="flex gap-2">
+              <input value={newName}  onChange={e => setNewMemberName(e.target.value)} className={`${inputClass} flex-1`} placeholder="Name" />
+              <input value={newEmail} onChange={e => setNewEmail(e.target.value)}      className={`${inputClass} flex-1`} placeholder="Email" type="email" required />
+            </div>
+            <div className="flex gap-2">
+              <select value={newRole} onChange={e => setNewRole(e.target.value)} className={`${inputClass} flex-1`}>
+                <option value="viewer">Viewer</option>
+                <option value="analyst">Analyst</option>
+                <option value="manager">Manager</option>
+              </select>
+              <button type="submit" disabled={addingMember || !newEmail} className={`${btnPrimary} flex-shrink-0`}>
+                {addingMember ? 'Adding…' : 'Add'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Section>
+
+      {/* ── Sign out ──────────────────────────────────────────────────────── */}
+      <div className="pt-2">
+        <a href="/auth/logout" className="text-sm text-red-600 hover:text-red-700 font-medium">
+          Sign out
+        </a>
+      </div>
     </div>
   );
 }
