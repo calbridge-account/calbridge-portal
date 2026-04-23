@@ -78,7 +78,7 @@ export default function WelcomeModal({ onDismiss }) {
   async function handlePlanSelect(planId) {
     if (planId === 'free') {
       await markOnboardingComplete();
-      onDismiss();
+      window.location.href = '/analytics/account';
       return;
     }
 

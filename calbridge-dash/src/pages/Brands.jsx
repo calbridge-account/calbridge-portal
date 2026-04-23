@@ -140,14 +140,7 @@ export default function Brands() {
                   <div className="text-sm font-semibold text-gray-800 truncate group-hover:text-green-800">{brand.brandName}</div>
                   <div className="text-xs text-gray-400">{brand.marketplace}</div>
                 </div>
-                <div className="ml-auto">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    brand.plan === 'pro' || brand.plan === 'agency' ? 'bg-purple-50 text-purple-700' :
-                    brand.plan === 'growth' ? 'bg-blue-50 text-blue-700' :
-                    brand.plan === 'starter' ? 'bg-green-50 text-green-700' :
-                    'bg-gray-100 text-gray-500'
-                  }`}>{brand.plan || 'free'}</span>
-                </div>
+
               </div>
 
               {/* Connection status */}

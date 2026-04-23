@@ -123,7 +123,11 @@ export default function Overview() {
         subtitle="CyberPower — Amazon Vendor Analytics"
       />
 
-      {isError && <ErrorState message={error?.message} />}
+      {isError && (
+        error?.message?.toLowerCase().includes('upgrade') || error?.message?.toLowerCase().includes('plan')
+          ? <div className="text-center py-16 text-gray-500 text-sm">Select a brand from the sidebar to view performance data.</div>
+          : <ErrorState message={error?.message} />
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">

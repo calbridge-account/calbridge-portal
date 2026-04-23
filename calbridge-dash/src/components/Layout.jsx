@@ -3,7 +3,6 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useAdvertiser } from '../context/AdvertiserContext';
 import DateRangePicker from './DateRangePicker';
-import AdvertiserSelector from './AdvertiserSelector';
 import WelcomeModal from './WelcomeModal';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
@@ -44,12 +43,6 @@ const NAV = [
 // ─── Agency nav (minimal — no brand selected) ────────────────────────────────
 
 const AGENCY_NAV = [
-  {
-    group: null,
-    items: [
-      { path: '/', label: 'Overview', emoji: '📊', minRole: 'viewer' },
-    ],
-  },
   {
     group: null,
     items: [
@@ -384,9 +377,6 @@ function TopBar() {
       <h1 className="text-base font-semibold text-gray-800 flex-1 truncate">
         {pageTitle}
       </h1>
-      <div className="flex-shrink-0">
-        <AdvertiserSelector />
-      </div>
       <div className="flex-shrink-0">
         <DateRangePicker />
       </div>

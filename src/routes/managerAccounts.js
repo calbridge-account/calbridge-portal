@@ -1195,7 +1195,7 @@ agencyRouter.get('/brands', async (req, res) => {
     const managers = await query(
       `SELECT m.manager_id, m.name, m.subscription_plan, m.subscription_status,
               m.created_at, c.client_id, c.email, c.status AS client_status,
-              a.advertiser_id, a.marketplace, a.logo_url
+              a.advertiser_id, a.marketplace, COALESCE(c.logo_url, a.logo_url) AS logo_url
        FROM CALBRIDGE_PROD.APP.manager_accounts m
        LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
        LEFT JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = map.client_id
