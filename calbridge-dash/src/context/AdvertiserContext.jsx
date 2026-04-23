@@ -21,12 +21,18 @@ export function AdvertiserProvider({ children }) {
     if (hasFetched.current) return;
     hasFetched.current = true;
 
-    // Check if a specific advertiserId was requested via query param (from selector switch)
+    // Resolve which advertiser to activate:
+    // 1. URL param (explicit switch from brand card / dropdown)
+    // 2. sessionStorage (persisted from previous selection, survives page reload)
+    // 3. null (default to All Brands for agency, or server isCurrent for brand)
     const params = new URLSearchParams(window.location.search);
-    const requestedId = params.get('advertiserId');
+    const urlParam = params.get('advertiserId');
+    const stored   = sessionStorage.getItem('calbridge_advertiser_id');
+    // Agency: only use stored value if it's a real brand (not 'all')
+    const requestedId = urlParam || (stored && stored !== 'all' ? stored : null);
 
     // Build the list URL — pass advertiserId as hint so server can update session
-    const listUrl = requestedId
+    const listUrl = requestedId && requestedId !== 'all'
       ? `/manager/advertisers/list?advertiserId=${encodeURIComponent(requestedId)}`
       : '/manager/advertisers/list';
 
@@ -67,6 +73,13 @@ export function AdvertiserProvider({ children }) {
         }
 
         setCurrent(selected);
+
+        // Persist selection in sessionStorage so it survives page reloads
+        if (selected?.advertiserId && selected.advertiserId !== 'all') {
+          sessionStorage.setItem('calbridge_advertiser_id', selected.advertiserId);
+        } else {
+          sessionStorage.removeItem('calbridge_advertiser_id');
+        }
 
         // Strip ?advertiserId from URL bar without triggering a reload
         if (requestedId && window.history.replaceState) {

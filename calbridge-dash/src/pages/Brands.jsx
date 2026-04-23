@@ -63,6 +63,7 @@ export default function Brands() {
   }
 
   function selectBrand(brand) {
+    sessionStorage.setItem('calbridge_advertiser_id', brand.advertiserId);
     window.location.href = `/analytics/?advertiserId=${encodeURIComponent(brand.advertiserId)}`;
   }
 

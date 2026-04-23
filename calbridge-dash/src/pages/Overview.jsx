@@ -119,8 +119,8 @@ export default function Overview() {
         </div>
       )}
       <PageHeader
-        title="Overview Dashboard"
-        subtitle="CyberPower — Amazon Vendor Analytics"
+        title="Overview"
+        subtitle="Performance summary across all connected channels"
       />
 
       {isError && (
