@@ -1290,9 +1290,11 @@ agencyRouter.post('/switch-brand', async (req, res) => {
     req.session.planCache = null; // force re-fetch of plan for the brand account
 
     // Explicitly save session before responding so the client redirect lands on the new session
+    const switchedBrandName = rows[0].NAME || rows[0].name;
     req.session.save((err) => {
       if (err) console.warn('[switch-brand] session save error:', err.message);
-      res.json({ ok: true, brandClientId, brandName: rows[0].NAME || rows[0].name });
+      console.log(`[switch-brand] ✅ Session switched to ${switchedBrandName} (${brandClientId.substring(0,8)})`);
+      res.json({ ok: true, brandClientId, brandName: switchedBrandName });
     });
   } catch (err) {
     console.error('[POST /agency/switch-brand]', err);
