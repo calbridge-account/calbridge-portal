@@ -1110,6 +1110,19 @@ agencyRouter.post('/brands', async (req, res) => {
     const { brandName, contactEmail, marketplace = 'US' } = req.body;
     if (!brandName) return res.status(400).json({ error: 'brandName is required' });
 
+    // Inherit agency plan so brand gets same feature access
+    const agencyPlanRows = await query(
+      'SELECT subscription_plan, subscription_status FROM CALBRIDGE_PROD.APP.agency_accounts WHERE agency_id = ?',
+      [agencyId]
+    ).catch(() => []);
+    // Fall back to manager_accounts plan if agency_accounts doesn't have it
+    const agencyMgrRows = agencyPlanRows.length ? [] : await query(
+      'SELECT subscription_plan, subscription_status FROM CALBRIDGE_PROD.APP.manager_accounts WHERE agency_id = ? AND subscription_plan IS NOT NULL ORDER BY created_at LIMIT 1',
+      [agencyId]
+    ).catch(() => []);
+    const inheritedPlan   = agencyPlanRows[0]?.SUBSCRIPTION_PLAN   || agencyMgrRows[0]?.SUBSCRIPTION_PLAN   || 'agency';
+    const inheritedStatus = agencyPlanRows[0]?.SUBSCRIPTION_STATUS || agencyMgrRows[0]?.SUBSCRIPTION_STATUS || 'active';
+
     const { v4: uuidv4 } = require('uuid');
     const managerId    = uuidv4();
     const advertiserId = uuidv4();
@@ -1117,12 +1130,12 @@ agencyRouter.post('/brands', async (req, res) => {
     const userId       = uuidv4();
     const hash         = require('crypto').randomBytes(32).toString('hex');
 
-    // 1. Create manager_account under agency
+    // 1. Create manager_account under agency — inherit agency plan
     await query(
       `INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
         (manager_id, name, agency_id, subscription_plan, subscription_status, created_at)
-       VALUES (?, ?, ?, 'free', 'active', CURRENT_TIMESTAMP())`,
-      [managerId, brandName, agencyId]
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP())`,
+      [managerId, brandName, agencyId, inheritedPlan, inheritedStatus]
     );
 
     // 2. Create advertiser_account
@@ -1133,13 +1146,14 @@ agencyRouter.post('/brands', async (req, res) => {
       [advertiserId, managerId, `${brandName} - ${marketplace}`, marketplace]
     );
 
-    // 3. Create clients row (brand login account)
+    // 3. Create clients row (brand login account) — inherit agency plan
     const email = contactEmail || `brand-${managerId.substring(0,8)}@calbridge.internal`;
     await query(
       `INSERT INTO CALBRIDGE_PROD.APP.clients
-        (client_id, email, name, client_name, client_type, password_hash, status, created_at)
-       VALUES (?, ?, ?, ?, 'brand', ?, 'active', CURRENT_TIMESTAMP())`,
-      [clientId, email, brandName, brandName, hash]
+        (client_id, email, name, client_name, client_type, password_hash, status,
+         subscription_plan, subscription_status, account_type, created_at)
+       VALUES (?, ?, ?, ?, 'brand', ?, 'active', ?, ?, 'brand', CURRENT_TIMESTAMP())`,
+      [clientId, email, brandName, brandName, hash, inheritedPlan, inheritedStatus]
     );
 
     // 4. Create migration map
