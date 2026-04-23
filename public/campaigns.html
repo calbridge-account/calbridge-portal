@@ -11,6 +11,10 @@
 
   <aside class="sidebar">
     <div class="sidebar-logo"><img id="brand-logo" src="/images/calbridge-logo.png" alt="Calbridge" /></div>
+    <!-- Brand Switcher (hidden by default, shown via JS when multiple brands exist) -->
+    <div id="brand-switcher" style="display:none;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:4px;">
+      <select id="brand-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.1);color:#fff;font-size:12px;cursor:pointer;"></select>
+    </div>
     <nav class="sidebar-nav">
       <a href="/dashboard.html" class="nav-item">📊 Overview</a>
       <a href="/advertising.html" class="nav-item active">📢 Advertising</a>

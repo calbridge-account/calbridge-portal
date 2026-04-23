@@ -123,8 +123,10 @@ router.get('/clients', requireAdmin, async (req, res, next) => {
       SELECT
         c.client_id, c.email, c.name, c.company_name, c.status,
         c.created_at, c.approved_at, c.last_login_at, c.linked_client_id,
+        c.subscription_plan, c.subscription_status,
         map.manager_id,
-        m.name AS manager_name
+        m.name AS manager_name,
+        m.subscription_plan AS manager_plan, m.subscription_status AS manager_status
       FROM clients c
       LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.client_id = c.client_id
       LEFT JOIN CALBRIDGE_PROD.APP.manager_accounts m ON m.manager_id = map.manager_id
@@ -144,6 +146,9 @@ router.get('/clients', requireAdmin, async (req, res, next) => {
       linkedClientId: r.LINKED_CLIENT_ID || null,
       managerId:     r.MANAGER_ID || null,
       managerName:   r.MANAGER_NAME || null,
+      // Prefer manager_accounts plan (authoritative for Phase3); fall back to clients table
+      subscriptionPlan:   r.MANAGER_PLAN   || r.SUBSCRIPTION_PLAN   || null,
+      subscriptionStatus: r.MANAGER_STATUS || r.SUBSCRIPTION_STATUS || null,
     })));
   } catch (err) { next(err); }
 });
@@ -617,11 +622,12 @@ router.post('/managers/:managerId/plan', requireAdmin, async (req, res, next) =>
     const { managerId } = req.params;
     const { plan, status } = req.body;
     if (!plan) return res.status(400).json({ error: 'plan is required' });
-    const validPlans   = ['starter', 'growth', 'pro', 'enterprise', 'agency'];
-    const validStatuses = ['active', 'trialing', 'past_due', 'canceled', 'paused'];
+    const validPlans    = ['free', 'starter', 'growth', 'pro', 'agency'];
+    const validStatuses = ['active', 'trialing', 'past_due', 'canceled', 'paused', 'cancelled'];
     if (!validPlans.includes(plan)) return res.status(400).json({ error: `plan must be one of: ${validPlans.join(', ')}` });
     if (status && !validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
 
+    // 1. Update manager_accounts (Phase 3 clients)
     await query(`
       UPDATE CALBRIDGE_PROD.APP.manager_accounts
       SET subscription_plan = ?
@@ -629,7 +635,59 @@ router.post('/managers/:managerId/plan', requireAdmin, async (req, res, next) =>
       WHERE manager_id = ?
     `, status ? [plan, status, managerId] : [plan, managerId]);
 
-    res.json({ ok: true, managerId, plan, status });
+    // 2. Update clients table — handles both pre-Phase3 (managerId IS clientId)
+    //    and Phase3 clients (look up via migration map)
+    const clientIds = new Set();
+    // Direct match: managerId might be a clientId
+    clientIds.add(managerId);
+    // Migration map lookup
+    try {
+      const mapRows = await query(
+        'SELECT client_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE manager_id = ?',
+        [managerId]
+      );
+      mapRows.forEach(r => clientIds.add(r.CLIENT_ID || r.client_id));
+    } catch (e) { /* non-fatal */ }
+
+    for (const clientId of clientIds) {
+      await query(`
+        UPDATE CALBRIDGE_PROD.APP.clients
+        SET subscription_plan = ?
+            ${status ? ', subscription_status = ?, approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP())' : ''}
+        WHERE client_id = ?
+      `, status ? [plan, status, clientId] : [plan, clientId]).catch(() => {});
+    }
+
+    // 3. Create manager_accounts row if it doesn't exist (for pre-Phase3 clients)
+    try {
+      const exists = await query(
+        'SELECT manager_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
+        [managerId]
+      );
+      if (!exists.length) {
+        const clientRow = await query(
+          'SELECT name, company_name FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+          [managerId]
+        );
+        const clientName = clientRow[0]?.COMPANY_NAME || clientRow[0]?.company_name ||
+                           clientRow[0]?.NAME || clientRow[0]?.name || managerId;
+        await query(`
+          INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
+            (manager_id, name, subscription_plan, subscription_status, created_at)
+          VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP())
+        `, [managerId, clientName, plan, status || 'active']).catch(() => {});
+        // Also create migration map entry
+        await query(`
+          INSERT INTO CALBRIDGE_PROD.APP.client_migration_map (client_id, manager_id, advertiser_id)
+          SELECT ?, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?
+          )
+        `, [managerId, managerId, managerId, managerId]).catch(() => {});
+      }
+    } catch (e) { /* non-fatal */ }
+
+    res.json({ ok: true, managerId, plan, status, clientsUpdated: [...clientIds] });
   } catch (err) { next(err); }
 });
 

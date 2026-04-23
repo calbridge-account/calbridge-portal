@@ -173,13 +173,14 @@ function renderClients(search) {
         : '<span style="color:var(--gray-300);font-size:12px">— not mapped</span>'}
       </td>
       <td><span class="status-pill pill-${c.status || 'active'}">${c.status || 'active'}</span></td>
-      <td>—</td>
+      <td>${c.subscriptionPlan ? `<span class="status-pill" style="background:var(--brand-light);color:var(--brand)">${c.subscriptionPlan}</span>` : '<span style="color:var(--gray-300);font-size:12px">—</span>'}</td>
       <td>${c.lastLoginAt ? new Date(c.lastLoginAt).toLocaleString() : '—'}</td>
       <td>${c.createdAt  ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
       <td>
         ${['pending','invited'].includes(c.status) ? `<button class="action-btn btn-approve"   onclick="approveClient('${c.clientId}','${c.email}')">Approve</button>` : ''}
         ${c.status === 'active'    ? `<button class="action-btn btn-suspend"   onclick="suspendClient('${c.clientId}','${c.email}')">Suspend</button>`   : ''}
         ${c.status === 'suspended' ? `<button class="action-btn btn-unsuspend" onclick="approveClient('${c.clientId}','${c.email}')">Reinstate</button>` : ''}
+        <button class="action-btn btn-approve" onclick="showUpdatePlan('${c.managerId || c.clientId}','${c.name || c.companyName}','${c.subscriptionPlan || ''}','${c.subscriptionStatus || ''}')">✏️ Plan</button>
       </td>
     </tr>
   `).join('');
@@ -606,7 +607,7 @@ function renderManagersTable() {
         <td style="font-size:13px">${m.clientEmail || '<span style="color:var(--gray-300)">— no mapping</span>'}</td>
         <td style="text-align:center">${m.advertiserCount}</td>
         <td>
-          <button class="action-btn btn-approve" onclick="showUpdatePlan('${m.managerId}','${m.name}','${m.subscriptionPlan || ''}','${m.subscriptionStatus || ''}')">✏️ Plan</button>
+          <button class="action-btn btn-approve" onclick="showUpdatePlan('${m.managerId || m.clientId}','${m.name}','${m.subscriptionPlan || ''}','${m.subscriptionStatus || ''}')">✏️ Plan</button>
         </td>
       </tr>
     `;

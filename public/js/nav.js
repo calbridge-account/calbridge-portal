@@ -4,6 +4,7 @@
  * - Collapse/expand toggle on desktop
  * - Persists collapse state in localStorage
  * - Brand logo switching: swaps sidebar logo to active advertiser's logo
+ * - Brand switcher dropdown: appears when user has >1 advertiser (agency users)
  * - Geo/marketplace selector: appears when advertiser has >1 marketplace
  */
 (function() {
@@ -68,6 +69,55 @@
       window.__activeBrand = null;
     }
   };
+
+  // ── Brand switcher: load and render advertiser list ───────────────────────
+  // Fetches /manager/advertisers/list and, if there are multiple brands,
+  // populates and shows the #brand-switcher / #brand-select elements.
+  // Hidden by default; shown only when >1 advertiser is returned.
+  async function loadBrandSwitcher() {
+    try {
+      const res = await fetch('/manager/advertisers/list', { credentials: 'include' });
+      if (!res.ok) return;
+      const advertisers = await res.json();
+
+      if (!advertisers || advertisers.length <= 1) return; // Single brand — no switcher needed
+
+      const switcher = document.getElementById('brand-switcher');
+      const select   = document.getElementById('brand-select');
+      if (!switcher || !select) return;
+
+      // Populate options
+      select.innerHTML = advertisers.map(function(a) {
+        var logo = (a.logoUrl || '').replace(/"/g, '&quot;');
+        var name = (a.advertiserName || '').replace(/"/g, '&quot;');
+        var label = a.advertiserName || 'Brand';
+        return '<option value="' + a.advertiserId + '" data-logo="' + logo + '" data-name="' + name + '">' + label + '</option>';
+      }).join('');
+
+      // Set current active advertiser
+      var currentId = (window.__activeBrand && window.__activeBrand.advertiserId)
+        || (advertisers.find(function(a) { return a.isCurrent; }) || {}).advertiserId;
+      if (currentId) select.value = currentId;
+
+      // Show the switcher
+      switcher.style.display = 'block';
+
+      // Handle selection change
+      select.addEventListener('change', async function() {
+        var opt            = this.options[this.selectedIndex];
+        var advertiserId   = this.value;
+        var advertiserName = opt.getAttribute('data-name');
+        var logoUrl        = opt.getAttribute('data-logo');
+
+        await window.__switchAdvertiser(advertiserId, advertiserName, logoUrl);
+
+        // Reload page to re-scope all data to the newly selected brand
+        window.location.reload();
+      });
+    } catch (e) {
+      // Non-fatal — brand switcher is progressive enhancement
+    }
+  }
 
   // ── Geo / Marketplace Selector ──────────────────────────────────────────
   // Fetches the available marketplaces for the active advertiser and populates
@@ -192,9 +242,10 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    // Load brand logo, geo selector, and nav-config locks after DOM is ready
-    loadActiveBrand();
+  document.addEventListener('DOMContentLoaded', async () => {
+    // Load brand logo, brand switcher, geo selector, and nav-config locks after DOM is ready
+    await loadActiveBrand();
+    await loadBrandSwitcher();
     loadGeoSelector();
     applyNavConfig();
     const sidebar  = document.querySelector('.sidebar');
