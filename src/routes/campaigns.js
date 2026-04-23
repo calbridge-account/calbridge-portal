@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
+const { requirePlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { v4: uuidv4 } = require('uuid');
 const { resolveClientId } = require('../services/advertiserResolver');
@@ -178,7 +179,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
  * POST /campaigns/:id/pause
  * GATED: Queue a pause action.
  */
-router.post('/:id/pause', requireAuth, async (req, res, next) => {
+router.post('/:id/pause', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const clientId = await resolveClientId(req);
@@ -196,7 +197,7 @@ router.post('/:id/pause', requireAuth, async (req, res, next) => {
  * POST /campaigns/:id/resume
  * GATED: Queue a resume action.
  */
-router.post('/:id/resume', requireAuth, async (req, res, next) => {
+router.post('/:id/resume', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const clientId = await resolveClientId(req);
@@ -215,7 +216,7 @@ router.post('/:id/resume', requireAuth, async (req, res, next) => {
  * GATED: Queue a budget update.
  * Body: { budget: number }
  */
-router.patch('/:id/budget', requireAuth, async (req, res, next) => {
+router.patch('/:id/budget', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { budget } = req.body;
@@ -238,7 +239,7 @@ router.patch('/:id/budget', requireAuth, async (req, res, next) => {
  * GATED: Queue a bid update.
  * Body: { bid: number }
  */
-router.patch('/:id/bids', requireAuth, async (req, res, next) => {
+router.patch('/:id/bids', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { bid } = req.body;

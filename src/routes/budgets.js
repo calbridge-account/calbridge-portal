@@ -17,6 +17,8 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../services/snowflakeService');
 const { requireAuth } = require('../middleware/requireAuth');
+const { requirePlan } = require('../middleware/requirePlan');
+const { planDataWindow } = require('../middleware/planDataWindow');
 
 const SCHEMA = 'CALBRIDGE_PROD.APP';
 
@@ -31,8 +33,9 @@ function n(val) {
   return val == null ? 0 : Number(val);
 }
 
-// All budget routes require auth
+// All budget routes require auth; data-heavy reads also enforce plan data window
 router.use(requireAuth);
+router.use(planDataWindow);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /budgets/campaigns/available
@@ -496,7 +499,7 @@ router.get('/:budgetId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /budgets — create
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
   const { name, total_amount, currency = 'USD', period_start, period_end, notes } = req.body;
 
@@ -545,7 +548,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /budgets/:budgetId — update
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:budgetId/campaigns', async (req, res) => {
+router.put('/:budgetId/campaigns', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
   const { budgetId } = req.params;
   const { campaigns = [] } = req.body;
@@ -592,7 +595,7 @@ router.put('/:budgetId/campaigns', async (req, res) => {
   }
 });
 
-router.put('/:budgetId', async (req, res) => {
+router.put('/:budgetId', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
   const { budgetId } = req.params;
   const { name, total_amount, currency, period_start, period_end, notes } = req.body;
@@ -644,7 +647,7 @@ router.put('/:budgetId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /budgets/:budgetId
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:budgetId', async (req, res) => {
+router.delete('/:budgetId', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
   const { budgetId } = req.params;
 

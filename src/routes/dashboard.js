@@ -9,6 +9,7 @@ const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, invalidateClient, DEFAULT_TTL_MS } = require('../services/queryCache');
 const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
 const { getPlanLimits } = require('../middleware/requirePlan');
+const { planDataWindow } = require('../middleware/planDataWindow');
 const { compute: computeMetric } = require('../config/metrics');
 const { responseCache } = require('../middleware/responseCache');
 
@@ -136,7 +137,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 // GET /dashboard/summary?days=30&brandId=<optional>
 // Overview KPIs: total retail sales, ad attributed sales, ad spend, total ROAS
 // brandId: optional — if omitted, uses client's first active brand
-router.get('/summary', requireAuth, async (req, res, next) => {
+router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -408,7 +409,7 @@ router.get('/asin/:asin', requireAuth, async (req, res, next) => {
 
 // GET /dashboard/sales-performance?days=30
 // Top ASINs by revenue, daily sales trend, channel split
-router.get('/sales-performance', requireAuth, async (req, res, next) => {
+router.get('/sales-performance', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -629,7 +630,7 @@ router.post('/sync', requireAuth, async (req, res, next) => {
 // ordered revenue from vendor_purchase_orders only when shipped data is absent.
 // This is the truest measure of advertising efficiency for the whole business.
 // ---------------------------------------------------------------------------
-router.get('/tacos', requireAuth, async (req, res, next) => {
+router.get('/tacos', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -712,7 +713,7 @@ router.get('/tacos', requireAuth, async (req, res, next) => {
 //   - Projected monthly revenue (current month run-rate)
 //   - Projected annual revenue (annualized from trend)
 // ---------------------------------------------------------------------------
-router.get('/forecast', requireAuth, async (req, res, next) => {
+router.get('/forecast', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 90;
     const startDate = req.query.startDate || null;
@@ -814,7 +815,7 @@ router.get('/forecast', requireAuth, async (req, res, next) => {
 // Actual spend-to-date vs expected spend-to-date.
 // Flag over-pacing (>110%) and under-pacing (<70%).
 // ---------------------------------------------------------------------------
-router.get('/budget-pacing', requireAuth, async (req, res, next) => {
+router.get('/budget-pacing', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
     const now         = new Date();
@@ -941,7 +942,7 @@ router.get('/budget-pacing', requireAuth, async (req, res, next) => {
 // NTB data comes from the ntb_orders / ntb_sales columns in ad_performance
 // (populated by the updated SB ingestion report).
 // ---------------------------------------------------------------------------
-router.get('/ntb', requireAuth, async (req, res, next) => {
+router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -1035,7 +1036,7 @@ router.get('/ntb', requireAuth, async (req, res, next) => {
 // Replaces the old proportional split — shows actual spend per ASIN.
 // Includes 'UNATTRIBUTED' bucket for brand awareness spend.
 // ---------------------------------------------------------------------------
-router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
+router.get('/asin-ad-spend', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -1092,7 +1093,7 @@ router.get('/asin-ad-spend', requireAuth, async (req, res, next) => {
 // Daily rollup of key advertising metrics for the metric trend picker.
 // Returns: date, spend, sales, orders, impressions, clicks, roas, acos, ctr, cpc
 // ---------------------------------------------------------------------------
-router.get('/ads-trend', requireAuth, async (req, res, next) => {
+router.get('/ads-trend', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days      = Number(req.query.days) || 30;
     const startDate = req.query.startDate || null;
@@ -1145,7 +1146,7 @@ router.get('/ads-trend', requireAuth, async (req, res, next) => {
 // ASIN-level profitability trend — is each product getting more or less profitable?
 // Returns slope, direction, week-over-week change, and signal for each ASIN.
 // ---------------------------------------------------------------------------
-router.get('/profitability-trend', requireAuth, async (req, res, next) => {
+router.get('/profitability-trend', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days      = Number(req.query.days)  || 90;
     const startDate = req.query.startDate || null;

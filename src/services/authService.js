@@ -34,13 +34,13 @@ async function signup({ email, password, name, companyName, account_type = 'bran
     await query(`
       INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
         (manager_id, name, agency_id, subscription_plan, subscription_status, trial_ends_at, created_at)
-      VALUES (?, ?, NULL, 'free', 'active', DATEADD('day', 14, CURRENT_TIMESTAMP()), CURRENT_TIMESTAMP)
+      VALUES (?, ?, NULL, 'free', 'active', NULL, CURRENT_TIMESTAMP)
     `, [managerId, orgName]);
 
     // Also set free plan + trial on the clients row, store account_type
     await query(`
       UPDATE clients SET subscription_plan='free', subscription_status='active',
-        trial_ends_at = DATEADD('day', 14, CURRENT_TIMESTAMP()),
+        trial_ends_at = NULL,
         approved_at = CURRENT_TIMESTAMP() WHERE client_id=?
     `, [id]).catch(() => {});
     // Store account_type (brand or agency) — non-fatal if column doesn't exist yet
@@ -114,7 +114,7 @@ async function sendWelcomeEmailToAbe({ id, email, name }) {
     from: `Calbridge Portal <${process.env.EMAIL_FROM}>`,
     to: [process.env.EMAIL_CC],
     subject: `New beta signup: ${name}`,
-    text: `${name} (${email}) just signed up for the Calbridge beta.\n\nClient ID: ${id}\n\nThey're on a 14-day free trial and have immediate access.\n\nView in admin panel: https://app.calbridge.ai/admin`
+    text: `${name} (${email}) just signed up for the Calbridge beta.\n\nClient ID: ${id}\n\nThey have immediate access on the free plan.\n\nView in admin panel: https://app.calbridge.ai/admin`
   });
 }
 

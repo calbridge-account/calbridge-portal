@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
 const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
+const { planDataWindow } = require('../middleware/planDataWindow');
 // Cache helper: keyed on clientId + full request URL (includes all query params).
 // Each unique combination of date range, channel, and ad type gets its own cache entry,
 // so switching date ranges or channels always fetches fresh data from Snowflake.
@@ -143,7 +144,7 @@ function withCache(ttlMs, handler) {
  * Used by the React app (calbridge-dash) useAdvertising hook.
  * Returns: { combined, byType: {sp,sb,sd,dsp}, weekly: {sp,sb,sd,dsp,all} }
  */
-router.get('/', requireAuth, async (req, res, next) => {
+router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const channel   = req.query.channel;
@@ -282,7 +283,7 @@ router.get('/', requireAuth, async (req, res, next) => {
  * GET /advertising/summary?days=30&channel=ads|dsp
  * Aggregated KPI totals
  */
-router.get('/summary', requireAuth, async (req, res, next) => {
+router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const channel   = req.query.channel;
@@ -324,7 +325,7 @@ router.get('/summary', requireAuth, async (req, res, next) => {
  * GET /advertising/trend?days=30&channel=ads|dsp
  * Daily spend + sales + ACOS trend
  */
-router.get('/trend', requireAuth, async (req, res, next) => {
+router.get('/trend', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const channel = req.query.channel;
@@ -361,7 +362,7 @@ router.get('/trend', requireAuth, async (req, res, next) => {
  * GET /advertising/by-channel?days=30
  * Spend split by ad_type (SP / SB / SD / DSP) — used for channel breakdown cards
  */
-router.get('/by-channel', requireAuth, async (req, res, next) => {
+router.get('/by-channel', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
@@ -392,7 +393,7 @@ router.get('/by-channel', requireAuth, async (req, res, next) => {
  * GET /advertising/campaigns?days=30&limit=200&channel=ads|dsp
  * Campaign-level breakdown
  */
-router.get('/campaigns', requireAuth, async (req, res, next) => {
+router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const limit   = Number(req.query.limit) || 200;
@@ -444,7 +445,7 @@ router.get('/campaigns', requireAuth, async (req, res, next) => {
  * GET /advertising/by-campaign-type?days=30
  * Ad type breakdown for composition chart (SP / SB / SD / DSP)
  */
-router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
+router.get('/by-campaign-type', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
@@ -479,7 +480,7 @@ router.get('/by-campaign-type', requireAuth, async (req, res, next) => {
 /**
  * GET /advertising/roas-by-type?days=30
  */
-router.get('/roas-by-type', requireAuth, async (req, res, next) => {
+router.get('/roas-by-type', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
@@ -541,7 +542,7 @@ router.get('/roas-by-type', requireAuth, async (req, res, next) => {
  * GET /advertising/asin-performance?days=30&limit=200
  * ASIN-level performance from sp_advertised_product_report (SP only)
  */
-router.get('/asin-performance', requireAuth, async (req, res, next) => {
+router.get('/asin-performance', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 200;
@@ -639,7 +640,7 @@ router.get('/asin-performance', requireAuth, async (req, res, next) => {
 /**
  * GET /advertising/keyword-efficiency?days=30&limit=10
  */
-router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
+router.get('/keyword-efficiency', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 10;
@@ -693,7 +694,7 @@ router.get('/keyword-efficiency', requireAuth, async (req, res, next) => {
  * Keyword-level performance — SP from sp_targeting_keyword_report,
  * SB from sb_keyword_report. Results unioned and sorted by spend desc.
  */
-router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
+router.get('/keyword-targeting', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const limit     = Number(req.query.limit) || 500;
@@ -801,7 +802,7 @@ router.get('/keyword-targeting', requireAuth, async (req, res, next) => {
  * Aggregate keyword performance rolled up by targeting type (Auto / Broad / Phrase / Exact)
  * across SP + SB, with a total row. Also returns per-type top keywords.
  */
-router.get('/targeting-rollup', requireAuth, async (req, res, next) => {
+router.get('/targeting-rollup', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const clientId  = await resolveClientId(req);
@@ -946,7 +947,7 @@ router.get('/sb-video', requireAuth, async (req, res, next) => {
  * GET /advertising/dsp-summary?days=30
  * DSP-specific KPIs: DPVs, NTB, viewability, video completions
  */
-router.get('/dsp-summary', requireAuth, async (req, res, next) => {
+router.get('/dsp-summary', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const clientId = await resolveClientId(req);
@@ -1005,7 +1006,7 @@ router.get('/dsp-summary', requireAuth, async (req, res, next) => {
  * GET /advertising/dsp-orders?days=30&limit=200
  * DSP order/line-item campaign breakdown
  */
-router.get('/dsp-orders', requireAuth, async (req, res, next) => {
+router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const { days, startDate, endDate } = parseRange(req);
     const limit    = Number(req.query.limit) || 200;
