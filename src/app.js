@@ -100,6 +100,10 @@ app.use((req, res, next) => {
 // /onboarding.html deprecated — redirect to brand-setup
 app.get('/onboarding.html', (req, res) => res.redirect(301, '/brand-setup.html'));
 
+// /dashboard.html + /index.html deprecated — redirect to React app (must be BEFORE express.static)
+app.get('/dashboard.html', (req, res) => res.redirect(301, '/analytics/'));
+app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Auth check endpoint for the React dashboard
