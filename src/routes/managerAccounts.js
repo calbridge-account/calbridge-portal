@@ -1214,15 +1214,16 @@ agencyRouter.get('/brands', async (req, res) => {
         try { connections = await getConnectionStatus(cId); } catch (e) {}
       }
       return {
-        managerId:   m.MANAGER_ID          || m.manager_id,
-        brandName:   m.NAME                || m.name,
-        plan:        m.SUBSCRIPTION_PLAN   || m.subscription_plan   || 'free',
-        status:      m.SUBSCRIPTION_STATUS || m.subscription_status,
-        clientId:    cId,
-        email:       m.EMAIL               || m.email,
-        marketplace: m.MARKETPLACE         || m.marketplace         || 'US',
-        logoUrl:     m.LOGO_URL            || m.logo_url            || null,
-        createdAt:   m.CREATED_AT          || m.created_at,
+        managerId:    m.MANAGER_ID          || m.manager_id,
+        advertiserId: m.ADVERTISER_ID       || m.advertiser_id || null,
+        brandName:    m.NAME                || m.name,
+        plan:         m.SUBSCRIPTION_PLAN   || m.subscription_plan   || 'free',
+        status:       m.SUBSCRIPTION_STATUS || m.subscription_status,
+        clientId:     cId,
+        email:        m.EMAIL               || m.email,
+        marketplace:  m.MARKETPLACE         || m.marketplace         || 'US',
+        logoUrl:      m.LOGO_URL            || m.logo_url            || null,
+        createdAt:    m.CREATED_AT          || m.created_at,
         connections: {
           ads:    connections?.ads?.connected    === true,
           vendor: connections?.vendor?.connected === true,
