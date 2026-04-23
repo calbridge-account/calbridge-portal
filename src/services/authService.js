@@ -21,7 +21,7 @@ async function signup({ email, password, name, companyName, account_type = 'bran
 
   await query(`
     INSERT INTO clients (client_id, email, name, password_hash, status, created_at)
-    VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
   `, [id, email, name, hash]);
 
   // ── Phase 3F: Create 4-tier account hierarchy entries ──────────────────────
@@ -40,7 +40,8 @@ async function signup({ email, password, name, companyName, account_type = 'bran
     // Also set free plan + trial on the clients row, store account_type
     await query(`
       UPDATE clients SET subscription_plan='free', subscription_status='active',
-        trial_ends_at = DATEADD('day', 14, CURRENT_TIMESTAMP()) WHERE client_id=?
+        trial_ends_at = DATEADD('day', 14, CURRENT_TIMESTAMP()),
+        approved_at = CURRENT_TIMESTAMP() WHERE client_id=?
     `, [id]).catch(() => {});
     // Store account_type (brand or agency) — non-fatal if column doesn't exist yet
     await query(`UPDATE clients SET account_type=? WHERE client_id=?`, [account_type, id]).catch(() => {});
@@ -82,22 +83,38 @@ async function signup({ email, password, name, companyName, account_type = 'bran
   }
   // ── End Phase 3F ───────────────────────────────────────────────────────────
 
+  // Initialize nav config — dynamic locking happens in navConfig.js
+  try {
+    const navPaths = ['/', '/vendor', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
+    for (const path of navPaths) {
+      await query(
+        `INSERT INTO CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG (client_id, nav_path, visibility)
+         SELECT ?, ?, 'visible' WHERE NOT EXISTS (
+           SELECT 1 FROM CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG WHERE client_id=? AND nav_path=?
+         )`,
+        [id, path, id, path]
+      ).catch(() => {}); // non-fatal
+    }
+  } catch (navErr) {
+    console.warn('[Auth] Nav config init failed (non-fatal):', navErr.message);
+  }
+
   // Notify Abe
-  await sendApprovalEmail({ id, email, name }).catch(err =>
-    console.warn('[Auth] Approval email failed:', err.message)
+  await sendWelcomeEmailToAbe({ id, email, name }).catch(err =>
+    console.warn('[Auth] Welcome email failed:', err.message)
   );
 
-  return { id, email, name, status: 'pending' };
+  return { id, email, name, status: 'active' };
 }
 
-async function sendApprovalEmail({ id, email, name }) {
+async function sendWelcomeEmailToAbe({ id, email, name }) {
   const { Resend } = require('resend');
   const resend = new Resend(process.env.RESEND_API_KEY);
   await resend.emails.send({
     from: `Calbridge Portal <${process.env.EMAIL_FROM}>`,
     to: [process.env.EMAIL_CC],
-    subject: `New signup pending approval: ${name}`,
-    text: `A new client has signed up and is awaiting your approval.\n\nName: ${name}\nEmail: ${email}\nClient ID: ${id}\n\nTo approve:\nPOST https://app.calbridge.ai/admin/approve/${id}\n\nOr log into your admin panel to manage pending accounts.`
+    subject: `New beta signup: ${name}`,
+    text: `${name} (${email}) just signed up for the Calbridge beta.\n\nClient ID: ${id}\n\nThey're on a 14-day free trial and have immediate access.\n\nView in admin panel: https://app.calbridge.ai/admin`
   });
 }
 
