@@ -23,16 +23,16 @@ router.post('/signup', async (req, res, next) => {
       try {
         const { Resend } = require('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
-        const baseUrl = process.env.BASE_URL || 'https://app.teamcalbridge.com';
+        const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
         const firstName = (name || '').split(' ')[0] || 'there';
         await resend.emails.send({
-          from: 'Ash at Calbridge <ash@teamcalbridge.com>',
+          from: 'Ash at Calbridge <ash@calbridge.ai>',
           to: email,
           subject: 'Welcome to Calbridge — let\'s connect your Amazon account',
           html: `
 <!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1a1a1a;">
-  <img src="https://app.teamcalbridge.com/images/calbridge-logo.png" alt="Calbridge" style="height:56px;margin-bottom:24px;">
+  <img src="https://app.calbridge.ai/images/calbridge-logo.png" alt="Calbridge" style="height:56px;margin-bottom:24px;">
   <h1 style="font-size:22px;font-weight:700;margin:0 0 8px;">Welcome, ${firstName}!</h1>
   <p style="color:#4b5563;margin:0 0 20px;line-height:1.6;">Your Calbridge account is ready. Here\'s how to get started:</p>
 
@@ -50,7 +50,7 @@ router.post('/signup', async (req, res, next) => {
 
   <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 8px;">Questions? Just reply to this email — I\'ll get back to you.</p>
   <p style="color:#4b5563;font-size:14px;margin:0 0 32px;">— Abe, Calbridge</p>
-  <p style="color:#9ca3af;font-size:11px;border-top:1px solid #e5e7eb;padding-top:16px;">© 2026 Calbridge · <a href="https://teamcalbridge.com" style="color:#9ca3af;">teamcalbridge.com</a></p>
+  <p style="color:#9ca3af;font-size:11px;border-top:1px solid #e5e7eb;padding-top:16px;">© 2026 Calbridge · <a href="https://calbridge.ai" style="color:#9ca3af;">calbridge.ai</a></p>
 </body></html>`
         });
         console.log(`[Auth] Welcome email sent to ${email}`);
@@ -218,7 +218,7 @@ router.post('/forgot-password', async (req, res, next) => {
       const { Resend } = require('resend');
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
-        from:    `Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+        from:    `Calbridge <${process.env.EMAIL_FROM || 'ash@calbridge.ai'}>`,
         to:      [normalised],
         subject: 'Reset your Calbridge password',
         html: `

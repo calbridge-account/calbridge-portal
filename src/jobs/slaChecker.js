@@ -33,7 +33,7 @@ const {
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const ALERT_EMAIL       = 'abe@teamcalbridge.com';
-const FROM_EMAIL        = process.env.EMAIL_FROM || 'ash@teamcalbridge.com';
+const FROM_EMAIL        = process.env.EMAIL_FROM || 'ash@calbridge.ai';
 const DEDUP_WINDOW_MS   = 60 * 60 * 1000; // 1 hour between repeated alerts for same issue
 
 // ─── In-memory dedup registry ─────────────────────────────────────────────────

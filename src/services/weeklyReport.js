@@ -14,7 +14,7 @@ const { query } = require('./snowflakeService');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL  = process.env.EMAIL_FROM || 'ash@teamcalbridge.com';
+const FROM_EMAIL  = process.env.EMAIL_FROM || 'ash@calbridge.ai';
 const CC_EMAIL    = process.env.EMAIL_CC   || 'abe@teamcalbridge.com';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ function buildEmailHtml({ client, metrics, topAsins, bottomAsin, alertText, week
       <p style="margin:0;font-size:11px;color:#8a7e6e">
         You're receiving this because you're a Calbridge client.
         To unsubscribe from weekly reports, log in to your
-        <a href="https://app.teamcalbridge.com/account.html" style="color:#2d5a27">account settings</a>
+        <a href="https://app.calbridge.ai/account.html" style="color:#2d5a27">account settings</a>
         and toggle off "Receive weekly performance emails".
       </p>
     </div>

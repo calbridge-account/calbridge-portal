@@ -43,7 +43,7 @@ const { getJob } = require('../config/jobs');
 
 const METRIC_VERSION  = '1.0';
 const ALERT_EMAIL     = 'abe@teamcalbridge.com';
-const FROM_EMAIL      = process.env.EMAIL_FROM || 'ash@teamcalbridge.com';
+const FROM_EMAIL      = process.env.EMAIL_FROM || 'ash@calbridge.ai';
 const ANOMALY_THRESHOLD = 0.30; // 30% change flags an anomaly
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

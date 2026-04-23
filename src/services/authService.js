@@ -97,7 +97,7 @@ async function sendApprovalEmail({ id, email, name }) {
     from: `Calbridge Portal <${process.env.EMAIL_FROM}>`,
     to: [process.env.EMAIL_CC],
     subject: `New signup pending approval: ${name}`,
-    text: `A new client has signed up and is awaiting your approval.\n\nName: ${name}\nEmail: ${email}\nClient ID: ${id}\n\nTo approve:\nPOST https://app.teamcalbridge.com/admin/approve/${id}\n\nOr log into your admin panel to manage pending accounts.`
+    text: `A new client has signed up and is awaiting your approval.\n\nName: ${name}\nEmail: ${email}\nClient ID: ${id}\n\nTo approve:\nPOST https://app.calbridge.ai/admin/approve/${id}\n\nOr log into your admin panel to manage pending accounts.`
   });
 }
 

@@ -193,12 +193,12 @@ router.post('/team', requireAuth, requireRole('manager'), async (req, res, next)
     try {
       const { Resend } = require('resend');
       const resend = new Resend(process.env.RESEND_API_KEY);
-      const baseUrl = process.env.BASE_URL || 'https://app.teamcalbridge.com';
+      const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
       // Get inviting client's company name
       const clientRows = await query('SELECT company_name, name FROM clients WHERE client_id = ?', [req.session.clientId]);
       const companyName = clientRows[0]?.COMPANY_NAME || clientRows[0]?.NAME || 'Calbridge';
       await resend.emails.send({
-        from: `Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+        from: `Calbridge <${process.env.EMAIL_FROM || 'ash@calbridge.ai'}>`,
         to: [newMember.email],
         subject: `You've been invited to ${companyName} on Calbridge`,
         html: `

@@ -170,7 +170,7 @@ router.post('/approve/:clientId', requireAdmin, async (req, res, next) => {
         to: [email],
         cc: [process.env.EMAIL_CC],
         subject: 'Your Calbridge Portal access is approved',
-        text: `Hi ${name || 'there'},\n\nYour Calbridge Client Portal account has been approved. You can now log in at:\n\nhttps://app.teamcalbridge.com\n\nOnce logged in, go to Account to connect your Amazon accounts and get started.\n\nIf you have any questions, reply to this email.\n\nThe Calbridge Team`
+        text: `Hi ${name || 'there'},\n\nYour Calbridge Client Portal account has been approved. You can now log in at:\n\nhttps://app.calbridge.ai\n\nOnce logged in, go to Account to connect your Amazon accounts and get started.\n\nIf you have any questions, reply to this email.\n\nThe Calbridge Team`
       });
     } catch (emailErr) {
       console.warn('[Admin] Approval email failed:', emailErr.message);
@@ -215,7 +215,7 @@ router.post('/invite', requireAdmin, async (req, res, next) => {
       to: [email],
       cc: [process.env.EMAIL_CC],
       subject: 'You have been invited to the Calbridge Client Portal',
-      text: `Hi ${name},\n\nYou have been invited to access the Calbridge Client Portal.\n\nCreate your password and log in at:\nhttps://app.teamcalbridge.com/signup.html\n\nUse this email address: ${email}\n\nIf you have any questions, contact us at ${process.env.EMAIL_CC}.\n\nThe Calbridge Team`
+      text: `Hi ${name},\n\nYou have been invited to access the Calbridge Client Portal.\n\nCreate your password and log in at:\nhttps://app.calbridge.ai/signup.html\n\nUse this email address: ${email}\n\nIf you have any questions, contact us at ${process.env.EMAIL_CC}.\n\nThe Calbridge Team`
     });
 
     res.status(201).json({ message: `Invite sent to ${email}`, clientId: id });
