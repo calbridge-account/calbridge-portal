@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useUser } from './UserContext';
 
 const AdvertiserContext = createContext(null);
 
@@ -6,6 +7,10 @@ export function AdvertiserProvider({ children }) {
   const [advertisers, setAdvertisers] = useState([]);
   const [current, setCurrent] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Get accountType from UserContext (AdvertiserProvider is inside UserProvider)
+  const { user } = useUser() || {};
+  const isAgency = user?.accountType === 'agency' || user?.account_type === 'agency';
 
   useEffect(() => {
     // Check if a specific advertiserId was requested via query param (from selector switch)
@@ -20,17 +25,43 @@ export function AdvertiserProvider({ children }) {
     fetch(listUrl, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then(list => {
-        setAdvertisers(list);
+        // Ensure list is an array (backend always returns array)
+        const safeList = Array.isArray(list) ? list : [];
 
-        // Prefer the explicitly-requested advertiser if present in the list;
-        // otherwise use whichever the server marked as isCurrent; fallback to first.
+        // Synthetic "All Brands" entry for agency accounts
+        const allBrandsEntry = {
+          advertiserId: 'all',
+          advertiserName: 'All Brands',
+          managerName: 'All Brands',
+          isCurrent: false,
+        };
+
+        const fullList = isAgency ? [allBrandsEntry, ...safeList] : safeList;
+        setAdvertisers(fullList);
+
+        // Determine current selection
         let selected = null;
-        if (requestedId) {
-          selected = list.find(a => a.advertiserId === requestedId) || null;
+
+        if (requestedId === 'all' && isAgency) {
+          selected = allBrandsEntry;
+        } else if (requestedId && requestedId !== 'all') {
+          selected = safeList.find(a => a.advertiserId === requestedId) || null;
         }
+
         if (!selected) {
-          selected = list.find(a => a.isCurrent) || list[0] || null;
+          selected = safeList.find(a => a.isCurrent) || null;
         }
+
+        // Agency users with no specific brand fall back to "All Brands"
+        if (!selected && isAgency) {
+          selected = allBrandsEntry;
+        }
+
+        // Non-agency fallback to first
+        if (!selected) {
+          selected = safeList[0] || null;
+        }
+
         setCurrent(selected);
 
         // Strip ?advertiserId from URL bar without triggering a reload
@@ -42,10 +73,14 @@ export function AdvertiserProvider({ children }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAgency]);
+
+  // isAgencyView = true when in agency-level view (no specific brand selected)
+  const isAgencyView = !current || current?.advertiserId === 'all';
 
   return (
-    <AdvertiserContext.Provider value={{ advertisers, current, setCurrent, loading }}>
+    <AdvertiserContext.Provider value={{ advertisers, current, setCurrent, loading, isAgency, isAgencyView }}>
       {children}
     </AdvertiserContext.Provider>
   );

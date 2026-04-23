@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useAdvertiser } from '../context/AdvertiserContext';
 import DateRangePicker from './DateRangePicker';
 import AdvertiserSelector from './AdvertiserSelector';
 
@@ -39,8 +40,31 @@ const NAV = [
   },
 ];
 
+// ─── Agency nav (minimal — no brand selected) ────────────────────────────────
+
+const AGENCY_NAV = [
+  {
+    group: null,
+    items: [
+      { path: '/', label: 'Overview', emoji: '📊', minRole: 'viewer' },
+    ],
+  },
+  {
+    group: null,
+    items: [
+      { path: '/brands', label: 'Brands', emoji: '🏢', minRole: 'viewer' },
+    ],
+  },
+  {
+    group: 'Settings',
+    items: [
+      { path: '/account', label: 'Account', emoji: '⚙️', minRole: 'viewer' },
+    ],
+  },
+];
+
 // Flat list for page title lookups
-const ALL_NAV_ITEMS = NAV.flatMap(s => s.items);
+const ALL_NAV_ITEMS = [...NAV, ...AGENCY_NAV].flatMap(s => s.items);
 
 // ─── Nav config hook ─────────────────────────────────────────────────────────
 
@@ -136,6 +160,10 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const logoUrl = user?.logoUrl || null;
   const initials = getInitials(clientName);
 
+  const { isAgencyView, isAgency, current, advertisers } = useAdvertiser() || { isAgencyView: true, isAgency: false, current: null, advertisers: [] };
+  const userIsAgency = isAgency || user?.accountType === 'agency' || user?.account_type === 'agency';
+  const activeNav = (userIsAgency && isAgencyView) ? AGENCY_NAV : NAV;
+
   return (
     <aside
       className={`
@@ -195,9 +223,33 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
         </div>
       )}
 
+      {/* ── Brand switcher (agency only) ── */}
+      {!collapsed && userIsAgency && advertisers.length > 0 && (
+        <div className="px-3 py-2 border-b border-gray-200 flex-shrink-0">
+          <div className="text-xs text-gray-400 mb-1">Brand</div>
+          <select
+            value={current?.advertiserId || 'all'}
+            onChange={e => {
+              const val = e.target.value;
+              const url = new URL(window.location.href);
+              url.searchParams.set('advertiserId', val);
+              window.location.href = url.toString();
+            }}
+            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-green-600"
+          >
+            <option value="all">All Brands</option>
+            {advertisers.filter(a => a.advertiserId !== 'all').map(a => (
+              <option key={a.advertiserId} value={a.advertiserId}>
+                {a.managerName || a.advertiserName}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-2">
-        {NAV.map((section, si) => {
+        {activeNav.map((section, si) => {
           // Filter items by role
           const visibleItems = section.items.filter(item => hasRole(item.minRole));
           if (visibleItems.length === 0) return null;

@@ -162,7 +162,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
     const client = await authService.getById(req.session.clientId);
     // Also fetch logoUrl and companyName for the dashboard header
     const rows = await require('../services/snowflakeService').query(
-      `SELECT company_name, logo_url FROM clients WHERE client_id = ?`,
+      `SELECT company_name, logo_url, account_type FROM clients WHERE client_id = ?`,
       [req.session.clientId]
     );
     const extra = rows?.[0] || {};
@@ -174,6 +174,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
         companyName: extra.COMPANY_NAME || extra.company_name || client.name,
         logoUrl:     extra.LOGO_URL     || extra.logo_url     || null,
         role:        req.session.userRole || 'owner',
+        accountType: extra.ACCOUNT_TYPE || extra.account_type || 'brand',
       }
     });
   } catch (err) {
