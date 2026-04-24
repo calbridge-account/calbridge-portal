@@ -71,6 +71,13 @@ async function getActiveAccounts() {
 // ─── Job 1: stage_raw_data ────────────────────────────────────────────────────
 
 // ─── Job 0: stage_ad_campaign_raw ────────────────────────────────────────────
+/**
+ * @deprecated Will be removed after 3-hop cutover (Step 6).
+ * PIPELINE_DIRECT_RAW_WRITE=true means new data goes directly to RAW.AD_CAMPAIGN.
+ * This function still runs hourly as a safety net during the 72h parallel run window.
+ * Remove call at line ~791 and this function after Apr 27 parallel run confirms parity.
+ * See: docs/project-go/PROJECT-GO-SPEC.md
+ */
 // Merge SP / SB / SD / DSP campaign-level rows from CALBRIDGE_PROD.APP report
 // tables into CALBRIDGE_PROD.RAW.AD_CAMPAIGN (canonical campaign-day table).
 // This is what ADJUSTED_AD_CAMPAIGN view reads — must be current for the

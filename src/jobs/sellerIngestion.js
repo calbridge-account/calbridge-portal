@@ -30,6 +30,35 @@ async function spClient(clientId) {
   });
 }
 
+/**
+ * Retry wrapper with exponential backoff for Amazon SP-API 429 rate limits.
+ * On 429, waits baseDelayMs * 2^i before re-attempting, and refreshes the
+ * SP-API client (token) before each retry to avoid stale-token compounding.
+ *
+ * @param {Function} fn          Async function to retry (receives no args — use closure)
+ * @param {Function} refreshFn   Called before each retry to get a fresh client; result stored in clientRef
+ * @param {{ current: object }} clientRef  Object with `.current` holding the live axios client
+ * @param {number} retries       Max attempts (default 3)
+ * @param {number} baseDelayMs   Base delay in ms (default 10000 = 10s)
+ */
+async function withRetry(fn, refreshFn, clientRef, retries = 3, baseDelayMs = 10000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const is429 = e?.response?.status === 429 || e?.message?.includes('429');
+      if (is429 && i < retries - 1) {
+        const delay = baseDelayMs * Math.pow(2, i); // 10s, 20s, 40s
+        console.warn(`[sellerIngestion] 429 rate limit — retrying in ${delay / 1000}s (attempt ${i + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, delay));
+        try { clientRef.current = await refreshFn(); } catch (_) {}
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
 async function requestAndPoll(client, reportType, body = {}, maxWaitMs = 600000) {
   const res = await client.post('/reports/2021-06-30/reports', {
     reportType,
@@ -273,7 +302,7 @@ async function ingestSellerReports(clientId) {
   }
 
   console.log(`[sellerIngestion] Starting for ${clientId}`);
-  const client = await spClient(clientId);
+  let client = await spClient(clientId);
   const results = { salesTraffic: 0, fbaInventory: 0 };
 
   try {
@@ -285,8 +314,16 @@ async function ingestSellerReports(clientId) {
 
   await new Promise(r => setTimeout(r, 2000));
 
+  // FBA inventory can take >5min and Amazon frequently 429s this endpoint.
+  // Use withRetry for exponential backoff (10s → 20s → 40s) with token refresh.
+  const clientRef = { current: client };
   try {
-    results.fbaInventory = await ingestFbaInventory(clientId, client);
+    results.fbaInventory = await withRetry(
+      () => ingestFbaInventory(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current; // keep local ref in sync after potential refresh
     console.log(`[sellerIngestion] FBA_INVENTORY: ${results.fbaInventory} rows written`);
   } catch (e) {
     console.warn(`[sellerIngestion] FBA_INVENTORY failed:`, e.message.slice(0, 120));

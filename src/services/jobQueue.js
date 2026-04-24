@@ -37,6 +37,7 @@ const QUEUE_DEFAULTS = {
 const JOB_TIMEOUTS = {
   ingest_vendor_reports:        15 * 60 * 1000,  // 15 min max
   ingest_dsp:                   20 * 60 * 1000,  // 20 min max
+  ingest_seller_reports:        20 * 60 * 1000,  // 20 min max (FBA poll + retries)
   stage_raw_data:               10 * 60 * 1000,  // 10 min max
   download_completed_reports:   10 * 60 * 1000,  // 10 min max
   submit_amazon_reports:        10 * 60 * 1000,  // 10 min max
@@ -78,6 +79,7 @@ const JOB_QUEUE_MAP = {
   generate_operator_summary:    'heavy',
   ingest_dsp:                   'heavy',
   ingest_vendor_reports:        'heavy',
+  ingest_seller_reports:        'heavy',  // FBA_INVENTORY takes >5min — must be on heavy worker (30min lock)
 };
 
 /**
