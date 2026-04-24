@@ -5,7 +5,7 @@ let profile = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
-  await Promise.all([loadProfile(), loadConnections(), loadTeam(), loadCogs()]);
+  await Promise.all([loadProfile(), loadConnections(), loadTeam(), loadCogs(), loadAiSettings()]);
   setupForms();
 });
 
@@ -269,6 +269,93 @@ function initWeeklyReportToggle(enabled) {
       applyState(!newVal);
       showStatus('prefs-status', `❌ ${err.message}`, 'error');
     }
+  });
+}
+
+// ---- AI Settings ----
+const AI_SETTINGS = [
+  { key: 'bid_optimization',  label: 'Bid Optimization',   desc: 'AI adjusts keyword bids based on performance targets' },
+  { key: 'budget_automation', label: 'Budget Automation',  desc: 'Campaigns auto-pause when budget exhausted; resume next day' },
+  { key: 'dayparting',        label: 'Dayparting',         desc: 'Bid multipliers applied/removed on your hourly schedule' },
+  { key: 'smart_alerts',      label: 'Smart Alerts',       desc: 'Alerts sent automatically when anomalies are detected' },
+  { key: 'campaign_pausing',  label: 'Campaign Pausing',   desc: 'Underperforming campaigns paused automatically' },
+];
+
+async function loadAiSettings() {
+  try {
+    const billingRes = await fetch('/billing/status', { credentials: 'include' });
+    if (!billingRes.ok) return;
+    const billing = await billingRes.json();
+    if (!billing.limits || !billing.limits.decisions) return;
+
+    const card = $('ai-settings-card');
+    if (card) card.style.display = '';
+
+    const res = await fetch('/account/ai-settings', { credentials: 'include' });
+    if (!res.ok) return;
+    const { settings } = await res.json();
+
+    renderAiSettings(settings);
+  } catch (err) {
+    console.warn('[AI Settings] Failed to load:', err.message);
+  }
+}
+
+function renderAiSettings(settings) {
+  const list = $('ai-settings-list');
+  if (!list) return;
+
+  list.innerHTML = AI_SETTINGS.map(s => `
+    <div class="ai-setting-row" id="ai-row-${s.key}">
+      <div class="ai-setting-info">
+        <div class="ai-setting-label">${s.label}</div>
+        <div class="ai-setting-desc">${s.desc}</div>
+      </div>
+      <div class="ai-setting-toggle">
+        <button class="btn-ai-mode ${settings[s.key] === 'auto' ? 'active' : ''}" data-key="${s.key}" data-value="auto">Automatic</button>
+        <button class="btn-ai-mode ${settings[s.key] === 'manual' ? 'active' : ''}" data-key="${s.key}" data-value="manual">Manual</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.btn-ai-mode').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const key   = btn.dataset.key;
+      const value = btn.dataset.value;
+      const row   = $(`ai-row-${key}`);
+
+      // Optimistic UI
+      row.querySelectorAll('.btn-ai-mode').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Remove any previous inline error
+      const existingErr = row.querySelector('.ai-setting-error');
+      if (existingErr) existingErr.remove();
+
+      try {
+        const res = await fetch('/account/ai-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ setting: key, value })
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to save');
+        }
+      } catch (err) {
+        // Revert optimistic update
+        row.querySelectorAll('.btn-ai-mode').forEach(b => {
+          b.classList.toggle('active', b.dataset.value !== value);
+        });
+        const errEl = document.createElement('div');
+        errEl.className = 'ai-setting-error';
+        errEl.style.cssText = 'font-size:0.75rem;color:#e53e3e;margin-top:4px;';
+        errEl.textContent = `❌ ${err.message}`;
+        row.appendChild(errEl);
+        setTimeout(() => errEl.remove(), 4000);
+      }
+    });
   });
 }
 

@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Calbridge — Account Settings</title>
   <link rel="stylesheet" href="/css/style.css" />
+<style>
+.ai-setting-row { display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border); }
+.ai-setting-row:last-child { border-bottom:none; }
+.ai-setting-label { font-weight:600; font-size:0.9rem; }
+.ai-setting-desc { font-size:0.8rem; color:var(--text-muted); margin-top:2px; }
+.ai-setting-toggle { display:flex; gap:6px; flex-shrink:0; }
+.btn-ai-mode { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text-muted); cursor:pointer; font-size:0.8rem; }
+.btn-ai-mode.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+</style>
 </head>
 <body class="dashboard-page">
 
@@ -190,6 +199,13 @@
               <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- AI Optimization Settings (Growth+ only) -->
+        <div class="settings-card settings-card-wide" id="ai-settings-card" style="display:none;">
+          <h3>🤖 AI Optimization Settings</h3>
+          <p class="settings-desc">Choose which optimizations happen automatically and which require your manual approval.</p>
+          <div id="ai-settings-list"></div>
         </div>
 
       </div>

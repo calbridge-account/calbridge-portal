@@ -7,8 +7,27 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/requireAuth');
 const { requireRole } = require('../middleware/requireRole');
+const { requirePlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { removeBackground } = require('../services/removeBackground');
+
+// One-time: ensure CLIENT_AI_ENROLLMENT table exists
+(async () => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.APP.CLIENT_AI_ENROLLMENT (
+        client_id        VARCHAR NOT NULL,
+        setting_key      VARCHAR NOT NULL,
+        enrollment_mode  VARCHAR NOT NULL DEFAULT 'manual',
+        created_at       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+        updated_at       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+        PRIMARY KEY (client_id, setting_key)
+      )
+    `);
+  } catch (err) {
+    console.warn('[AI Enrollment] Table creation skipped:', err.message);
+  }
+})();
 
 // Logo upload config
 const storage = multer.diskStorage({
@@ -234,6 +253,54 @@ router.delete('/team/:memberId', requireAuth, requireRole('manager'), async (req
     await query(`UPDATE clients SET team_members = ? WHERE client_id = ?`,
       [JSON.stringify(members), req.session.clientId]);
     res.json({ message: 'Team member removed' });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /account/ai-settings
+ * Get AI optimization enrollment settings for the logged-in client (Growth+ only)
+ */
+const VALID_AI_SETTINGS = ['bid_optimization', 'budget_automation', 'dayparting', 'smart_alerts', 'campaign_pausing'];
+
+router.get('/ai-settings', requireAuth, requirePlan('decisions'), async (req, res, next) => {
+  try {
+    const rows = await query(
+      `SELECT setting_key, enrollment_mode FROM CALBRIDGE_PROD.APP.CLIENT_AI_ENROLLMENT WHERE client_id = ?`,
+      [req.session.clientId]
+    );
+    const defaults = Object.fromEntries(VALID_AI_SETTINGS.map(k => [k, 'manual']));
+    for (const row of rows) {
+      if (VALID_AI_SETTINGS.includes(row.SETTING_KEY)) {
+        defaults[row.SETTING_KEY] = row.ENROLLMENT_MODE;
+      }
+    }
+    res.json({ settings: defaults });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /account/ai-settings
+ * Upsert a single AI optimization setting (Growth+ only)
+ */
+router.post('/ai-settings', requireAuth, requirePlan('decisions'), async (req, res, next) => {
+  try {
+    const { setting, value } = req.body;
+    if (!VALID_AI_SETTINGS.includes(setting)) {
+      return res.status(400).json({ error: `Invalid setting. Must be one of: ${VALID_AI_SETTINGS.join(', ')}` });
+    }
+    if (value !== 'auto' && value !== 'manual') {
+      return res.status(400).json({ error: 'Invalid value. Must be "auto" or "manual"' });
+    }
+    await query(
+      `MERGE INTO CALBRIDGE_PROD.APP.CLIENT_AI_ENROLLMENT t
+       USING (SELECT ? AS client_id, ? AS setting_key, ? AS enrollment_mode) s
+       ON t.client_id = s.client_id AND t.setting_key = s.setting_key
+       WHEN MATCHED THEN UPDATE SET enrollment_mode = s.enrollment_mode, updated_at = CURRENT_TIMESTAMP()
+       WHEN NOT MATCHED THEN INSERT (client_id, setting_key, enrollment_mode, created_at, updated_at)
+         VALUES (s.client_id, s.setting_key, s.enrollment_mode, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+      [req.session.clientId, setting, value]
+    );
+    res.json({ message: 'Setting updated', setting, value });
   } catch (err) { next(err); }
 });
 
