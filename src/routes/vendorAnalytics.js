@@ -129,7 +129,6 @@ function weekCutoff(weeks) {
 router.get('/overview', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
   try {
     const CLIENT_ID = await getClientId(req);
-    console.log(`[overview] clientId=${CLIENT_ID?.substring(0,8)} sessionClient=${req.session?.clientId?.substring(0,8)} activeAdv=${req.session?.activeAdvertiserId?.substring(0,8)||'null'} isBrand=${req.session?.isBrandSession}`);
     const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
     // Previous period cutoff = 7 days before the start of the range
     const prevCutoffDate = new Date(cutoff); prevCutoffDate.setDate(prevCutoffDate.getDate() - 7);
