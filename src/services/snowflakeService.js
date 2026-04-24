@@ -9,7 +9,7 @@ snowflake.configure({ logLevel: 'ERROR' });
 // Simple pool: up to MAX_POOL_SIZE connections, with health checking.
 // Prevents the single-connection hang that occurs under concurrent load.
 
-const MAX_POOL_SIZE  = 32; // raised from 24 — portal + worker can both run heavy jobs concurrently
+const MAX_POOL_SIZE  = 16; // reduced from 32 — pipeline is now 6h cadence, not continuous; 16 is plenty for burst
 const QUERY_TIMEOUT  = 60000; // 60s per query
 const CONNECT_TIMEOUT = 15000; // 15s to establish connection
 
@@ -57,15 +57,8 @@ async function createConnection() {
     });
   });
 
-  // Belt-and-suspenders: enforce UTC timezone via ALTER SESSION after connect.
-  // The sessionParameters config key handles it at login time; this covers any
-  // edge cases where the SDK doesn't propagate it (e.g. reconnects, older SDK versions).
-  await new Promise((resolve, reject) => {
-    conn.execute({
-      sqlText: "ALTER SESSION SET TIMEZONE = 'UTC'",
-      complete: (err) => err ? reject(err) : resolve()
-    });
-  });
+  // sessionParameters: { TIMEZONE: 'UTC' } in createConnectionConfig() handles TZ at login.
+  // No post-connect ALTER SESSION needed — removes ~700 redundant queries/day from warehouse.
 
   return conn;
 }
@@ -258,7 +251,7 @@ setInterval(() => {
   for (const entry of pool) {
     if (entry.inUse || !isAlive(entry)) continue;
     const idleMs = entry.lastUsedAt ? now - entry.lastUsedAt : now - entry.createdAt;
-    if (idleMs > 8 * 60 * 1000) { // idle >8 min — ping it
+    if (idleMs > 20 * 60 * 1000) { // idle >20 min — ping it (raised from 8min; less frequent keepalives = warehouse suspends sooner)
       entry.conn.execute({
         sqlText: 'SELECT 1',
         complete: (err) => {
