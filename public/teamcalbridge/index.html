@@ -542,6 +542,109 @@
       text-align: center;
     }
 
+    /* ── FEATURE COMPARISON TABLE ── */
+    .feature-table-section {
+      padding: 80px 24px;
+      background: var(--gray-50);
+    }
+    .feature-table-section .section-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .feature-table-section h2 {
+      text-align: center;
+      font-size: clamp(24px, 4vw, 36px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .feature-table-section .section-sub {
+      text-align: center;
+      color: var(--gray-500);
+      font-size: 17px;
+      margin-bottom: 40px;
+    }
+    .feature-table-wrap {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--gray-200);
+    }
+    .feature-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      background: #fff;
+    }
+    .feature-table th {
+      padding: 16px 20px;
+      text-align: center;
+      font-weight: 700;
+      background: var(--gray-50);
+      border-bottom: 2px solid var(--gray-200);
+      white-space: nowrap;
+      color: var(--gray-800);
+    }
+    .feature-table th:first-child {
+      text-align: left;
+    }
+    .feature-table th.col-highlight {
+      background: var(--brand);
+      color: #fff;
+    }
+    .feature-table td {
+      padding: 12px 20px;
+      text-align: center;
+      border-bottom: 1px solid var(--gray-200);
+      color: var(--gray-800);
+    }
+    .feature-table td:first-child {
+      text-align: left;
+      color: var(--gray-800);
+    }
+    .feature-table tr:last-child td {
+      border-bottom: none;
+    }
+    .feature-table tr:hover td {
+      background: var(--gray-50);
+    }
+    .feature-table .section-row td {
+      background: var(--gray-100);
+      font-weight: 700;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--gray-500);
+      padding: 10px 20px;
+    }
+    .feature-table .section-row:hover td {
+      background: var(--gray-100);
+    }
+    .feature-table .check {
+      color: #22C55E;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+    .feature-table .dash {
+      color: var(--gray-400);
+    }
+    .feature-table .price-row td {
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 16px 20px;
+      background: var(--gray-50);
+      border-top: 2px solid var(--gray-200);
+    }
+    .feature-table .price-row td:first-child {
+      color: var(--gray-500);
+      font-size: 0.8rem;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    .feature-table .price-row:hover td {
+      background: var(--gray-50);
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 1000px) {
       .platform-grid { grid-template-columns: repeat(3, 1fr); }
@@ -575,6 +678,7 @@
         <a href="#services">Services</a>
         <a href="#platform">Platform</a>
         <a href="#how">How We Work</a>
+        <a href="#pricing">Pricing</a>
         <a href="#contact">Contact</a>
         <a href="https://app.calbridge.ai" class="nav-cta">Client Login</a>
       </div>
@@ -743,6 +847,332 @@
           <h4>Monthly Business Review</h4>
           <p>Monthly review calls with Abe covering performance vs. goals, category trends, competitive shifts, and the next 30-day plan.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FEATURE COMPARISON TABLE ── -->
+  <section class="feature-table-section" id="pricing">
+    <div class="section-inner">
+      <p class="section-label" style="text-align:center;">Platform Plans</p>
+      <h2>Everything on one table.</h2>
+      <p class="section-sub">Compare plans and find the right fit for your business — from solo sellers to multi-brand agencies.</p>
+
+      <div class="feature-table-wrap">
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Free</th>
+              <th>Starter</th>
+              <th class="col-highlight">Growth ★</th>
+              <th>Pro</th>
+              <th>Agency</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <!-- Data & Connections -->
+            <tr class="section-row"><td colspan="6">Data &amp; Connections</td></tr>
+            <tr>
+              <td>Amazon connections</td>
+              <td>1</td>
+              <td>2</td>
+              <td>Unlimited</td>
+              <td>Unlimited</td>
+              <td>Unlimited</td>
+            </tr>
+            <tr>
+              <td>Data history</td>
+              <td>30 days</td>
+              <td>90 days</td>
+              <td>1 year</td>
+              <td>3 years</td>
+              <td>3 years</td>
+            </tr>
+            <tr>
+              <td>Advertising dashboard</td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Vendor analytics</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Recommendations & AI -->
+            <tr class="section-row"><td colspan="6">Recommendations &amp; AI</td></tr>
+            <tr>
+              <td>Manual recommendations</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>AI decisions + execution</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>AI optimization settings</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Bid optimization</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Keyword harvesting</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Negative keyword AI</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Placement bid adjustments</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>ASIN target optimization</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Seasonal bid scaling</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>New-to-brand optimization</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Budget & Automation -->
+            <tr class="section-row"><td colspan="6">Budget &amp; Automation</td></tr>
+            <tr>
+              <td>Budget tracking &amp; pacing</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Budget automation</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Intraday budget shifting</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Portfolio budget management</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Portfolio reallocation</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Scheduling & Alerts -->
+            <tr class="section-row"><td colspan="6">Scheduling &amp; Alerts</td></tr>
+            <tr>
+              <td>AI dayparting</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Smart alerts</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Anomaly detection</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Campaign pausing</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Campaigns -->
+            <tr class="section-row"><td colspan="6">Campaigns</td></tr>
+            <tr>
+              <td>Smart campaign creation</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Contribution margin analysis</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Reporting & Access -->
+            <tr class="section-row"><td colspan="6">Reporting &amp; Access</td></tr>
+            <tr>
+              <td>Report downloads (PDF)</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>API access</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td>Contact us</td>
+              <td>Contact us</td>
+            </tr>
+            <tr>
+              <td>Team seats</td>
+              <td>1</td>
+              <td>3</td>
+              <td>5</td>
+              <td>Unlimited</td>
+              <td>Unlimited</td>
+            </tr>
+
+            <!-- Agency -->
+            <tr class="section-row"><td colspan="6">Agency</td></tr>
+            <tr>
+              <td>White-label portal</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Client login access</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Multi-brand switcher</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Portfolio KPI overview</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Per-client reporting exports</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+
+            <!-- Pricing -->
+            <tr class="price-row">
+              <td>Price</td>
+              <td>Free</td>
+              <td>$99/mo</td>
+              <td>$249/mo</td>
+              <td>$499/mo</td>
+              <td>$549 + $299/brand</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align:center;margin-top:32px;">
+        <a href="https://app.calbridge.ai/signup.html" class="btn-primary">Get Started Free →</a>
       </div>
     </div>
   </section>
