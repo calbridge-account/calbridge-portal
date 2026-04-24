@@ -1329,6 +1329,139 @@ agencyRouter.post('/exit-brand', async (req, res) => {
   }
 });
 
+// ─── GET /agency/kpi-summary ────────────────────────────────────────────────
+// Aggregate KPI metrics across all brands for an agency manager.
+// Query params: ?days=30 (default 30, max 90)
+
+agencyRouter.get('/kpi-summary', async (req, res) => {
+  try {
+    const { agencyId } = await resolveAgencyContext(req.session.clientId);
+    if (!agencyId) return res.status(403).json({ error: 'Agency account required' });
+
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 90);
+
+    // 1. Get all brands (manager + client mapping) under this agency
+    const brandRows = await query(
+      `SELECT m.manager_id, m.name AS brand_name,
+              map.client_id, a.advertiser_id
+       FROM CALBRIDGE_PROD.APP.manager_accounts m
+       LEFT JOIN CALBRIDGE_PROD.APP.client_migration_map map ON map.manager_id = m.manager_id
+       LEFT JOIN CALBRIDGE_PROD.APP.advertiser_accounts a   ON a.manager_id = m.manager_id AND a.is_active = TRUE
+       WHERE m.agency_id = ?
+       ORDER BY m.name`,
+      [agencyId]
+    );
+
+    if (!brandRows.length) {
+      return res.json({
+        summary: { totalSpend: 0, totalSales: 0, blendedRoas: 0, blendedAcos: 0,
+                   totalImpressions: 0, totalClicks: 0, activeBrands: 0, activeCampaigns: 0 },
+        brands: [],
+        days,
+      });
+    }
+
+    // Collect distinct client_ids for the ad data query
+    const clientIds = [...new Set(brandRows.map(r => r.CLIENT_ID || r.client_id).filter(Boolean))];
+
+    // Build brand metadata map keyed by client_id
+    const brandByClientId = {};
+    for (const r of brandRows) {
+      const cId = r.CLIENT_ID || r.client_id;
+      if (cId && !brandByClientId[cId]) {
+        brandByClientId[cId] = {
+          managerId:    r.MANAGER_ID    || r.manager_id,
+          advertiserId: r.ADVERTISER_ID || r.advertiser_id || null,
+          brandName:    r.BRAND_NAME    || r.brand_name,
+          clientId:     cId,
+        };
+      }
+    }
+
+    // 2. Query ad performance for all client_ids in one shot
+    let adRows = [];
+    if (clientIds.length) {
+      const placeholders = clientIds.map(() => '?').join(', ');
+      try {
+        adRows = await query(
+          `SELECT
+             client_id,
+             SUM(cost)           AS total_spend,
+             SUM(sales_30d)      AS total_sales,
+             SUM(impressions)    AS total_impressions,
+             SUM(clicks)         AS total_clicks,
+             COUNT(DISTINCT campaign_id) AS active_campaigns
+           FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
+           WHERE client_id IN (${placeholders})
+             AND date >= DATEADD('day', ?, CURRENT_DATE)
+             AND date <  CURRENT_DATE
+           GROUP BY client_id`,
+          [...clientIds, -days]
+        );
+      } catch (queryErr) {
+        console.warn('[GET /agency/kpi-summary] Ad performance query failed:', queryErr.message);
+      }
+    }
+
+    // 3. Build per-brand results, defaulting to zeros for brands with no ad data
+    const adByClientId = {};
+    for (const r of adRows) {
+      const cId = r.CLIENT_ID || r.client_id;
+      adByClientId[cId] = {
+        spend:      Number(r.TOTAL_SPEND       || r.total_spend       || 0),
+        sales:      Number(r.TOTAL_SALES       || r.total_sales       || 0),
+        impressions:Number(r.TOTAL_IMPRESSIONS || r.total_impressions || 0),
+        clicks:     Number(r.TOTAL_CLICKS      || r.total_clicks      || 0),
+        campaigns:  Number(r.ACTIVE_CAMPAIGNS  || r.active_campaigns  || 0),
+      };
+    }
+
+    const brands = Object.values(brandByClientId).map(b => {
+      const ad = adByClientId[b.clientId] || { spend: 0, sales: 0, impressions: 0, clicks: 0, campaigns: 0 };
+      const roas = ad.spend > 0 ? ad.sales / ad.spend           : 0;
+      const acos = ad.sales > 0 ? (ad.spend / ad.sales) * 100  : 0;
+      return {
+        advertiserId: b.advertiserId,
+        brandName:    b.brandName,
+        spend:        ad.spend,
+        sales:        ad.sales,
+        roas:         Math.round(roas * 100) / 100,
+        acos:         Math.round(acos * 10)  / 10,
+        impressions:  ad.impressions,
+        clicks:       ad.clicks,
+        campaigns:    ad.campaigns,
+      };
+    });
+
+    // 4. Aggregate summary
+    const totalSpend       = brands.reduce((s, b) => s + b.spend, 0);
+    const totalSales       = brands.reduce((s, b) => s + b.sales, 0);
+    const totalImpressions = brands.reduce((s, b) => s + b.impressions, 0);
+    const totalClicks      = brands.reduce((s, b) => s + b.clicks, 0);
+    const totalCampaigns   = brands.reduce((s, b) => s + b.campaigns, 0);
+    const blendedRoas      = totalSpend  > 0 ? Math.round((totalSales / totalSpend) * 100) / 100  : 0;
+    const blendedAcos      = totalSales  > 0 ? Math.round((totalSpend / totalSales * 100) * 10) / 10 : 0;
+
+    return res.json({
+      summary: {
+        totalSpend:       Math.round(totalSpend       * 100) / 100,
+        totalSales:       Math.round(totalSales       * 100) / 100,
+        blendedRoas,
+        blendedAcos,
+        totalImpressions,
+        totalClicks,
+        activeBrands:     brands.length,
+        activeCampaigns:  totalCampaigns,
+      },
+      brands,
+      days,
+    });
+  } catch (err) {
+    console.error('[GET /agency/kpi-summary]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ─── DELETE /agency/brands/:managerId ───────────────────────────────────────
 // Detach a brand from the agency (soft remove — data preserved, brand keeps its login).
 agencyRouter.delete('/brands/:managerId', async (req, res) => {

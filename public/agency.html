@@ -99,6 +99,18 @@
 
     /* ── Misc ── */
     .hidden { display: none !important; }
+
+    /* ── Portfolio KPI ── */
+    .portfolio-kpi-section { margin-bottom: 32px; }
+    .kpi-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .kpi-tile { background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 16px; }
+    .kpi-label { font-size: 0.75rem; color: var(--text-muted, #9ca3af); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { font-size: 1.4rem; font-weight: 700; color: var(--text, #1f2937); }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; font-weight: 600; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+    .data-table td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    .data-table tbody tr:hover td { background: #f9fafb; }
+    .data-table td:first-child { font-weight: 500; color: #1f2937; }
   </style>
 </head>
 <body style="background:#f9fafb;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
@@ -188,6 +200,48 @@
 
     <!-- Page content -->
     <main style="flex:1;padding:24px;">
+
+      <!-- Portfolio KPI Overview -->
+      <div class="portfolio-kpi-section" id="portfolio-kpi">
+        <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h2 style="margin:0;font-size:16px;font-weight:700;color:#1f2937;">Portfolio Overview</h2>
+          <select id="kpi-days-select" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;color:#374151;font-size:0.85rem;">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="60">Last 60 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </div>
+        <!-- Summary tiles -->
+        <div class="kpi-tiles" id="kpi-tiles">
+          <div class="kpi-tile"><div class="kpi-label">Total Spend</div><div class="kpi-value" id="kpi-spend">—</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Total Sales</div><div class="kpi-value" id="kpi-sales">—</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Blended ROAS</div><div class="kpi-value" id="kpi-roas">—</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Blended ACoS</div><div class="kpi-value" id="kpi-acos">—</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Impressions</div><div class="kpi-value" id="kpi-impressions">—</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Clicks</div><div class="kpi-value" id="kpi-clicks">—</div></div>
+        </div>
+        <!-- Per-brand breakdown table -->
+        <div style="margin-top:20px;overflow-x:auto;">
+          <table class="data-table" id="brand-kpi-table">
+            <thead>
+              <tr>
+                <th>Brand</th>
+                <th>Spend</th>
+                <th>Sales</th>
+                <th>ROAS</th>
+                <th>ACoS</th>
+                <th>Impressions</th>
+                <th>Clicks</th>
+                <th>Campaigns</th>
+              </tr>
+            </thead>
+            <tbody id="brand-kpi-body">
+              <tr><td colspan="8" style="text-align:center;color:#9ca3af;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div id="loading-state" style="padding:48px;text-align:center;color:#9ca3af;font-size:14px;">Loading your brands…</div>
 

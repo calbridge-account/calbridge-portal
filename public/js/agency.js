@@ -179,8 +179,94 @@ async function initSession() {
   });
 }
 
+// ── Portfolio KPI ─────────────────────────────────────────────────────────────
+
+function fmtCurrency(val) {
+  const n = Number(val) || 0;
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtNumber(val) {
+  return (Number(val) || 0).toLocaleString('en-US');
+}
+
+function fmtRoas(val) {
+  return (Number(val) || 0).toFixed(2) + '\u00d7';
+}
+
+function fmtAcos(val) {
+  return (Number(val) || 0).toFixed(1) + '%';
+}
+
+async function loadPortfolioKpis(days) {
+  days = days || 30;
+
+  // Reset tiles to loading dash
+  ['kpi-spend', 'kpi-sales', 'kpi-roas', 'kpi-acos', 'kpi-impressions', 'kpi-clicks'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '\u2014';
+  });
+
+  const tbody = document.getElementById('brand-kpi-body');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">Loading\u2026</td></tr>';
+
+  try {
+    const res  = await fetch(`/agency/kpi-summary?days=${days}`, { credentials: 'include' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#dc2626;">Failed to load KPIs: ${escHtml(err.error || res.statusText)}</td></tr>`;
+      return;
+    }
+    const data = await res.json();
+    const s = data.summary || {};
+
+    // Populate summary tiles
+    const setTile = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setTile('kpi-spend',       fmtCurrency(s.totalSpend));
+    setTile('kpi-sales',       fmtCurrency(s.totalSales));
+    setTile('kpi-roas',        fmtRoas(s.blendedRoas));
+    setTile('kpi-acos',        fmtAcos(s.blendedAcos));
+    setTile('kpi-impressions', fmtNumber(s.totalImpressions));
+    setTile('kpi-clicks',      fmtNumber(s.totalClicks));
+
+    // Populate per-brand table
+    const brands = data.brands || [];
+    if (!brands.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">No brand data yet.</td></tr>';
+      return;
+    }
+
+    if (tbody) {
+      tbody.innerHTML = brands.map(b => `
+        <tr>
+          <td>${escHtml(b.brandName || '\u2014')}</td>
+          <td>${fmtCurrency(b.spend)}</td>
+          <td>${fmtCurrency(b.sales)}</td>
+          <td>${fmtRoas(b.roas)}</td>
+          <td>${fmtAcos(b.acos)}</td>
+          <td>${fmtNumber(b.impressions)}</td>
+          <td>${fmtNumber(b.clicks)}</td>
+          <td>${fmtNumber(b.campaigns)}</td>
+        </tr>
+      `).join('');
+    }
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#dc2626;">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  initSession();
+  loadBrands();
+  loadPortfolioKpis(30);
+
+  // Days selector for portfolio KPIs
+  const daysSelect = document.getElementById('kpi-days-select');
+  if (daysSelect) {
+    daysSelect.addEventListener('change', () => loadPortfolioKpis(parseInt(daysSelect.value, 10)));
+  }
+
   initSession();
   loadBrands();
 
