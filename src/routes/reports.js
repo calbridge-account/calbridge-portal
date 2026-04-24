@@ -102,8 +102,8 @@ function fetchImageBuffer(url) {
 }
 
 // ─── PDF Layout helpers ───────────────────────────────────────────────────────
-const PAGE_W  = 595.28;  // A4 width  (points)
-const PAGE_H  = 841.89;  // A4 height (points)
+const PAGE_W  = 841.89;  // A4 landscape width  (points)
+const PAGE_H  = 595.28;  // A4 landscape height (points)
 const MARGIN  = 50;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
@@ -517,7 +517,7 @@ router.get('/pdf', requireAuth, requirePlan('reportingDownload'), async (req, re
     ]);
 
     // ─── Build PDF ──────────────────────────────────────────────────────────
-    const doc = new PDFDocument({ size: 'A4', margin: MARGIN, autoFirstPage: false });
+    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: MARGIN, autoFirstPage: false });
 
     // Stream response
     res.setHeader('Content-Type', 'application/pdf');
@@ -533,7 +533,7 @@ router.get('/pdf', requireAuth, requirePlan('reportingDownload'), async (req, re
     const pages = []; // track (pageNum, sectionTitle) for accurate total
 
     function addPage() {
-      doc.addPage({ size: 'A4', margin: MARGIN });
+      doc.addPage({ size: 'A4', layout: 'landscape', margin: MARGIN });
       pageCount++;
       pages.push(pageCount);
     }
