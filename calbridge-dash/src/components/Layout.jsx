@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DateRangePicker from './DateRangePicker';
+import { useDateRange } from '../context/DateRangeContext';
 import WelcomeModal from './WelcomeModal';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
@@ -354,15 +355,67 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
 
 function TopBar() {
   const pageTitle = usePageTitle();
+  const { plan } = useBillingPlan();
+  const { range } = useDateRange();
+  const [syncing, setSyncing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const canDownload = plan === 'pro' || plan === 'agency';
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      await fetch('/advertising/sync', { method: 'POST', credentials: 'include' });
+    } catch (e) { /* non-fatal */ }
+    finally { setSyncing(false); }
+  }
+
+  async function handleDownloadReport() {
+    if (!range) return;
+    setDownloading(true);
+    try {
+      const { start, end } = range;
+      const url = `/reports/pdf?startDate=${start}&endDate=${end}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.status === 403) { alert('Report downloads require Pro plan or above.'); return; }
+      if (!res.ok) throw new Error('Report generation failed');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `calbridge-report-${end}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert('Failed to generate report. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 shadow-sm flex items-center px-6 gap-4">
+    <header className="h-14 bg-white border-b border-gray-200 shadow-sm flex items-center px-6 gap-3">
       <h1 className="text-base font-semibold text-gray-800 flex-1 truncate">
         {pageTitle}
       </h1>
       <div className="flex-shrink-0">
         <DateRangePicker />
       </div>
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="flex-shrink-0 text-sm px-3 py-1.5 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+      >
+        {syncing ? 'Syncing…' : '↻ Sync Now'}
+      </button>
+      {canDownload && (
+        <button
+          onClick={handleDownloadReport}
+          disabled={downloading}
+          className="flex-shrink-0 text-sm px-3 py-1.5 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {downloading ? 'Generating…' : '⬇ Download Report'}
+        </button>
+      )}
     </header>
   );
 }
