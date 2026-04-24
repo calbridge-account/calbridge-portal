@@ -30,6 +30,9 @@ async function main() {
   registerWeeklyEmailCron();
 
   console.log('[worker] Calbridge Worker running — cron + BullMQ active');
+
+  // Start stale queue watchdog
+  startQueueWatchdog();
 }
 
 /**
@@ -56,6 +59,60 @@ function registerWeeklyEmailCron() {
   } catch (err) {
     console.error('[WeeklyEmail] Failed to register cron:', err.message);
   }
+}
+
+/**
+ * Stale queue watchdog — runs every 10 minutes.
+ * If any ads_report_queue rows have been in 'ready' status for >30 minutes,
+ * the download loop has stalled. Log a loud warning and send an alert email.
+ * PM2 will restart us if we crash, but this catches a live-but-stuck state.
+ */
+function startQueueWatchdog() {
+  const STALE_THRESHOLD_MIN = 30;
+  const CHECK_INTERVAL_MS   = 10 * 60 * 1000; // every 10 min
+  let lastAlertSent = 0;
+  const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // max 1 alert/hour
+
+  setInterval(async () => {
+    try {
+      const { query } = require('./services/snowflakeService');
+      const rows = await query(`
+        SELECT COUNT(1) as stale_count, MIN(requested_at) as oldest
+        FROM CALBRIDGE_PROD.APP.ads_report_queue
+        WHERE status = 'ready'
+          AND requested_at <= DATEADD('minute', -${STALE_THRESHOLD_MIN}, CURRENT_TIMESTAMP())
+      `);
+      const staleCount = Number(rows[0]?.STALE_COUNT || 0);
+      if (staleCount === 0) return;
+
+      const oldest = rows[0]?.OLDEST;
+      const msg = `[worker] ⚠️ STALE QUEUE DETECTED: ${staleCount} report(s) stuck in 'ready' status for >${STALE_THRESHOLD_MIN}min (oldest: ${oldest}). Download loop may be stalled.`;
+      console.error(msg);
+
+      // Send alert email (max once/hour)
+      const now = Date.now();
+      if (now - lastAlertSent > ALERT_COOLDOWN_MS) {
+        lastAlertSent = now;
+        try {
+          const { Resend } = require('resend');
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: process.env.EMAIL_FROM || 'ash@teamcalbridge.com',
+            to:   process.env.EMAIL_ALERT || 'abe@teamcalbridge.com',
+            subject: `⚠️ Calbridge worker stalled — ${staleCount} reports stuck`,
+            html: `<p><strong>${staleCount} report(s)</strong> have been stuck in 'ready' status for over ${STALE_THRESHOLD_MIN} minutes.</p><p>Oldest: ${oldest}</p><p>The worker download loop may have stalled. Check <code>pm2 logs calbridge-worker</code> and restart if needed.</p>`,
+          });
+          console.log('[worker] Stale queue alert email sent to abe@teamcalbridge.com');
+        } catch (emailErr) {
+          console.warn('[worker] Failed to send stale queue alert email:', emailErr.message);
+        }
+      }
+    } catch (err) {
+      console.warn('[worker] Queue watchdog check failed (non-fatal):', err.message);
+    }
+  }, CHECK_INTERVAL_MS);
+
+  console.log('[worker] Queue watchdog started — checking every 10min, alert threshold: 30min');
 }
 
 main().catch(err => {
