@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
+const { requirePlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { cachedQuery, cacheKey, DEFAULT_TTL_MS } = require('../services/queryCache');
 const { resolveClientId, resolveMarketplace } = require('../services/advertiserResolver');
@@ -1339,6 +1340,67 @@ router.get('/target-campaigns', requireAuth, async (req, res, next) => {
       roas:           r.ROAS != null ? Number(r.ROAS) : null,
       cpc:            r.CPC  != null ? Number(r.CPC)  : null,
     })));
+  } catch (err) { next(err); }
+});
+
+// ─── GET /advertising/alerts ─────────────────────────────────────────────────
+/**
+ * Returns open anomaly alerts for the authenticated client, last 7 days.
+ * Requires pro plan or above (anomalyDetection feature).
+ */
+router.get('/alerts', requireAuth, requirePlan('anomalyDetection'), async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const rows = await query(`
+      SELECT *
+      FROM CALBRIDGE_PROD.OPS.ANOMALY_ALERTS
+      WHERE client_id = ?
+        AND status NOT IN ('resolved')
+        AND detected_at >= DATEADD('day', -7, CURRENT_TIMESTAMP())
+      ORDER BY
+        CASE severity
+          WHEN 'critical' THEN 0
+          WHEN 'warning'  THEN 1
+          WHEN 'info'     THEN 2
+          ELSE 3
+        END,
+        detected_at DESC
+    `, [clientId]);
+    res.json(rows.map(r => ({
+      alertId:        r.ALERT_ID,
+      clientId:       r.CLIENT_ID,
+      campaignId:     r.CAMPAIGN_ID,
+      campaignName:   r.CAMPAIGN_NAME,
+      adProduct:      r.AD_PRODUCT,
+      alertType:      r.ALERT_TYPE,
+      severity:       r.SEVERITY,
+      metricValue:    r.METRIC_VALUE    != null ? Number(r.METRIC_VALUE)    : null,
+      thresholdValue: r.THRESHOLD_VALUE != null ? Number(r.THRESHOLD_VALUE) : null,
+      details:        r.DETAILS,
+      status:         r.STATUS,
+      autoActioned:   r.AUTO_ACTIONED,
+      detectedAt:     r.DETECTED_AT,
+      resolvedAt:     r.RESOLVED_AT,
+    })));
+  } catch (err) { next(err); }
+});
+
+// ─── POST /advertising/alerts/:alertId/acknowledge ────────────────────────────
+/**
+ * Marks an alert as acknowledged.
+ */
+router.post('/alerts/:alertId/acknowledge', requireAuth, requirePlan('anomalyDetection'), async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const { alertId } = req.params;
+    await query(`
+      UPDATE CALBRIDGE_PROD.OPS.ANOMALY_ALERTS
+      SET status = 'acknowledged'
+      WHERE alert_id = ?
+        AND client_id = ?
+        AND status = 'open'
+    `, [alertId, clientId]);
+    res.json({ ok: true, alertId });
   } catch (err) { next(err); }
 });
 

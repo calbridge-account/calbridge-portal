@@ -15,6 +15,7 @@ const { ingestCampaigns, ingestPerformance, ingestDsp, processReportQueue } = re
 const { ingestProducts, ingestSales } = require('./spIngestion');
 const { calculateContributionMargin } = require('./contributionMargin');
 const { pollAllQueues } = require('../services/marketingStreamService');
+const { detectAnomalies } = require('./anomalyDetection');
 const authService = require('../services/authService');
 
 // In-memory client registry for dev (replace with DB query in prod)
@@ -118,6 +119,14 @@ function startScheduler() {
 
   // Full sync every 6 hours
   setInterval(runFullSync, SIX_HOURS);
+
+  // Anomaly detection every 6 hours, offset 30 seconds after full sync starts
+  // to avoid Snowflake pool contention during the ingest burst
+  setTimeout(async function runAnomalyDetection() {
+    try { await detectAnomalies('scheduler'); }
+    catch (err) { console.error('[Scheduler] Anomaly detection error:', err.message); }
+    setTimeout(runAnomalyDetection, SIX_HOURS);
+  }, 30 * 1000); // first run 30s after startup
 
   // Marketing Stream SQS poller — every 5 minutes
   // No-ops automatically until AWS credentials + subscriptions are configured
