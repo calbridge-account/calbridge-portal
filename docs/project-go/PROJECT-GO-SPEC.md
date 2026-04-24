@@ -558,13 +558,16 @@ Audience reports:  request 95 days from execution date
 
 ### Tiered ingestion — all ads reports (ongoing after backfill)
 ```
-Daily:   startDate = D-3, endDate = D-1  (3-day rolling window)
-         → catches impression/click revisions from invalid traffic filtering
-         → data_maturity = 'preliminary' on write
+Quad-daily: startDate = D-0, endDate = D-3  (4-day rolling window, every 6 hours)
+            → D-0 = today's partial data (spend/impressions live, conversions accumulating)
+            → D-1 to D-3 = catches impression/click revisions from invalid traffic filtering
+            → data_maturity = 'preliminary' on write for D-1 to D-3
+            → D-0 data shown as-is; day is clearly in-progress, no flag needed
+            → runs at 00:00, 06:00, 12:00, 18:00 UTC
 
-Weekly:  startDate = D-32, endDate = D-1 (full 30-day settlement, every Sunday)
-         → fully settles all attribution windows including purchases30d / sales30d
-         → data_maturity updated to 'settled' or 'final' accordingly
+Weekly:     startDate = D-32, endDate = D-1 (full 30-day settlement, every Sunday)
+            → fully settles all attribution windows including purchases30d / sales30d
+            → data_maturity updated to 'settled' or 'final' accordingly
 ```
 
 ### data_maturity states
@@ -573,6 +576,14 @@ Weekly:  startDate = D-32, endDate = D-1 (full 30-day settlement, every Sunday)
 'settled'      → 3–30 days old, weekly sweep has run, attribution accumulating
 'final'        → > 30 days old, weekly sweep has run, all metrics fully settled
 ```
+
+### New client onboarding — immediate data trigger
+When a client connects and completes OAuth:
+1. Immediately submit full backfill report requests (all ad types, full lookback windows)
+2. `poll_report_queue` picks up results on its normal cycle
+3. Once all backfill reports land in RAW, trigger `build_canonical_models` → `compute_core_kpis` → `score_opportunities` immediately (event-driven, not waiting for next scheduled run)
+4. Client sees data in dashboard as soon as the pipeline completes — typically within 30–60 min of connecting
+This is event-driven. No special cron job — the onboarding flow fires the pipeline directly.
 
 ### Primary metric for opportunity scoring
 Attribution window is dynamic per client — determined by ANALYTICS.CLIENT_ATTRIBUTION_PROFILE.
@@ -627,21 +638,27 @@ One cron per job type. Each iterates `APP.CLIENTS WHERE status = 'active'`. No c
 |---|---|---|
 | check_connector_health | every 5min | Connector |
 | poll_report_queue | every 5min | Reporter |
-| submit_amazon_reports | every 15min | Reporter |
-| ingest_retail | every 15min | Connector |
+| submit_amazon_reports | every 30min | Reporter |
+| ingest_retail | every 30min | Connector |
 | refresh_queue_status | every 15min | Control |
 | stage_raw_data | hourly | Pipeline |
 | run_quality_checks | hourly | Pipeline |
 | compute_freshness | hourly | Pipeline |
-| build_canonical_models | daily 2am | Pipeline |
-| compute_core_kpis | daily 3am | Economist |
-| score_opportunities | daily 4am | Economist |
+| build_canonical_models | every 6h (00:30, 06:30, 12:30, 18:30 UTC) | Pipeline |
+| compute_core_kpis | every 6h (01:00, 07:00, 13:00, 19:00 UTC) | Economist |
+| score_opportunities | every 6h (01:30, 07:30, 13:30, 19:30 UTC) | Economist |
 | run_dayparting_scheduler | daily 12:01am | Control |
 | run_dayparting_reversion | daily 11:55pm | Control |
-| generate_operator_summary | daily 5am | Analyst |
-| generate_exec_summary | weekly Mon 6am | Analyst |
-| deep_reconciliation | weekly Sun 1am | Pipeline |
-| credential_audit | monthly 1st 9am | Control |
+| generate_operator_summary | daily 05:00 UTC | Analyst |
+| generate_exec_summary | weekly Mon 06:00 UTC | Analyst |
+| deep_reconciliation | weekly Sun 01:00 UTC | Pipeline |
+| credential_audit | monthly 1st 09:00 UTC | Control |
+
+Notes:
+- `submit_amazon_reports` slowed to 30min — report requests are batched per 6h ingestion cycle, not continuous
+- `build_canonical_models` → `compute_core_kpis` → `score_opportunities` staggered by 30min each to ensure upstream completes before downstream starts
+- On new client connect: pipeline triggered immediately (event-driven), independent of the above schedule
+- Dashboard freshness target: ≤ 6 hours for all active clients
 
 ---
 
