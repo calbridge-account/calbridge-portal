@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/requireAuth');
 const { requireRole } = require('../middleware/requireRole');
-const { requirePlan } = require('../middleware/requirePlan');
+const { requirePlan, lookupPlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { removeBackground } = require('../services/removeBackground');
 
@@ -258,35 +258,108 @@ router.delete('/team/:memberId', requireAuth, requireRole('manager'), async (req
 
 /**
  * GET /account/ai-settings
- * Get AI optimization enrollment settings for the logged-in client (Growth+ only)
+ * Get AI optimization enrollment settings for the logged-in client.
+ * Accessible to all plans; Starter/Free get locked preview mode.
  */
-const VALID_AI_SETTINGS = ['bid_optimization', 'budget_automation', 'dayparting', 'smart_alerts', 'campaign_pausing'];
+const VALID_AI_SETTINGS = [
+  // Growth tier decisions
+  'bid_optimization',
+  'budget_automation',
+  'dayparting',
+  'smart_alerts',
+  'campaign_pausing',
+  'keyword_harvesting',
+  'negative_keywords',
+  'placement_bids',
+  // Pro tier decisions
+  'asin_targeting',
+  'intraday_budget',
+  'portfolio_reallocation',
+  'seasonal_scaling',
+  'ntb_optimization',
+];
 
-router.get('/ai-settings', requireAuth, requirePlan('decisions'), async (req, res, next) => {
+const VALID_TARGET_SETTINGS = ['target_roas', 'min_bid'];
+
+const GROWTH_SETTINGS = [
+  'bid_optimization', 'budget_automation', 'dayparting', 'smart_alerts',
+  'campaign_pausing', 'keyword_harvesting', 'negative_keywords', 'placement_bids',
+];
+const PRO_SETTINGS = [
+  'asin_targeting', 'intraday_budget', 'portfolio_reallocation', 'seasonal_scaling', 'ntb_optimization',
+];
+
+const DEFAULT_TARGETS = { target_roas: 5.0, min_bid: 0.25 };
+
+router.get('/ai-settings', requireAuth, async (req, res, next) => {
   try {
+    const plan = await lookupPlan(req);
+    const isStarterLocked = plan === 'starter' || plan === 'free';
+
+    // Determine which decision settings are available for this plan
+    let availableSettings = [];
+    if (plan === 'growth') availableSettings = [...GROWTH_SETTINGS];
+    else if (plan === 'pro' || plan === 'agency') availableSettings = [...GROWTH_SETTINGS, ...PRO_SETTINGS];
+
     const rows = await query(
       `SELECT setting_key, enrollment_mode FROM CALBRIDGE_PROD.APP.CLIENT_AI_ENROLLMENT WHERE client_id = ?`,
       [req.session.clientId]
     );
-    const defaults = Object.fromEntries(VALID_AI_SETTINGS.map(k => [k, 'manual']));
+
+    // Build decisions map
+    const settingsMap = Object.fromEntries(VALID_AI_SETTINGS.map(k => [k, 'manual']));
+    const targetsMap  = { ...DEFAULT_TARGETS };
+
     for (const row of rows) {
-      if (VALID_AI_SETTINGS.includes(row.SETTING_KEY)) {
-        defaults[row.SETTING_KEY] = row.ENROLLMENT_MODE;
+      const key = row.SETTING_KEY;
+      const val = row.ENROLLMENT_MODE;
+      if (VALID_AI_SETTINGS.includes(key)) {
+        settingsMap[key] = val;
+      } else if (key === 'target_roas') {
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed) && parsed > 0) targetsMap.target_roas = parsed;
+      } else if (key === 'min_bid') {
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed) && parsed > 0) targetsMap.min_bid = parsed;
       }
     }
-    res.json({ settings: defaults });
+
+    // Starter/Free always get default targets (locked, non-customizable)
+    const targets = isStarterLocked ? { ...DEFAULT_TARGETS } : targetsMap;
+
+    res.json({ settings: settingsMap, targets, isStarterLocked, availableSettings });
   } catch (err) { next(err); }
 });
 
 /**
  * POST /account/ai-settings
- * Upsert a single AI optimization setting (Growth+ only)
+ * Upsert a single AI optimization setting or target value (Growth+ only)
  */
 router.post('/ai-settings', requireAuth, requirePlan('decisions'), async (req, res, next) => {
   try {
     const { setting, value } = req.body;
+
+    if (VALID_TARGET_SETTINGS.includes(setting)) {
+      // Numeric target setting
+      const num = parseFloat(value);
+      if (isNaN(num) || num <= 0) {
+        return res.status(400).json({ error: `Invalid value for ${setting}. Must be a positive number.` });
+      }
+      const stored = num.toFixed(setting === 'min_bid' ? 2 : 2);
+      await query(
+        `MERGE INTO CALBRIDGE_PROD.APP.CLIENT_AI_ENROLLMENT t
+         USING (SELECT ? AS client_id, ? AS setting_key, ? AS enrollment_mode) s
+         ON t.client_id = s.client_id AND t.setting_key = s.setting_key
+         WHEN MATCHED THEN UPDATE SET enrollment_mode = s.enrollment_mode, updated_at = CURRENT_TIMESTAMP()
+         WHEN NOT MATCHED THEN INSERT (client_id, setting_key, enrollment_mode, created_at, updated_at)
+           VALUES (s.client_id, s.setting_key, s.enrollment_mode, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+        [req.session.clientId, setting, stored]
+      );
+      return res.json({ message: 'Target updated', setting, value: num });
+    }
+
     if (!VALID_AI_SETTINGS.includes(setting)) {
-      return res.status(400).json({ error: `Invalid setting. Must be one of: ${VALID_AI_SETTINGS.join(', ')}` });
+      return res.status(400).json({ error: `Invalid setting. Must be one of: ${[...VALID_AI_SETTINGS, ...VALID_TARGET_SETTINGS].join(', ')}` });
     }
     if (value !== 'auto' && value !== 'manual') {
       return res.status(400).json({ error: 'Invalid value. Must be "auto" or "manual"' });

@@ -13,6 +13,19 @@
 .ai-setting-toggle { display:flex; gap:6px; flex-shrink:0; }
 .btn-ai-mode { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text-muted); cursor:pointer; font-size:0.8rem; }
 .btn-ai-mode.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.ai-targets-row { display:flex; gap:20px; flex-wrap:wrap; margin-bottom:20px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+.ai-target-field { display:flex; flex-direction:column; gap:4px; }
+.ai-target-field label { font-size:0.8rem; font-weight:600; color:var(--text); }
+.ai-target-field input[type=number] { padding:7px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font-size:0.9rem; width:120px; }
+.ai-target-hint { font-size:0.75rem; color:var(--text-muted); }
+.ai-settings-group-heading { font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin:16px 0 8px; }
+.ai-setting-locked { opacity:0.45; pointer-events:none; }
+.ai-upgrade-badge { font-size:0.7rem; background:var(--border); color:var(--text-muted); border-radius:4px; padding:2px 6px; margin-left:8px; }
+.ai-starter-locked-note { font-size:0.78rem; color:var(--text-muted); margin-top:8px; padding:8px 12px; background:var(--surface); border-radius:6px; border:1px solid var(--border); }
+.ai-pro-upgrade-box { margin-top:16px; padding:12px 16px; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
+.ai-pro-upgrade-box p { font-size:0.82rem; color:var(--text-muted); margin:0 0 8px; }
+.ai-pro-upgrade-list { list-style:none; padding:0; margin:0 0 10px; display:flex; flex-wrap:wrap; gap:6px; }
+.ai-pro-upgrade-list li { font-size:0.78rem; background:var(--border); border-radius:4px; padding:3px 8px; color:var(--text-muted); }
 </style>
 </head>
 <body class="dashboard-page">
@@ -201,11 +214,11 @@
           </table>
         </div>
 
-        <!-- AI Optimization Settings (Growth+ only) -->
+        <!-- AI Optimization Settings -->
         <div class="settings-card settings-card-wide" id="ai-settings-card" style="display:none;">
           <h3>🤖 AI Optimization Settings</h3>
-          <p class="settings-desc">Choose which optimizations happen automatically and which require your manual approval.</p>
-          <div id="ai-settings-list"></div>
+          <p class="settings-desc" id="ai-settings-desc">Choose which optimizations happen automatically and which require your manual approval.</p>
+          <div id="ai-settings-body"></div>
         </div>
 
       </div>

@@ -273,62 +273,162 @@ function initWeeklyReportToggle(enabled) {
 }
 
 // ---- AI Settings ----
+
 const AI_SETTINGS = [
-  { key: 'bid_optimization',  label: 'Bid Optimization',   desc: 'AI adjusts keyword bids based on performance targets' },
-  { key: 'budget_automation', label: 'Budget Automation',  desc: 'Campaigns auto-pause when budget exhausted; resume next day' },
-  { key: 'dayparting',        label: 'Dayparting',         desc: 'Bid multipliers applied/removed on your hourly schedule' },
-  { key: 'smart_alerts',      label: 'Smart Alerts',       desc: 'Alerts sent automatically when anomalies are detected' },
-  { key: 'campaign_pausing',  label: 'Campaign Pausing',   desc: 'Underperforming campaigns paused automatically' },
+  // Growth
+  { key: 'bid_optimization',      tier: 'growth', group: 'Bids',       label: 'Bid Optimization',           desc: 'AI adjusts keyword bids to hit your target ROAS' },
+  { key: 'placement_bids',        tier: 'growth', group: 'Bids',       label: 'Placement Bid Adjustments',  desc: 'Top of Search, Product Pages, and Rest of Search multipliers set by where conversions occur' },
+  { key: 'keyword_harvesting',    tier: 'growth', group: 'Keywords',   label: 'Keyword Harvesting',         desc: 'High-converting search terms promoted from auto/broad into exact match campaigns' },
+  { key: 'negative_keywords',     tier: 'growth', group: 'Keywords',   label: 'Negative Keyword Addition',  desc: 'Poor-performing search terms added as negatives to cut wasted spend' },
+  { key: 'budget_automation',     tier: 'growth', group: 'Budget',     label: 'Budget Automation',          desc: 'Campaigns auto-pause when daily budget is exhausted; resume next day' },
+  { key: 'dayparting',            tier: 'growth', group: 'Scheduling', label: 'AI Dayparting',              desc: 'AI analyzes hourly performance and automatically sets bid multipliers by time of day' },
+  { key: 'campaign_pausing',      tier: 'growth', group: 'Campaigns',  label: 'Campaign Pausing',           desc: 'Underperforming campaigns paused automatically when below threshold' },
+  { key: 'smart_alerts',          tier: 'growth', group: 'Campaigns',  label: 'Smart Alerts',               desc: 'Automated alerts when spend spikes, ACoS drifts, or budgets burn early' },
+  // Pro
+  { key: 'ntb_optimization',      tier: 'pro',    group: 'Bids',       label: 'New-to-Brand Optimization',  desc: 'Bids tuned to hit your NTB% target for brand growth goals' },
+  { key: 'intraday_budget',       tier: 'pro',    group: 'Budget',     label: 'Intraday Budget Shifting',   desc: 'Budget reallocated mid-day from exhausted campaigns to available high-ROAS ones' },
+  { key: 'portfolio_reallocation',tier: 'pro',    group: 'Budget',     label: 'Portfolio Reallocation',     desc: 'Weekly budget shifted toward higher-ROAS campaigns within each portfolio' },
+  { key: 'seasonal_scaling',      tier: 'pro',    group: 'Scheduling', label: 'Seasonal Bid Scaling',       desc: 'Bids proactively raised ahead of high-traffic periods (Prime Day, BFCM, etc.)' },
+  { key: 'asin_targeting',        tier: 'pro',    group: 'Campaigns',  label: 'ASIN Target Optimization',   desc: 'Product targets added or removed based on conversion performance' },
 ];
+
+const FUNCTIONAL_GROUPS = ['Bids', 'Keywords', 'Budget', 'Scheduling', 'Campaigns'];
 
 async function loadAiSettings() {
   try {
-    const billingRes = await fetch('/billing/status', { credentials: 'include' });
-    if (!billingRes.ok) return;
-    const billing = await billingRes.json();
-    if (!billing.limits || !billing.limits.decisions) return;
-
+    // Always show the card — all plans see it (locked for Starter/Free)
     const card = $('ai-settings-card');
     if (card) card.style.display = '';
 
     const res = await fetch('/account/ai-settings', { credentials: 'include' });
     if (!res.ok) return;
-    const { settings } = await res.json();
-
-    renderAiSettings(settings);
+    const data = await res.json();
+    renderAiSettings(data);
   } catch (err) {
     console.warn('[AI Settings] Failed to load:', err.message);
   }
 }
 
-function renderAiSettings(settings) {
-  const list = $('ai-settings-list');
-  if (!list) return;
+function renderAiSettings(data) {
+  const body = $('ai-settings-body');
+  if (!body) return;
 
-  list.innerHTML = AI_SETTINGS.map(s => `
-    <div class="ai-setting-row" id="ai-row-${s.key}">
-      <div class="ai-setting-info">
-        <div class="ai-setting-label">${s.label}</div>
-        <div class="ai-setting-desc">${s.desc}</div>
-      </div>
-      <div class="ai-setting-toggle">
-        <button class="btn-ai-mode ${settings[s.key] === 'auto' ? 'active' : ''}" data-key="${s.key}" data-value="auto">Automatic</button>
-        <button class="btn-ai-mode ${settings[s.key] === 'manual' ? 'active' : ''}" data-key="${s.key}" data-value="manual">Manual</button>
-      </div>
-    </div>
-  `).join('');
+  const { settings, targets, isStarterLocked, availableSettings } = data;
+  // availableSettings: [] for free/starter, growth keys for growth, all for pro/agency
+  const isPro = availableSettings && AI_SETTINGS.filter(s => s.tier === 'pro').every(s => availableSettings.includes(s.key));
+  const isGrowth = !isPro && availableSettings && availableSettings.length > 0;
 
-  list.querySelectorAll('.btn-ai-mode').forEach(btn => {
+  let html = '';
+
+  // ── Target settings row ──
+  html += '<div class="ai-targets-row">';
+  if (isStarterLocked) {
+    html += `
+      <div class="ai-target-field">
+        <label>Target ROAS</label>
+        <div style="font-size:0.9rem;font-weight:600;padding:7px 0">${targets.target_roas.toFixed(1)}x</div>
+        <div class="ai-target-hint">System optimizes toward this return on ad spend</div>
+      </div>
+      <div class="ai-target-field">
+        <label>Minimum Bid ($)</label>
+        <div style="font-size:0.9rem;font-weight:600;padding:7px 0">$${targets.min_bid.toFixed(2)}</div>
+        <div class="ai-target-hint">No keyword bid will go below this floor</div>
+      </div>
+      <div style="align-self:flex-end">
+        <div class="ai-starter-locked-note">Starter plan default &middot; <a href="/billing.html" style="color:var(--accent)">Upgrade to customize</a></div>
+      </div>`;
+  } else {
+    html += `
+      <div class="ai-target-field">
+        <label for="ai-target-roas">Target ROAS</label>
+        <input type="number" id="ai-target-roas" step="0.1" min="0.1" value="${targets.target_roas.toFixed(1)}" />
+        <div class="ai-target-hint">System optimizes toward this return on ad spend</div>
+      </div>
+      <div class="ai-target-field">
+        <label for="ai-target-minbid">Minimum Bid ($)</label>
+        <input type="number" id="ai-target-minbid" step="0.01" min="0.01" value="${targets.min_bid.toFixed(2)}" />
+        <div class="ai-target-hint">No keyword bid will go below this floor</div>
+      </div>
+      <div style="align-self:flex-end">
+        <button class="btn-primary" id="ai-save-targets-btn" style="padding:8px 18px">Save Targets</button>
+        <div id="ai-targets-status" style="font-size:0.78rem;margin-top:4px;"></div>
+      </div>`;
+  }
+  html += '</div>';
+
+  if (isStarterLocked) {
+    // Locked preview: show all 13 settings greyed out with upgrade note
+    html += `<div class="ai-starter-locked-note" style="margin-bottom:16px">🔒 AI automation requires <a href="/billing.html" style="color:var(--accent)">Growth plan or above</a>. These settings are shown as a preview.</div>`;
+    FUNCTIONAL_GROUPS.forEach(group => {
+      const groupSettings = AI_SETTINGS.filter(s => s.group === group);
+      html += `<div class="ai-settings-group-heading">${group}</div>`;
+      groupSettings.forEach(s => {
+        html += `
+          <div class="ai-setting-row ai-setting-locked">
+            <div class="ai-setting-info">
+              <div class="ai-setting-label">${s.label}</div>
+              <div class="ai-setting-desc">${s.desc}</div>
+            </div>
+            <div class="ai-setting-toggle">
+              <button class="btn-ai-mode" disabled>Automatic</button>
+              <button class="btn-ai-mode active" disabled>Manual</button>
+            </div>
+          </div>`;
+      });
+    });
+
+  } else if (isPro) {
+    // Pro/Agency: all 13 unlocked, functional groupings — no tier labels
+    FUNCTIONAL_GROUPS.forEach(group => {
+      const groupSettings = AI_SETTINGS.filter(s => s.group === group);
+      html += `<div class="ai-settings-group-heading">${group}</div>`;
+      groupSettings.forEach(s => {
+        html += renderSettingRow(s, settings[s.key], true);
+      });
+    });
+
+  } else if (isGrowth) {
+    // Growth: Growth settings unlocked, Pro settings locked with upgrade box
+    FUNCTIONAL_GROUPS.forEach(group => {
+      const groupSettings = AI_SETTINGS.filter(s => s.group === group);
+      if (!groupSettings.length) return;
+      html += `<div class="ai-settings-group-heading">${group}</div>`;
+      groupSettings.forEach(s => {
+        const unlocked = availableSettings.includes(s.key);
+        html += renderSettingRow(s, settings[s.key], unlocked);
+      });
+    });
+
+    // Pro upgrade prompt box
+    const proSettings = AI_SETTINGS.filter(s => s.tier === 'pro');
+    html += `
+      <div class="ai-pro-upgrade-box">
+        <p><strong>🚀 Unlock Pro automations</strong> — upgrade to get 5 additional AI decisions:</p>
+        <ul class="ai-pro-upgrade-list">
+          ${proSettings.map(s => `<li>${s.label}</li>`).join('')}
+        </ul>
+        <a href="/billing.html" class="btn-primary" style="display:inline-block;padding:8px 18px;text-decoration:none;font-size:0.85rem">View Pro Plan →</a>
+      </div>`;
+  }
+
+  body.innerHTML = html;
+
+  // Wire up target save button
+  const saveBtn = $('ai-save-targets-btn');
+  if (saveBtn) saveBtn.addEventListener('click', saveTargets);
+
+  // Wire up toggle buttons
+  body.querySelectorAll('.btn-ai-mode[data-key]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const key   = btn.dataset.key;
       const value = btn.dataset.value;
-      const row   = $(`ai-row-${key}`);
+      const row   = document.getElementById(`ai-row-${key}`);
+      if (!row) return;
 
       // Optimistic UI
       row.querySelectorAll('.btn-ai-mode').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
 
-      // Remove any previous inline error
       const existingErr = row.querySelector('.ai-setting-error');
       if (existingErr) existingErr.remove();
 
@@ -340,11 +440,11 @@ function renderAiSettings(settings) {
           body: JSON.stringify({ setting: key, value })
         });
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to save');
+          const d = await res.json();
+          throw new Error(d.error || 'Failed to save');
         }
       } catch (err) {
-        // Revert optimistic update
+        // Revert
         row.querySelectorAll('.btn-ai-mode').forEach(b => {
           b.classList.toggle('active', b.dataset.value !== value);
         });
@@ -357,6 +457,62 @@ function renderAiSettings(settings) {
       }
     });
   });
+}
+
+function renderSettingRow(s, currentValue, unlocked) {
+  const lockedClass = unlocked ? '' : 'ai-setting-locked';
+  const upgradeBadge = unlocked ? '' : '<span class="ai-upgrade-badge">Pro</span>';
+  const isAuto   = currentValue === 'auto';
+  const isManual = !isAuto;
+  return `
+    <div class="ai-setting-row ${lockedClass}" id="ai-row-${s.key}">
+      <div class="ai-setting-info">
+        <div class="ai-setting-label">${s.label}${upgradeBadge}</div>
+        <div class="ai-setting-desc">${s.desc}</div>
+      </div>
+      <div class="ai-setting-toggle">
+        <button class="btn-ai-mode ${isAuto ? 'active' : ''}" data-key="${s.key}" data-value="auto" ${unlocked ? '' : 'disabled'}>Automatic</button>
+        <button class="btn-ai-mode ${isManual ? 'active' : ''}" data-key="${s.key}" data-value="manual" ${unlocked ? '' : 'disabled'}>Manual</button>
+      </div>
+    </div>`;
+}
+
+async function saveTargets() {
+  const roasInput   = $('ai-target-roas');
+  const minBidInput = $('ai-target-minbid');
+  const statusEl    = $('ai-targets-status');
+
+  const roas   = parseFloat(roasInput?.value);
+  const minBid = parseFloat(minBidInput?.value);
+
+  if (isNaN(roas) || roas <= 0 || isNaN(minBid) || minBid <= 0) {
+    if (statusEl) { statusEl.style.color = '#e53e3e'; statusEl.textContent = '❌ Enter valid positive values for both fields.'; }
+    return;
+  }
+
+  if (statusEl) { statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = 'Saving…'; }
+
+  try {
+    for (const [setting, value] of [['target_roas', roas], ['min_bid', minBid]]) {
+      const res = await fetch('/account/ai-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ setting, value })
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || `Failed to save ${setting}`);
+      }
+    }
+    if (statusEl) {
+      statusEl.style.color = '#2d5a27';
+      statusEl.textContent = '✅ Targets saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 4000);
+    }
+  } catch (err) {
+    if (statusEl) { statusEl.style.color = '#e53e3e'; statusEl.textContent = `❌ ${err.message}`; }
+  }
 }
 
 // ---- Helpers ----
