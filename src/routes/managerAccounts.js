@@ -1285,9 +1285,10 @@ agencyRouter.post('/switch-brand', async (req, res) => {
     // Switch session to brand — clear all caches so fresh data loads
     req.session.clientId = brandClientId;
     req.session.activeAdvertiserId = null;
+    req.session.advertiserId = null;    // clear legacy advertiserId so resolveClientId uses clientId directly
     req.session.activeMarketplace = null;
     req.session.isBrandSession = true;
-    req.session.planCache = null; // force re-fetch of plan for the brand account
+    req.session.planCache = null;
 
     // Explicitly save session before responding so the client redirect lands on the new session
     const switchedBrandName = rows[0].NAME || rows[0].name;
@@ -1315,6 +1316,7 @@ agencyRouter.post('/exit-brand', async (req, res) => {
     req.session.clientId = agencyClientId;
     req.session.agencyClientId = null;
     req.session.activeAdvertiserId = null;
+    req.session.advertiserId = null;    // will be re-resolved from migration map on next request
     req.session.isBrandSession = false;
     req.session.planCache = null;
 
