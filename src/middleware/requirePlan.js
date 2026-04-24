@@ -7,7 +7,7 @@
  *   free     → read-only, 1 connection, 30-day data, no decisions, no AI chat
  *   starter  → vendor reports, manual recommendations, 90-day data, 2 connections
  *   growth   → decisions + AI chat + dayparting, 365-day data, all connections, budget automation, smart alerts
- *   pro      → campaign creation, portfolio budgets, anomaly detection, custom attribution, reporting download, API access, 3-year data
+ *   pro      → campaign creation, portfolio budgets, anomaly detection, reporting download, API access, 3-year data
  *   agency   → everything in pro + white-label, multi-brand portal, client access
  *
  * Usage in routes:
@@ -32,7 +32,6 @@ const PLAN_LIMITS = {
     portfolioBudgets:       false,
     reportingDownload:      false,
     anomalyDetection:       false,
-    customAttribution:      false,
     apiAccess:              false,
     whiteLabel:             false,
     multiBrand:             false,
@@ -52,7 +51,6 @@ const PLAN_LIMITS = {
     portfolioBudgets:       false,
     reportingDownload:      false,
     anomalyDetection:       false,
-    customAttribution:      false,
     apiAccess:              false,
     whiteLabel:             false,
     multiBrand:             false,
@@ -72,7 +70,6 @@ const PLAN_LIMITS = {
     portfolioBudgets:       false,
     reportingDownload:      false,
     anomalyDetection:       false,
-    customAttribution:      false,
     apiAccess:              false,
     whiteLabel:             false,
     multiBrand:             false,
@@ -92,7 +89,6 @@ const PLAN_LIMITS = {
     portfolioBudgets:       true,
     reportingDownload:      true,
     anomalyDetection:       true,
-    customAttribution:      true,
     apiAccess:              true,
     whiteLabel:             false,
     multiBrand:             false,
@@ -112,7 +108,6 @@ const PLAN_LIMITS = {
     portfolioBudgets:       true,
     reportingDownload:      true,
     anomalyDetection:       true,
-    customAttribution:      true,
     apiAccess:              true,
     whiteLabel:             true,
     multiBrand:             true,
@@ -135,7 +130,6 @@ const FEATURE_MIN_PLAN = {
   portfolioBudgets:       'pro',
   reportingDownload:      'pro',
   anomalyDetection:       'pro',
-  customAttribution:      'pro',
   apiAccess:              'pro',
   whiteLabel:             'agency',
   multiBrand:             'agency',
@@ -154,7 +148,6 @@ const FEATURE_MESSAGES = {
   portfolioBudgets:       'Portfolio budget management requires Pro plan or above.',
   reportingDownload:      'Report downloads require Pro plan or above.',
   anomalyDetection:       'Anomaly detection requires Pro plan or above.',
-  customAttribution:      'Custom attribution windows require Pro plan or above.',
   apiAccess:              'API access requires Pro plan or above.',
   whiteLabel:             'White-label branding requires Agency plan.',
   multiBrand:             'Multi-brand portal requires Agency plan.',
