@@ -53,8 +53,8 @@ function buildBrandCard(brand) {
   const connHtml = formatConnectionStatus(brand.connections || {});
 
   const manageHref = brand.clientId
-    ? `/brand-setup.html?brand=${encodeURIComponent(brand.clientId)}`
-    : '/brand-setup.html';
+    ? `/dashboard.html?brand=${encodeURIComponent(brand.clientId)}`
+    : '/dashboard.html';
 
   card.innerHTML = `
     <div class="brand-card-header">
@@ -68,7 +68,8 @@ function buildBrandCard(brand) {
       ${connHtml}
     </div>
     <div class="brand-card-footer">
-      <a href="${manageHref}" class="btn btn-manage">Manage →</a>
+      <a href="${manageHref}" class="btn btn-manage">Dashboard →</a>
+      <a href="/brand-setup.html?brand=${encodeURIComponent(brand.clientId || '')}" class="btn btn-secondary" style="font-size:0.8rem;padding:5px 10px;">⚙ Settings</a>
     </div>
   `;
   return card;
