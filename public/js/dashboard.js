@@ -1248,3 +1248,78 @@ function fmt$(n) {
   const v = parseFloat(n || 0);
   return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+// ─── Report Download ──────────────────────────────────────────────────────────
+
+/**
+ * Check billing status and show the Download Report button if plan includes
+ * reportingDownload. Called once on page load.
+ */
+async function initReportButton() {
+  try {
+    const res = await fetch('/billing/status', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    // billing/status returns `limits` object on the response for legacy clients,
+    // or the plan string. Check plan directly (pro/agency have reportingDownload).
+    const plan = (data.plan || '').toLowerCase();
+    const hasFeature = plan === 'pro' || plan === 'agency' ||
+                       (data.limits && data.limits.reportingDownload === true);
+    const btn = document.getElementById('download-report-btn');
+    if (btn && hasFeature) btn.style.display = '';
+  } catch (e) {
+    // Non-fatal — button stays hidden
+  }
+}
+
+/**
+ * Download a PDF report for the currently selected date range.
+ * Streams the PDF as a blob and triggers a browser download.
+ */
+async function downloadReport() {
+  const btn = document.getElementById('download-report-btn');
+  if (!btn) return;
+  btn.textContent = '⏳ Generating...';
+  btn.disabled = true;
+
+  // Use the current date range from the dashboard state (set by setupDateFilter)
+  const startDate = currentStart || '';
+  const endDate   = currentEnd   || '';
+
+  let url = '/reports/pdf';
+  if (startDate && endDate) {
+    url += `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+  }
+
+  try {
+    const response = await fetch(url, { credentials: 'include' });
+
+    if (response.status === 403) {
+      alert('Report downloads require Pro plan or above. Upgrade at /billing to unlock this feature.');
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Report generation failed (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `calbridge-report-${endDate || 'latest'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    alert('Failed to generate report. Please try again.');
+    console.error('[Report]', err);
+  } finally {
+    btn.textContent = '⬇ Download Report';
+    btn.disabled = false;
+  }
+}
+
+// Initialise report button visibility after auth check completes
+document.addEventListener('DOMContentLoaded', () => {
+  initReportButton();
+});

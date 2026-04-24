@@ -33,6 +33,7 @@ const managerRoutes        = require('./routes/managerAccounts');
 const managerAccountRoutes = require('./routes/managerAccounts');
 const { agencyRouter }     = require('./routes/managerAccounts');
 const marginalRoasRoutes   = require('./routes/marginalRoas');
+const reportsRoutes        = require('./routes/reports');
 
 const app = express();
 
@@ -178,6 +179,7 @@ app.use('/manager', managerAccountRoutes);
 app.use('/agency', agencyRouter);
 app.use('/api/marginal-roas', marginalRoasRoutes);
 app.use('/upload', require('./routes/upload'));
+app.use('/reports', reportsRoutes);
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>
