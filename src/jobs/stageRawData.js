@@ -747,40 +747,28 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
 
         UNION ALL
 
-        -- ── DSP: sourced from dsp_raw_campaign (total_sales = view-through attribution) ──
-        -- dsp_raw_campaign.total_sales is the correct column — matches native DSP reporting.
-        -- dsp_campaign_report.total_sales is a different (lower) aggregation.
-        -- Covers both SparkX (Jan–Mar) and Calbridge (Apr+) advertisers.
+        -- ── DSP: sourced from adjusted_campaign_performance so spend adjustments flow through ──
         SELECT
           client_id,
           date,
-          'US'                                                        AS marketplace,
+          COALESCE(marketplace, 'US')                                 AS marketplace,
           'DSP'                                                       AS ad_type,
-          COUNT(DISTINCT order_id)                                    AS active_campaigns,
-          SUM(total_cost)                                             AS spend,
-          SUM(total_sales)                                            AS sales,
+          COUNT(DISTINCT campaign_id)                                 AS active_campaigns,
+          SUM(adjusted_spend)                                         AS spend,
+          SUM(sales)                                                  AS sales,
           SUM(total_purchases)                                        AS orders,
           SUM(clicks)                                                 AS clicks,
           SUM(impressions)                                            AS impressions,
-          CASE WHEN SUM(total_sales) > 0
-            THEN SUM(total_cost) / SUM(total_sales) ELSE NULL END     AS acos,
-          CASE WHEN SUM(total_cost) > 0
-            THEN SUM(total_sales) / SUM(total_cost) ELSE NULL END     AS roas,
+          CASE WHEN SUM(sales) > 0
+            THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END       AS acos,
+          CASE WHEN SUM(adjusted_spend) > 0
+            THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END       AS roas,
           CASE WHEN SUM(impressions) > 0
             THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END  AS ctr
-        FROM (
-          -- Deduplicate: one row per (client_id, order_id, date)
-          SELECT client_id, order_id, date,
-            MAX(total_cost)       AS total_cost,
-            MAX(total_sales)      AS total_sales,
-            MAX(total_purchases)  AS total_purchases,
-            MAX(clicks)           AS clicks,
-            MAX(impressions)      AS impressions
-          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
-          WHERE date >= '2026-01-01'
-          GROUP BY client_id, order_id, date
-        ) dsp_deduped
-        GROUP BY client_id, date
+        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        WHERE ad_type = 'DSP'
+          AND date >= '2026-01-01'
+        GROUP BY client_id, date, COALESCE(marketplace, 'US')
       ) src
       ON  tgt.client_id   = src.client_id
       AND tgt.date        = src.date
