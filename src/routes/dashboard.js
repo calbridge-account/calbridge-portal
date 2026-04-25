@@ -839,7 +839,7 @@ router.get('/budget-pacing', requireAuth, planDataWindow, async (req, res, next)
         COALESCE(c.status, 'UNKNOWN')                    AS status,
         c.budget                                         AS daily_budget,
         c.budget_type,
-        COALESCE(SUM(r.adjusted_spend), 0)               AS mtd_spend,
+        COALESCE(SUM(r.spend), 0)                        AS mtd_spend,
         COUNT(DISTINCT r.date)                           AS days_with_data,
         -- Monthly budget = daily_budget * days in month (NULL for DSP / no-budget campaigns)
         CASE WHEN c.budget IS NOT NULL AND c.budget > 0

@@ -295,6 +295,9 @@ router.get('/', async (req, res) => {
       if (projectedTotal > totalAmount * 1.10)      paceStatus = 'over';
       else if (projectedTotal < totalAmount * 0.90) paceStatus = 'under';
 
+      // Required daily rate to hit budget: remaining spend / days left
+      const requiredDailyRate = daysRemaining > 0 ? remaining / daysRemaining : 0;
+
       // ── Alert flags ──────────────────────────────────────────────────────
       const flightRisk    = projectedTotal > totalAmount * 1.20;
       const underdelivery = projectedTotal < totalAmount * 0.80 && daysRemaining < 30;
@@ -339,6 +342,8 @@ router.get('/', async (req, res) => {
         daily_burn_rate: Math.round(dailyBurnRate * 100) / 100,
         projected_total: Math.round(projectedTotal * 100) / 100,
         pace_status:     paceStatus,
+        // required run rate to hit budget
+        required_daily_rate: Math.round(Math.max(0, requiredDailyRate) * 100) / 100,
         // velocity & advanced metrics
         burn_rate_7d:    Math.round(burnRate7d  * 100) / 100,
         burn_rate_3d:    Math.round(burnRate3d  * 100) / 100,
@@ -465,6 +470,8 @@ router.get('/:budgetId', async (req, res) => {
     if (projectedTotal > totalAmount * 1.10)      paceStatus = 'over';
     else if (projectedTotal < totalAmount * 0.90) paceStatus = 'under';
 
+    const requiredDailyRate = daysRemaining > 0 ? remaining / daysRemaining : 0;
+
     res.json({
       budget_id:       b.BUDGET_ID    || b.budget_id,
       client_id:       b.CLIENT_ID    || b.client_id,
@@ -488,6 +495,7 @@ router.get('/:budgetId', async (req, res) => {
       ideal_spend:     Math.round(idealSpend * 100) / 100,
       daily_burn_rate: Math.round(dailyBurnRate * 100) / 100,
       projected_total: Math.round(projectedTotal * 100) / 100,
+      required_daily_rate: Math.round(Math.max(0, requiredDailyRate) * 100) / 100,
       pace_status:     paceStatus,
     });
   } catch (err) {
