@@ -1958,14 +1958,21 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
       // — DSP view-through attribution can produce sales days after impressions ran.
       const aid = String(r.advertiserId || advertiserId);
       const isCurrentAdvertiser = aid === String(advertiserId);
-      const hasSales = Number(r.totalSales || r.sales || 0) > 0
-                    || Number(r.purchases || 0) > 0
-                    || Number(r.totalPurchases || 0) > 0;
-      if (!isCurrentAdvertiser
-          && Number(r.totalCost || 0) === 0
-          && Number(r.impressions || 0) === 0
-          && !hasSales) {
-        return false; // pure noise row — no spend, no impressions, no sales
+      // Keep row if ANY metric field is non-zero — not just spend/impressions
+      const hasAnyData = Number(r.totalCost || 0) > 0
+                      || Number(r.impressions || 0) > 0
+                      || Number(r.clicks || 0) > 0
+                      || Number(r.totalSales || r.sales || 0) > 0
+                      || Number(r.purchases || 0) > 0
+                      || Number(r.totalPurchases || 0) > 0
+                      || Number(r.newToBrandPurchases || 0) > 0
+                      || Number(r.newToBrandProductSales || 0) > 0
+                      || Number(r.detailPageViews || 0) > 0
+                      || Number(r.addToCart || 0) > 0
+                      || Number(r.viewableImpressions || 0) > 0
+                      || Number(r.videoAdComplete || 0) > 0;
+      if (!isCurrentAdvertiser && !hasAnyData) {
+        return false; // truly empty row — all metrics zero
       }
       return true;
     });
