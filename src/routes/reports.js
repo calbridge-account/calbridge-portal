@@ -323,7 +323,7 @@ router.get('/pdf', requireAuth, requirePlan('reportingDownload'), async (req, re
           SUM(orders)      AS total_orders,
           CASE WHEN SUM(sales)  > 0 THEN SUM(spend) / SUM(sales)  ELSE NULL END AS acos,
           CASE WHEN SUM(spend)  > 0 THEN SUM(sales) / SUM(spend)  ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace, 'US') = 'US'
           ${df('date')}
@@ -340,7 +340,7 @@ router.get('/pdf', requireAuth, requirePlan('reportingDownload'), async (req, re
           SUM(orders)      AS orders,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace, 'US') = 'US'
           ${df('date')}

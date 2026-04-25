@@ -180,7 +180,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
           CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
           CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
@@ -197,7 +197,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
           SUM(orders)      AS orders,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
@@ -216,7 +216,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
           SUM(clicks)      AS clicks,
           SUM(impressions) AS impressions,
           SUM(orders)      AS orders
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
@@ -312,7 +312,7 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
         CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)            ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions)     ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0      THEN SUM(spend) / SUM(clicks)           ELSE NULL END AS cpc
-      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
       WHERE client_id = ?
         AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
         ${summaryMartDateFilter()}
@@ -347,7 +347,7 @@ router.get('/trend', requireAuth, planDataWindow, async (req, res, next) => {
         CASE WHEN SUM(sales)  > 0 THEN SUM(spend)  / SUM(sales)  ELSE NULL END AS acos,
         CASE WHEN SUM(spend)  > 0 THEN SUM(sales)  / SUM(spend)  ELSE NULL END AS roas,
         CASE WHEN SUM(clicks) > 0 THEN SUM(spend)  / SUM(clicks) ELSE NULL END AS cpc
-      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
       WHERE client_id = ?
         AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
         ${dateFilter('date', days, startDate, endDate)}
@@ -379,7 +379,7 @@ router.get('/by-channel', requireAuth, planDataWindow, async (req, res, next) =>
         SUM(orders)      AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
-      FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+      FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
       WHERE client_id = ?
         AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
         ${dateFilter('date', days, startDate, endDate)}

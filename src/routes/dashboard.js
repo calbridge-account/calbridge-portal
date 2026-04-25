@@ -182,7 +182,7 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
           COALESCE(SUM(orders), 0)  AS total_ad_orders,
           CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily
+        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
         WHERE client_id = ?
           AND COALESCE(marketplace, 'US') = '${(marketplace || 'US').replace(/'/g, "''")}'
           ${dateFilter('date', days, startDate, endDate)}

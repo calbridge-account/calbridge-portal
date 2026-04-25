@@ -687,7 +687,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
   const startMs = Date.now();
   try {
     const result = await query(`
-      MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
+      MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
       USING (
         -- ── Sponsored Ads (SP / SB / SBV / SD) ─────────────────────────────────────
         -- Source: RAW.AD_CAMPAIGN joined to sp_campaign_report for profile_id,
@@ -774,10 +774,10 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const elapsedS = ((Date.now() - startMs) / 1000).toFixed(1);
     console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
 
-    // ── MARTS_MARTS DSP (separate MERGE — avoids Snowflake multi-join from UNION ALL) ──────────
+    // ── MARTS.AD_PERFORMANCE_DAILY DSP (separate MERGE — avoids Snowflake multi-join from UNION ALL) ──────────
     try {
       await query(`
-        MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
+        MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
         USING (
           SELECT client_id, date::DATE AS date,
             COALESCE(marketplace, 'US') AS marketplace,
@@ -809,9 +809,9 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
            src.spend, src.sales, src.orders, src.clicks, src.impressions,
            src.acos, src.roas, src.ctr)
       `);
-      console.log('[rebuildMart] ✅ MARTS_MARTS.mart_advertising_daily DSP updated');
+      console.log('[rebuildMart] ✅ MARTS.AD_PERFORMANCE_DAILY DSP updated');
     } catch (dspMartErr) {
-      console.warn('[rebuildMart] MARTS_MARTS DSP failed (non-fatal):', dspMartErr.message?.substring(0,150));
+      console.warn('[rebuildMart] MARTS.AD_PERFORMANCE_DAILY DSP failed (non-fatal):', dspMartErr.message?.substring(0,150));
     }
 
     // ── MARTS.CAMPAIGN_PERFORMANCE ─────────────────────────────────────────────
