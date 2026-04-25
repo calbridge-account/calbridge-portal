@@ -686,65 +686,35 @@ async function reconcileMissingPartitions({ triggeredBy = 'cron' } = {}) {
 async function rebuildMart({ triggeredBy = 'cron' } = {}) {
   const startMs = Date.now();
   try {
+    // ── MARTS.AD_PERFORMANCE_DAILY ──────────────────────────────────────────────
+    // Single source: adjusted_campaign_performance covers all ad types (SP/SB/SD/DSP)
+    // with spend adjustments already applied. No separate DSP MERGE needed.
     const result = await query(`
       MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
       USING (
-        -- ── Sponsored Ads (SP / SB / SBV / SD) ─────────────────────────────────────
-        -- Source: RAW.AD_CAMPAIGN joined to sp_campaign_report for profile_id,
-        -- then to client_accounts to get the correct marketplace per profile.
-        -- This prevents CA profile campaigns bleeding into the US marketplace total.
-        -- Attribution window: sales_30d (matches Amazon native reporting).
         SELECT
-          r.client_id,
-          r.date,
-          COALESCE(ca.marketplace, 'US')                            AS marketplace,
-          CASE
-            WHEN r.ad_product = 'SPONSORED_PRODUCTS' THEN 'SP'
-            WHEN r.ad_product = 'SPONSORED_BRANDS'   THEN 'SB'
-            WHEN r.ad_product = 'SPONSORED_DISPLAY'  THEN 'SD'
-            ELSE UPPER(r.ad_product)
-          END                                                       AS ad_type,
-          COUNT(DISTINCT r.campaign_id)                             AS active_campaigns,
-          SUM(r.cost)                                               AS spend,
-          SUM(r.sales_30d)                                          AS sales,
-          SUM(r.purchases_30d)                                      AS orders,
-          SUM(r.clicks)                                             AS clicks,
-          SUM(r.impressions)                                        AS impressions,
-          CASE WHEN SUM(r.sales_30d) > 0
-            THEN SUM(r.cost) / SUM(r.sales_30d) ELSE NULL END       AS acos,
-          CASE WHEN SUM(r.cost) > 0
-            THEN SUM(r.sales_30d) / SUM(r.cost) ELSE NULL END       AS roas,
-          CASE WHEN SUM(r.impressions) > 0
-            THEN SUM(r.clicks)::FLOAT / SUM(r.impressions) ELSE NULL END AS ctr
-        FROM (
-          -- Deduplicate RAW: one canonical row per (client_id, campaign_id, date)
-          SELECT client_id, campaign_id, campaign_name, ad_product, date,
-            MAX(cost)          AS cost,
-            MAX(sales_30d)     AS sales_30d,
-            MAX(purchases_30d) AS purchases_30d,
-            MAX(clicks)        AS clicks,
-            MAX(impressions)   AS impressions
-          FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
-          WHERE ad_product != 'DSP'
-            AND date >= '2026-01-01'
-          GROUP BY client_id, campaign_id, campaign_name, ad_product, date
-        ) r
-        -- Get profile_id: check sp_campaign_report first (SP/SD), then sb_campaign_report (SB/SBV)
-        LEFT JOIN (
-          SELECT DISTINCT client_id, campaign_id, profile_id
-          FROM CALBRIDGE_PROD.APP.sp_campaign_report
-          UNION
-          SELECT DISTINCT client_id, campaign_id, profile_id
-          FROM CALBRIDGE_PROD.APP.sb_campaign_report
-        ) spr ON spr.client_id = r.client_id AND spr.campaign_id = r.campaign_id
-        -- Map profile_id → marketplace via client_accounts
-        LEFT JOIN (
-          SELECT client_id, platform_profile_id, marketplace
-          FROM CALBRIDGE_PROD.APP.client_accounts
-          WHERE channel = 'sponsored_ads' AND is_active = TRUE
-        ) ca ON ca.client_id = r.client_id AND ca.platform_profile_id = spr.profile_id
-        GROUP BY r.client_id, r.date, COALESCE(ca.marketplace, 'US'), ad_type
-
+          client_id,
+          date::DATE                                              AS date,
+          COALESCE(marketplace, 'US')                            AS marketplace,
+          ad_type,
+          COUNT(DISTINCT campaign_id)                            AS active_campaigns,
+          SUM(COALESCE(adjusted_spend, 0))                       AS spend,
+          SUM(COALESCE(sales, 0))                                AS sales,
+          SUM(COALESCE(orders, 0))                               AS orders,
+          SUM(COALESCE(clicks, 0))                               AS clicks,
+          SUM(COALESCE(impressions, 0))                          AS impressions,
+          CASE WHEN SUM(COALESCE(sales, 0)) > 0
+            THEN SUM(COALESCE(adjusted_spend, 0)) / SUM(COALESCE(sales, 0))
+            ELSE NULL END                                        AS acos,
+          CASE WHEN SUM(COALESCE(adjusted_spend, 0)) > 0
+            THEN SUM(COALESCE(sales, 0)) / SUM(COALESCE(adjusted_spend, 0))
+            ELSE NULL END                                        AS roas,
+          CASE WHEN SUM(COALESCE(impressions, 0)) > 0
+            THEN SUM(COALESCE(clicks, 0))::FLOAT / SUM(COALESCE(impressions, 0))
+            ELSE NULL END                                        AS ctr
+        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        WHERE date >= '2026-01-01'
+        GROUP BY client_id, date::DATE, COALESCE(marketplace, 'US'), ad_type
       ) src
       ON  tgt.client_id   = src.client_id
       AND tgt.date        = src.date
@@ -773,111 +743,39 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const inserted = result?.[0]?.['number of rows inserted'] ?? 0;
     const elapsedS = ((Date.now() - startMs) / 1000).toFixed(1);
     console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
-
-    // ── MARTS.AD_PERFORMANCE_DAILY DSP (separate MERGE — avoids Snowflake multi-join from UNION ALL) ──────────
-    try {
-      await query(`
-        MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
-        USING (
-          SELECT client_id, date::DATE AS date,
-            COALESCE(marketplace, 'US') AS marketplace,
-            'DSP' AS ad_type,
-            COUNT(DISTINCT campaign_id) AS active_campaigns,
-            SUM(adjusted_spend) AS spend,
-            SUM(sales) AS sales,
-            SUM(total_purchases) AS orders,
-            SUM(clicks) AS clicks,
-            SUM(impressions) AS impressions,
-            CASE WHEN SUM(sales)>0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
-            CASE WHEN SUM(adjusted_spend)>0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas,
-            CASE WHEN SUM(impressions)>0 THEN SUM(clicks)::FLOAT/SUM(impressions) ELSE NULL END AS ctr
-          FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
-          WHERE ad_type = 'DSP' AND date >= '2026-01-01'
-          GROUP BY client_id, date::DATE, COALESCE(marketplace, 'US')
-        ) src
-        ON  tgt.client_id=src.client_id AND tgt.date=src.date
-        AND tgt.marketplace=src.marketplace AND tgt.ad_type=src.ad_type
-        WHEN MATCHED THEN UPDATE SET
-          active_campaigns=src.active_campaigns, spend=src.spend, sales=src.sales,
-          orders=src.orders, clicks=src.clicks, impressions=src.impressions,
-          acos=src.acos, roas=src.roas, ctr=src.ctr
-        WHEN NOT MATCHED THEN INSERT
-          (client_id, date, marketplace, ad_type, active_campaigns, spend, sales,
-           orders, clicks, impressions, acos, roas, ctr)
-        VALUES
-          (src.client_id, src.date, src.marketplace, src.ad_type, src.active_campaigns,
-           src.spend, src.sales, src.orders, src.clicks, src.impressions,
-           src.acos, src.roas, src.ctr)
-      `);
-      console.log('[rebuildMart] ✅ MARTS.AD_PERFORMANCE_DAILY DSP updated');
-    } catch (dspMartErr) {
-      console.warn('[rebuildMart] MARTS.AD_PERFORMANCE_DAILY DSP failed (non-fatal):', dspMartErr.message?.substring(0,150));
-    }
+    console.log('[rebuildMart] ✅ MARTS.AD_PERFORMANCE_DAILY updated');
 
     // ── MARTS.CAMPAIGN_PERFORMANCE ─────────────────────────────────────────────
+    // Single source: adjusted_campaign_performance (all ad types, adjustments applied)
     try {
       await query(`
         MERGE INTO CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE tgt
         USING (
-          SELECT client_id, date, 'SP' AS ad_type, campaign_id, campaign_name, campaign_status,
-            campaign_budget_amount AS daily_budget, impressions, clicks, cost AS spend,
-            COALESCE(sales_30_d, sales_14_d, sales_7_d) AS sales,
-            COALESCE(purchases_30_d, purchases_14_d, purchases_7_d) AS orders,
-            sales_7_d AS sales_7d, purchases_7_d AS orders_7d,
-            NULL::FLOAT AS ntb_purchases, NULL::FLOAT AS ntb_sales,
-            NULL::FLOAT AS detail_page_views, NULL::FLOAT AS add_to_cart,
-            NULL::FLOAT AS viewable_impressions, top_of_search_impression_share
-          FROM CALBRIDGE_PROD.APP.sp_campaign_report
-          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
-
-          UNION ALL
-
-          SELECT client_id, report_date::DATE AS date, 'SB' AS ad_type,
-            campaign_id, campaign_name, campaign_status,
-            campaign_budget_amount AS daily_budget, impressions, clicks, cost AS spend,
-            sales, purchases AS orders, NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-            new_to_brand_purchases::FLOAT AS ntb_purchases, new_to_brand_sales AS ntb_sales,
-            detail_page_views::FLOAT AS detail_page_views, add_to_cart::FLOAT AS add_to_cart,
-            viewable_impressions AS viewable_impressions, top_of_search_impression_share
-          FROM CALBRIDGE_PROD.APP.sb_campaign_report
-          WHERE report_date >= DATEADD('day', -60, CURRENT_DATE())
-            AND COALESCE(campaign_budget_currency_code, 'USD') != 'CAD'
-
-          UNION ALL
-
-          SELECT client_id, date, 'SD' AS ad_type,
-            campaign_id, campaign_name, NULL AS campaign_status,
-            NULL::FLOAT AS daily_budget, impressions, clicks, cost AS spend,
-            sales, purchases AS orders, NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-            new_to_brand_purchases::FLOAT AS ntb_purchases, new_to_brand_sales AS ntb_sales,
-            detail_page_views::FLOAT AS detail_page_views, add_to_cart::FLOAT AS add_to_cart,
-            NULL::FLOAT AS viewable_impressions, NULL::FLOAT AS top_of_search_impression_share
-          FROM CALBRIDGE_PROD.APP.sd_campaign_report
-          WHERE date >= DATEADD('day', -65, CURRENT_DATE())
-
-          UNION ALL
-
-          -- DSP campaign perf: from adjusted_campaign_performance (spend adjustments flow through)
-          SELECT client_id, date::DATE AS date, 'DSP' AS ad_type,
-            campaign_id, campaign_name, campaign_status,
-            MAX(campaign_budget_amount) AS daily_budget,
-            SUM(COALESCE(impressions,0)) AS impressions,
-            SUM(COALESCE(clicks,0)) AS clicks,
-            SUM(COALESCE(adjusted_spend,0)) AS spend,
-            SUM(COALESCE(sales,0)) AS sales,
-            SUM(COALESCE(orders,0)) AS orders,
-            NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-            SUM(COALESCE(new_to_brand_purchases,0))::FLOAT AS ntb_purchases,
-            SUM(COALESCE(new_to_brand_sales,0)) AS ntb_sales,
-            SUM(COALESCE(detail_page_views,0)) AS detail_page_views,
-            SUM(COALESCE(add_to_cart,0)) AS add_to_cart,
-            SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
-            NULL::FLOAT AS top_of_search_impression_share
+          SELECT
+            client_id,
+            date::DATE                                           AS date,
+            ad_type,
+            campaign_id,
+            campaign_name,
+            MAX(campaign_status)                                 AS campaign_status,
+            MAX(campaign_budget_amount)                          AS daily_budget,
+            SUM(COALESCE(impressions, 0))                        AS impressions,
+            SUM(COALESCE(clicks, 0))                             AS clicks,
+            SUM(COALESCE(adjusted_spend, 0))                     AS spend,
+            SUM(COALESCE(sales, 0))                              AS sales,
+            SUM(COALESCE(orders, 0))                             AS orders,
+            MAX(sales_7_d)                                       AS sales_7d,
+            MAX(orders_7d)                                       AS orders_7d,
+            SUM(COALESCE(new_to_brand_purchases, 0))::FLOAT      AS ntb_purchases,
+            SUM(COALESCE(new_to_brand_sales, 0))                 AS ntb_sales,
+            SUM(COALESCE(detail_page_views, 0))                  AS detail_page_views,
+            SUM(COALESCE(add_to_cart, 0))                        AS add_to_cart,
+            SUM(COALESCE(viewable_impressions, 0))               AS viewable_impressions,
+            MAX(top_of_search_impression_share)                  AS top_of_search_impression_share
           FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
-          WHERE ad_type = 'DSP'
-            AND date >= DATEADD('day', -95, CURRENT_DATE())
-          GROUP BY client_id, date::DATE, campaign_id, campaign_name, campaign_status
+          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+            AND COALESCE(marketplace, 'US') != 'CA'
+          GROUP BY client_id, date::DATE, ad_type, campaign_id, campaign_name
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date
            AND tgt.ad_type=src.ad_type AND tgt.campaign_id=src.campaign_id

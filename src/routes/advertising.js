@@ -416,7 +416,7 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
           SUM(sales)                   AS sales,
           SUM(orders)                  AS orders,
           SUM(units_sold)              AS units_sold
-        FROM adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         ${marketplaceFilterSafe(marketplace)}
@@ -462,11 +462,11 @@ router.get('/by-campaign-type', requireAuth, planDataWindow, async (req, res, ne
         SUM(orders)         AS orders,
         CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
         CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas
-      FROM adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
       WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
       ${marketplaceFilterSafe(marketplace)}
       GROUP BY ad_type
-      ORDER BY SUM(adjusted_spend) DESC
+      ORDER BY SUM(spend) DESC
     `, [clientId]));
     res.json(rows);
   } catch (err) { next(err); }
@@ -493,7 +493,7 @@ router.get('/roas-by-type', requireAuth, planDataWindow, async (req, res, next) 
           CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas,
           CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
-        FROM adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         GROUP BY ad_type
         ORDER BY SUM(adjusted_spend) DESC
@@ -961,7 +961,7 @@ router.get('/dsp-summary', requireAuth, planDataWindow, async (req, res, next) =
         CASE WHEN SUM(impressions) > 0        THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate,
         CASE WHEN SUM(video_ad_start) > 0     THEN SUM(video_ad_complete) / SUM(video_ad_start) ELSE NULL END AS vcr,
         CASE WHEN SUM(adjusted_spend) > 0     THEN SUM(detail_page_views) / SUM(adjusted_spend) ELSE NULL END AS dpvr
-      FROM adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
       WHERE client_id = ?
         AND ad_type = 'DSP'
         ${dateFilter("date", days, startDate, endDate)}
@@ -1022,7 +1022,7 @@ router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) =>
         CASE WHEN SUM(adjusted_spend) > 0  THEN SUM(sales) / SUM(adjusted_spend)   ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0     THEN SUM(clicks) / SUM(impressions)      ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0     THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate
-      FROM adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
       WHERE client_id = ?
         AND ad_type = 'DSP'
         ${dateFilter("date", days, startDate, endDate)}
