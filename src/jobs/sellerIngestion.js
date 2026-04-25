@@ -109,7 +109,7 @@ async function ingestSalesTraffic(clientId, client, daysBack = 14) {
     dataStartTime: startDate + 'T00:00:00Z',
     dataEndTime:   endDate   + 'T23:59:59Z',
     reportOptions: { dateGranularity: 'DAY', asinGranularity: 'PARENT' },
-  });
+  }, 240000);
 
   // salesAndTrafficByAsin = ASIN-level totals over the date range (no date field)
   // salesAndTrafficByDate  = daily totals over all ASINs (has date field)
@@ -211,11 +211,11 @@ async function ingestFbaInventory(clientId, client) {
   // Try FBA first; if FATAL (account not using FBA), try MFN open listings
   let data;
   try {
-    data = await requestAndPoll(client, 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA');
+    data = await requestAndPoll(client, 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA', {}, 240000);
   } catch (e) {
     if (e.message.includes('FATAL')) {
       console.log('[sellerIngestion] FBA report FATAL — account may not use FBA, trying MFN listings');
-      data = await requestAndPoll(client, 'GET_FLAT_FILE_OPEN_LISTINGS_DATA');
+      data = await requestAndPoll(client, 'GET_FLAT_FILE_OPEN_LISTINGS_DATA', {}, 240000);
     } else {
       throw e;
     }

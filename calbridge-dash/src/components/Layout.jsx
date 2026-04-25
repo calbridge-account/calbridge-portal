@@ -4,6 +4,7 @@ import { useUser } from '../context/UserContext';
 import DateRangePicker from './DateRangePicker';
 import { useDateRange } from '../context/DateRangeContext';
 import WelcomeModal from './WelcomeModal';
+import ChatWidget from './ChatWidget';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
 
@@ -462,6 +463,9 @@ export default function Layout({ children }) {
           </div>
         </main>
       </div>
+
+      {/* AI chat widget — Growth+ only */}
+      {(plan === 'growth' || plan === 'pro' || plan === 'agency') && <ChatWidget />}
     </div>
   );
 }

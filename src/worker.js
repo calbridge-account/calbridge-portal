@@ -77,10 +77,11 @@ function startQueueWatchdog() {
     try {
       const { query } = require('./services/snowflakeService');
       const rows = await query(`
-        SELECT COUNT(1) as stale_count, MIN(requested_at) as oldest
+        SELECT COUNT(1) as stale_count, MIN(polled_at) as oldest
         FROM CALBRIDGE_PROD.APP.ads_report_queue
         WHERE status = 'ready'
-          AND requested_at <= DATEADD('minute', -${STALE_THRESHOLD_MIN}, CURRENT_TIMESTAMP())
+          AND polled_at IS NOT NULL
+          AND polled_at <= DATEADD('minute', -${STALE_THRESHOLD_MIN}, CURRENT_TIMESTAMP())
       `);
       const staleCount = Number(rows[0]?.STALE_COUNT || 0);
       if (staleCount === 0) return;

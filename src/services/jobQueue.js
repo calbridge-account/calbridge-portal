@@ -98,12 +98,14 @@ async function enqueueJob(jobId, data = {}) {
   const queueType = JOB_QUEUE_MAP[jobId] || 'light';
   const queue = queueType === 'heavy' ? heavyQueue : lightQueue;
 
-  // For heavy jobs: use a fixed jobId so BullMQ deduplicates — if a job is already
-  // waiting or active, the new enqueue is ignored. Prevents queue pile-up when the
-  // worker is temporarily blocked (e.g. stuck vendor ingestion).
+  // For heavy jobs: use a daily-scoped key (YYYY-MM-DD) so BullMQ deduplicates
+  // within a single day (prevents pile-up) but never blocks the next day's run.
+  // A fixed jobId (no timestamp) caused a permanent dedup deadlock — once a job
+  // completed, BullMQ refused to re-enqueue it until the Redis key was manually deleted.
   // For light jobs: use unique key so all ticks execute.
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD UTC
   const jobKey = queueType === 'heavy'
-    ? jobId  // deduplicated
+    ? `${jobId}-${today}`  // deduplicated per day, re-runs each UTC day
     : `${jobId}-${Date.now()}`;  // unique per tick
 
   const opts = { jobId: jobKey };

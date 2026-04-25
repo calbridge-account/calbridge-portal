@@ -429,8 +429,10 @@ REPORT_TYPES.push(
     key: 'spAudiences',
     adProduct: 'SPONSORED_PRODUCTS',
     reportTypeId: 'spAudiences',
-    groupBy: ['bidBoost'],
-    columns: ['campaignId', 'campaignName', 'campaignBidBoostSegment', 'impressions', 'clicks', 'cost', 'purchases30d', 'sales30d', 'date'],
+    // Validated 2026-04-25: groupBy must be 'campaign_bid_boost_segment' (snake_case)
+    // columns: segmentName/segmentClassCode (not campaignBidBoostSegment)
+    groupBy: ['campaign_bid_boost_segment'],
+    columns: ['campaignId', 'campaignName', 'segmentName', 'segmentClassCode', 'impressions', 'clicks', 'cost', 'purchases1d', 'purchases7d', 'purchases14d', 'purchases30d', 'sales1d', 'sales7d', 'sales14d', 'sales30d', 'date'],
     table: 'sp_audience_report',
     primaryKey: ['client_id', 'profile_id', 'campaign_id', 'campaign_bid_boost_segment', 'date']
   },
@@ -438,10 +440,11 @@ REPORT_TYPES.push(
     key: 'sbAudiences',
     adProduct: 'SPONSORED_BRANDS',
     reportTypeId: 'sbAudiences',
-    groupBy: ['audience'],
-    columns: ['campaignId', 'campaignName', 'audienceSegmentId', 'audienceSegmentName', 'impressions', 'clicks', 'cost', 'purchases', 'sales', 'date'],
+    // Validated 2026-04-25: sbAudiences also uses campaign_bid_boost_segment (not 'audience')
+    groupBy: ['campaign_bid_boost_segment'],
+    columns: ['campaignId', 'campaignName', 'segmentName', 'segmentClassCode', 'impressions', 'clicks', 'cost', 'purchases14d', 'sales14d', 'date'],
     table: 'sb_audience_report',
-    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'audience_segment_id', 'date']
+    primaryKey: ['client_id', 'profile_id', 'campaign_id', 'campaign_bid_boost_segment', 'date']
   }
 );
 

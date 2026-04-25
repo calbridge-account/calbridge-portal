@@ -99,4 +99,13 @@ router.delete('/history', requireAuth, (req, res) => {
   res.json({ message: 'Chat history cleared' });
 });
 
+/**
+ * POST /chat/clear
+ * Clear the conversation history (widget-friendly alternative to DELETE).
+ */
+router.post('/clear', requireAuth, (req, res) => {
+  req.session.chatHistory = [];
+  res.json({ message: 'Chat history cleared' });
+});
+
 module.exports = router;
