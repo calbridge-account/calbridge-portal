@@ -869,9 +869,8 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(new_to_brand_purchases,0)), SUM(COALESCE(new_to_brand_product_sales,0)),
             SUM(COALESCE(viewable_impressions,0)), SUM(COALESCE(detail_page_views,0)),
             SUM(COALESCE(add_to_cart,0)), NULL::FLOAT
-          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            AND (line_item_id IS NULL OR line_item_id = '')
           GROUP BY client_id, date::DATE
         ) src
         ON tgt.client_id = src.client_id AND tgt.date = src.date AND tgt.ad_type = src.ad_type
@@ -954,9 +953,8 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(add_to_cart,0)) AS add_to_cart,
             SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
             NULL::FLOAT AS top_of_search_impression_share
-          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            AND (line_item_id IS NULL OR line_item_id = '')
           GROUP BY client_id, date::DATE, order_name
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date
@@ -1010,9 +1008,8 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
             SUM(COALESCE(detail_page_views,0)) AS detail_page_views,
             SUM(COALESCE(add_to_cart,0)) AS add_to_cart
-          FROM CALBRIDGE_PROD.APP.dsp_campaign_report
+          FROM CALBRIDGE_PROD.APP.dsp_raw_campaign
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            AND (line_item_id IS NULL OR line_item_id = '')
             AND order_name IS NOT NULL AND order_name != ''
           GROUP BY client_id, date::DATE, order_name
         ) src
