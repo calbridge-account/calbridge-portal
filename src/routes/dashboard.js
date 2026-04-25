@@ -659,7 +659,7 @@ router.get('/tacos', requireAuth, planDataWindow, async (req, res, next) => {
       `, [clientId]),
 
       query(`
-        WITH cp AS (SELECT * FROM deduped_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US')
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US')
         SELECT COALESCE(SUM(adjusted_spend), 0) AS total_spend FROM cp
       `, [clientId])
     ]);
@@ -675,7 +675,7 @@ router.get('/tacos', requireAuth, planDataWindow, async (req, res, next) => {
     let byType = [];
     try {
       const typeRows = await query(`
-        WITH cp AS (SELECT * FROM deduped_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US')
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US')
         SELECT
           ad_type AS campaign_type,
           ad_type AS connection_type,
@@ -846,7 +846,7 @@ router.get('/budget-pacing', requireAuth, planDataWindow, async (req, res, next)
         CASE WHEN c.budget IS NOT NULL AND c.budget > 0
           THEN (c.budget * ?) * (? / ?)
           ELSE NULL END                                  AS expected_mtd_spend
-      FROM deduped_campaign_performance r
+      FROM adjusted_campaign_performance r
       LEFT JOIN ad_campaigns c
         ON  c.client_id    = r.client_id
         AND c.campaign_id  = r.campaign_id
@@ -950,7 +950,7 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
     const clientId = await resolveClientId(req);
 
     const rows = await query(`
-      WITH cp AS (SELECT * FROM deduped_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US' AND new_to_brand_purchases IS NOT NULL)
+      WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US' AND new_to_brand_purchases IS NOT NULL)
       SELECT
         COALESCE(SUM(orders), 0)               AS total_orders,
         COALESCE(SUM(sales), 0)                AS total_sales,
@@ -975,7 +975,7 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
     let byCampaign = [];
     try {
       const campRows = await query(`
-        WITH cp AS (SELECT * FROM deduped_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US' AND new_to_brand_purchases > 0)
+        WITH cp AS (SELECT * FROM adjusted_campaign_performance WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND COALESCE(marketplace,'US')='US' AND new_to_brand_purchases > 0)
         SELECT
           campaign_id,
           campaign_name,
@@ -1116,7 +1116,7 @@ router.get('/ads-trend', requireAuth, planDataWindow, async (req, res, next) => 
           THEN CAST(SUM(clicks) AS FLOAT) / NULLIF(SUM(impressions),0)  ELSE NULL END AS ctr,
         CASE WHEN SUM(clicks) > 0
           THEN SUM(adjusted_spend) / SUM(clicks)                                 ELSE NULL END AS cpc
-      FROM deduped_campaign_performance
+      FROM adjusted_campaign_performance
       WHERE client_id = ?
         AND COALESCE(marketplace,'US') = 'US'
         ${dateFilter('date', days, startDate, endDate)}
