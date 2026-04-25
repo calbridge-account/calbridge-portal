@@ -993,49 +993,49 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     }
 
     // ── MARTS.DSP_LINE_ITEM ─────────────────────────────────────────────────────
-    // TODO: update to source from dsp_flight_report once flight report columns are confirmed.
-    // Currently uses dsp_raw_flight + dsp_raw_campaign FULL OUTER JOIN (pinned for separate PR).
+    // Sources: dsp_order_report (order-level attribution) JOIN dsp_flight_report (line-item spend)
     try {
       await query(`
         MERGE INTO CALBRIDGE_PROD.MARTS.DSP_LINE_ITEM tgt
         USING (
-          -- DSP_LINE_ITEM: flight=spend/impr/clicks, campaign=attribution/budget/dates
+          -- dsp_order_report: order-level attribution (sales, purchases, NTB, budget)
+          -- dsp_flight_report: line-item spend/impressions (aggregated to order level)
           SELECT
-            COALESCE(f.client_id, c.client_id) AS client_id,
-            COALESCE(f.date, c.date)::DATE AS date,
-            COALESCE(f.order_name, c.order_name) AS order_name,
-            MAX(c.advertiser_id) AS advertiser_id,
-            MAX(c.order_id) AS order_id,
-            MAX(c.order_budget) AS order_budget,
-            MIN(c.order_start_date) AS order_start_date,
-            MAX(c.order_end_date) AS order_end_date,
-            SUM(COALESCE(f.impressions, c.impressions, 0)) AS impressions,
-            SUM(COALESCE(f.clicks, c.clicks, 0)) AS clicks,
-            SUM(COALESCE(f.total_cost, c.total_cost, 0)) AS spend,
-            SUM(COALESCE(c.sales, 0)) AS sales,
-            SUM(COALESCE(c.total_sales, 0)) AS total_sales,
-            SUM(COALESCE(c.purchases, 0)) AS purchases,
-            SUM(COALESCE(c.total_purchases, 0)) AS total_purchases,
-            SUM(COALESCE(c.new_to_brand_purchases, 0)) AS ntb_purchases,
-            SUM(COALESCE(c.new_to_brand_product_sales, 0)) AS ntb_product_sales,
-            SUM(COALESCE(f.viewable_impressions, c.viewable_impressions, 0)) AS viewable_impressions,
-            SUM(COALESCE(c.detail_page_views, 0)) AS detail_page_views,
-            SUM(COALESCE(c.add_to_cart, 0)) AS add_to_cart
+            COALESCE(f.client_id, o.client_id) AS client_id,
+            COALESCE(f.date, o.date)::DATE AS date,
+            COALESCE(f.order_name, o.order_name) AS order_name,
+            MAX(o.advertiser_id) AS advertiser_id,
+            MAX(o.order_id) AS order_id,
+            MAX(o.order_budget) AS order_budget,
+            MIN(o.order_start_date) AS order_start_date,
+            MAX(o.order_end_date) AS order_end_date,
+            SUM(COALESCE(f.impressions, o.impressions, 0)) AS impressions,
+            SUM(COALESCE(f.clicks, o.clicks, 0)) AS clicks,
+            SUM(COALESCE(f.total_cost, o.total_cost, 0)) AS spend,
+            SUM(COALESCE(NULLIF(o.sales, 0), 0)) AS sales,
+            SUM(COALESCE(NULLIF(o.total_sales, 0), 0)) AS total_sales,
+            SUM(COALESCE(NULLIF(o.purchases, 0), 0)) AS purchases,
+            SUM(COALESCE(NULLIF(o.total_purchases, 0), 0)) AS total_purchases,
+            SUM(COALESCE(o.new_to_brand_purchases, 0)) AS ntb_purchases,
+            SUM(COALESCE(o.new_to_brand_product_sales, 0)) AS ntb_product_sales,
+            SUM(COALESCE(f.viewable_impressions, o.viewable_impressions, 0)) AS viewable_impressions,
+            SUM(COALESCE(o.detail_page_views, 0)) AS detail_page_views,
+            SUM(COALESCE(o.add_to_cart, 0)) AS add_to_cart
           FROM (
             SELECT client_id, date::DATE AS date, order_name,
               SUM(total_cost) AS total_cost, SUM(impressions) AS impressions,
               SUM(clicks) AS clicks, SUM(viewable_impressions) AS viewable_impressions
-            FROM CALBRIDGE_PROD.APP.dsp_raw_flight
+            FROM CALBRIDGE_PROD.APP.dsp_flight_report
             WHERE date >= DATEADD('day', -95, CURRENT_DATE())
             GROUP BY client_id, date::DATE, order_name
           ) f
-          FULL OUTER JOIN CALBRIDGE_PROD.APP.dsp_raw_campaign c
-            ON c.client_id = f.client_id AND c.date = f.date AND c.order_name = f.order_name
-               AND c.date >= DATEADD('day', -95, CURRENT_DATE())
-          WHERE COALESCE(f.order_name, c.order_name) IS NOT NULL
-            AND COALESCE(f.order_name, c.order_name) != ''
-          GROUP BY COALESCE(f.client_id, c.client_id), COALESCE(f.date, c.date)::DATE,
-                   COALESCE(f.order_name, c.order_name)
+          FULL OUTER JOIN CALBRIDGE_PROD.APP.dsp_order_report o
+            ON o.client_id = f.client_id AND o.date = f.date AND o.order_name = f.order_name
+               AND o.date >= DATEADD('day', -95, CURRENT_DATE())
+          WHERE COALESCE(f.order_name, o.order_name) IS NOT NULL
+            AND COALESCE(f.order_name, o.order_name) != ''
+          GROUP BY COALESCE(f.client_id, o.client_id), COALESCE(f.date, o.date)::DATE,
+                   COALESCE(f.order_name, o.order_name)
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date AND tgt.order_name=src.order_name
         WHEN MATCHED THEN UPDATE SET
