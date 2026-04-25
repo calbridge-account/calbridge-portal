@@ -745,30 +745,6 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
         ) ca ON ca.client_id = r.client_id AND ca.platform_profile_id = spr.profile_id
         GROUP BY r.client_id, r.date, COALESCE(ca.marketplace, 'US'), ad_type
 
-        UNION ALL
-
-        -- ── DSP: sourced from adjusted_campaign_performance so spend adjustments flow through ──
-        SELECT
-          client_id,
-          date,
-          COALESCE(marketplace, 'US')                                 AS marketplace,
-          'DSP'                                                       AS ad_type,
-          COUNT(DISTINCT campaign_id)                                 AS active_campaigns,
-          SUM(adjusted_spend)                                         AS spend,
-          SUM(sales)                                                  AS sales,
-          SUM(total_purchases)                                        AS orders,
-          SUM(clicks)                                                 AS clicks,
-          SUM(impressions)                                            AS impressions,
-          CASE WHEN SUM(sales) > 0
-            THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END       AS acos,
-          CASE WHEN SUM(adjusted_spend) > 0
-            THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END       AS roas,
-          CASE WHEN SUM(impressions) > 0
-            THEN SUM(clicks)::FLOAT / SUM(impressions) ELSE NULL END  AS ctr
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
-        WHERE ad_type = 'DSP'
-          AND date >= '2026-01-01'
-        GROUP BY client_id, date, COALESCE(marketplace, 'US')
       ) src
       ON  tgt.client_id   = src.client_id
       AND tgt.date        = src.date
@@ -797,6 +773,46 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     const inserted = result?.[0]?.['number of rows inserted'] ?? 0;
     const elapsedS = ((Date.now() - startMs) / 1000).toFixed(1);
     console.log(`[rebuildMart] ✅ ${inserted} inserted, ${updated} updated in ${elapsedS}s (triggered by ${triggeredBy})`);
+
+    // ── MARTS_MARTS DSP (separate MERGE — avoids Snowflake multi-join from UNION ALL) ──────────
+    try {
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.MARTS_MARTS.mart_advertising_daily tgt
+        USING (
+          SELECT client_id, date::DATE AS date,
+            COALESCE(marketplace, 'US') AS marketplace,
+            'DSP' AS ad_type,
+            COUNT(DISTINCT campaign_id) AS active_campaigns,
+            SUM(adjusted_spend) AS spend,
+            SUM(sales) AS sales,
+            SUM(total_purchases) AS orders,
+            SUM(clicks) AS clicks,
+            SUM(impressions) AS impressions,
+            CASE WHEN SUM(sales)>0 THEN SUM(adjusted_spend)/SUM(sales) ELSE NULL END AS acos,
+            CASE WHEN SUM(adjusted_spend)>0 THEN SUM(sales)/SUM(adjusted_spend) ELSE NULL END AS roas,
+            CASE WHEN SUM(impressions)>0 THEN SUM(clicks)::FLOAT/SUM(impressions) ELSE NULL END AS ctr
+          FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+          WHERE ad_type = 'DSP' AND date >= '2026-01-01'
+          GROUP BY client_id, date::DATE, COALESCE(marketplace, 'US')
+        ) src
+        ON  tgt.client_id=src.client_id AND tgt.date=src.date
+        AND tgt.marketplace=src.marketplace AND tgt.ad_type=src.ad_type
+        WHEN MATCHED THEN UPDATE SET
+          active_campaigns=src.active_campaigns, spend=src.spend, sales=src.sales,
+          orders=src.orders, clicks=src.clicks, impressions=src.impressions,
+          acos=src.acos, roas=src.roas, ctr=src.ctr
+        WHEN NOT MATCHED THEN INSERT
+          (client_id, date, marketplace, ad_type, active_campaigns, spend, sales,
+           orders, clicks, impressions, acos, roas, ctr)
+        VALUES
+          (src.client_id, src.date, src.marketplace, src.ad_type, src.active_campaigns,
+           src.spend, src.sales, src.orders, src.clicks, src.impressions,
+           src.acos, src.roas, src.ctr)
+      `);
+      console.log('[rebuildMart] ✅ MARTS_MARTS.mart_advertising_daily DSP updated');
+    } catch (dspMartErr) {
+      console.warn('[rebuildMart] MARTS_MARTS DSP failed (non-fatal):', dspMartErr.message?.substring(0,150));
+    }
 
     // ── MARTS.AD_PERFORMANCE_DAILY ─────────────────────────────────────────────
     try {
