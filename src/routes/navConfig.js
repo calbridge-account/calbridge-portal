@@ -8,7 +8,7 @@ const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 
-const NAV_PATHS = ['/', '/vendor', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
+const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
 
 /**
  * GET /nav-config
@@ -32,6 +32,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/advertising': hasAds    ? 'visible' : 'locked',
       '/pacing':      hasAds    ? 'visible' : 'locked',
       '/vendor':      hasVendor ? 'visible' : 'locked',
+      '/seller':      hasSeller ? 'visible' : 'locked',
       '/forecasting': hasVendor ? 'visible' : 'locked',
       '/cogs':        hasSeller ? 'visible' : 'locked',
       '/account':     'visible',
@@ -53,6 +54,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/advertising': hasAds    ? null : 'Connect your Amazon Ads account to unlock advertising analytics',
       '/pacing':      hasAds    ? null : 'Connect your Amazon Ads account to unlock budget pacing',
       '/vendor':      hasVendor ? null : 'Connect your Vendor Central account to unlock vendor analytics',
+      '/seller':      hasSeller ? null : 'Connect your Seller Central account to unlock seller analytics',
       '/forecasting': hasVendor ? null : 'Connect your Vendor Central account to unlock demand forecasting',
       '/cogs':        hasSeller ? null : 'Connect your Seller Central account to unlock COGS analytics',
     };
