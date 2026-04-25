@@ -265,12 +265,19 @@ export default function Advertising() {
   // ASIN table data — sorted by spend desc
   const tableAsins = (asinData?.asins || []).sort((a, b) => (b.spend || 0) - (a.spend || 0));
 
-  // Pie chart data for spend mix
-  const pieData = AD_TYPES.map(type => ({
-    name: type.abbr || type.label,
-    value: byType[type.key]?.spend || 0,
-    color: type.color,
-  })).filter(d => d.value > 0);
+  // Pie chart data for spend mix — filter by active channel so chart reflects selection
+  const pieData = AD_TYPES
+    .filter(type => {
+      if (activeChannel === 'ads') return type.key !== 'dsp';
+      if (activeChannel === 'dsp') return type.key === 'dsp';
+      return true; // 'all'
+    })
+    .map(type => ({
+      name: type.abbr || type.label,
+      value: byType[type.key]?.spend || 0,
+      color: type.color,
+    }))
+    .filter(d => d.value > 0);
 
   return (
     <div>

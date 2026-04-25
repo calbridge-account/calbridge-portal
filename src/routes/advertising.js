@@ -410,17 +410,16 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
           campaign_name,
           ad_type,
           MAX(campaign_status)         AS campaign_status,
-          MAX(campaign_budget_amount)  AS campaign_budget_amount,
+          MAX(daily_budget)            AS campaign_budget_amount,
           SUM(impressions)             AS impressions,
           SUM(clicks)                  AS clicks,
-          SUM(adjusted_spend)          AS spend,
+          SUM(spend)                   AS spend,
           SUM(sales)                   AS sales,
           SUM(orders)                  AS orders,
-          SUM(units_sold)              AS units_sold
+          NULL::FLOAT                  AS units_sold
         FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
-        ${marketplaceFilterSafe(marketplace)}
         GROUP BY campaign_id, campaign_name, ad_type
       )
       SELECT

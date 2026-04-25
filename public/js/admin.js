@@ -403,6 +403,7 @@ window.deleteAdj = async function (id) {
 const NAV_TABS = [
   { path: '/',            label: 'Overview'           },
   { path: '/vendor',      label: 'Vendor Performance' },
+  { path: '/seller',      label: 'Seller Sales'       },
   { path: '/forecasting', label: 'Forecasting'        },
   { path: '/cogs',        label: 'COGS & Margins'     },
   { path: '/advertising', label: 'Advertising'        },
