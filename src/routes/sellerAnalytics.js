@@ -18,6 +18,15 @@ const { resolveClientId, resolveMarketplace } = require('../services/advertiserR
 
 const SCHEMA = 'CALBRIDGE_PROD.RAW';
 
+// Safely format a Snowflake DATE column to YYYY-MM-DD.
+// The Snowflake Node driver returns DATE columns as JS Date objects, so
+// String(dateVal).slice(0,10) yields "Tue Apr 21" rather than "2026-04-21".
+function fmtDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
+}
+
 function dateFilter(col, days, startDate, endDate) {
   if (startDate && endDate) return `AND ${col} BETWEEN '${startDate}' AND '${endDate}'`;
   return `AND ${col} >= DATEADD('day', -${days || 30}, CURRENT_DATE())`;
@@ -117,7 +126,7 @@ router.get('/overview', requireAuth, async (req, res, next) => {
         prevBuyBoxPct:      n(p.AVG_BUY_BOX_PCT),
       },
       trend: trend.map(r => ({
-        date:         String(r.DATE).slice(0, 10),
+        date:         fmtDate(r.DATE),
         orderedUnits: n(r.ORDERED_UNITS) || 0,
         revenue:      n(r.ORDERED_REVENUE) || 0,
         sessions:     n(r.SESSIONS) || 0,
@@ -175,7 +184,7 @@ router.get('/buybox', requireAuth, async (req, res, next) => {
 
     res.json({
       trend: trend.map(r => ({
-        date:         String(r.DATE).slice(0, 10),
+        date:         fmtDate(r.DATE),
         sessions:     n(r.SESSIONS) || 0,
         buyBoxPct:    n(r.BUY_BOX_PCT),
         bbSessions:   Math.round(n(r.BB_SESSIONS) || 0),

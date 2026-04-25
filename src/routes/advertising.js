@@ -186,7 +186,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
           ${martDateFilter()}
           ${channelFilter(channel, null)}
       `, [clientId]),
-      // Per-type breakdown — from mart_advertising_daily (all types regardless of channel filter)
+      // Per-type breakdown — filtered by channel so the pie chart reflects the active channel
       query(`
         SELECT
           ad_type,
@@ -201,6 +201,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
         WHERE client_id = ?
           AND COALESCE(marketplace,'US') = '${marketplace || 'US'}'
           ${martDateFilter()}
+          ${channelFilter(channel, null)}
         GROUP BY ad_type
         ORDER BY spend DESC
       `, [clientId]),
