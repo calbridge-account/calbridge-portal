@@ -322,6 +322,22 @@ async function writeVendorForecasts(clientId, rows) {
  * Phase 2c: resolves account_id from client_accounts for logging.
  */
 async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  // Hard 20-minute timeout — prevents vendor ingestion from hanging indefinitely
+  // and blocking the heavy queue for other jobs.
+  const JOB_TIMEOUT_MS = 20 * 60 * 1000;
+  let jobTimer;
+  const timeoutPromise = new Promise((_, reject) => {
+    jobTimer = setTimeout(() => reject(new Error('[vendorIngestion] Hard timeout after 20min — aborting to unblock queue')), JOB_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([_ingestVendorReports(clientId, marketplaceId), timeoutPromise]);
+  } finally {
+    clearTimeout(jobTimer);
+  }
+}
+
+async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // Resolve account_id from client_accounts (Phase 2c) for logging/audit
   let accountId = null;
   try {

@@ -87,8 +87,22 @@ function startQueueWatchdog() {
       if (staleCount === 0) return;
 
       const oldest = rows[0]?.OLDEST;
-      const msg = `[worker] ⚠️ STALE QUEUE DETECTED: ${staleCount} report(s) stuck in 'ready' status for >${STALE_THRESHOLD_MIN}min (oldest: ${oldest}). Download loop may be stalled.`;
+      const msg = `[worker] ⚠️ STALE QUEUE DETECTED: ${staleCount} report(s) stuck in 'ready' status for >${STALE_THRESHOLD_MIN}min (oldest: ${oldest}). Auto-triggering download pass.`;
       console.error(msg);
+
+      // Auto-heal: enqueue a download pass immediately with a unique ID so it bypasses dedup
+      try {
+        const { enqueueJob } = require('./services/jobQueue');
+        // Override to light queue via direct BullMQ add (enqueueJob uses dedup for heavy)
+        const { lightQueue } = require('./services/jobQueue');
+        await lightQueue.add('download_completed_reports',
+          { jobId: 'download_completed_reports', triggeredBy: 'watchdog' },
+          { jobId: `download_completed_reports-watchdog-${Date.now()}`, removeOnComplete: 10, removeOnFail: 5, attempts: 1 }
+        );
+        console.log('[worker] Watchdog enqueued emergency download pass');
+      } catch (healErr) {
+        console.warn('[worker] Watchdog auto-heal failed:', healErr.message);
+      }
 
       // Send alert email (max once/hour)
       const now = Date.now();
