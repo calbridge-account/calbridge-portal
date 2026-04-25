@@ -403,54 +403,24 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
-      -- DSP dedup: campaign_id has 64-bit truncation issues; same order can have multiple IDs.
-      -- For DSP rows, use campaign_name as the canonical key. For SP/SB/SD, campaign_id is fine.
-      WITH deduped AS (
+      WITH cp AS (
         SELECT
-          CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END AS campaign_id,
+          campaign_id,
           campaign_name,
           ad_type,
           MAX(campaign_status)         AS campaign_status,
           MAX(campaign_budget_amount)  AS campaign_budget_amount,
-          date
-        FROM adjusted_campaign_performance
+          SUM(impressions)             AS impressions,
+          SUM(clicks)                  AS clicks,
+          SUM(adjusted_spend)          AS spend,
+          SUM(sales)                   AS sales,
+          SUM(orders)                  AS orders,
+          SUM(units_sold)              AS units_sold
+        FROM deduped_campaign_performance
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         ${marketplaceFilterSafe(marketplace)}
-        GROUP BY CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END,
-                 campaign_name, ad_type, date
-      ),
-      base AS (
-        SELECT
-          acp.campaign_name,
-          CASE WHEN acp.ad_type = 'DSP' THEN acp.campaign_name ELSE acp.campaign_id END AS campaign_id,
-          acp.ad_type,
-          MAX(acp.campaign_status)        AS campaign_status,
-          MAX(acp.campaign_budget_amount) AS campaign_budget_amount,
-          SUM(acp.impressions)            AS impressions,
-          SUM(acp.clicks)                 AS clicks,
-          SUM(acp.adjusted_spend)         AS spend,
-          SUM(acp.sales)                  AS sales,
-          SUM(acp.orders)                 AS orders,
-          SUM(acp.units_sold)             AS units_sold
-        FROM (
-          SELECT
-            CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END AS campaign_id,
-            campaign_name, ad_type, campaign_status, campaign_budget_amount, date,
-            MAX(adjusted_spend) AS adjusted_spend,
-            MAX(impressions)    AS impressions,
-            MAX(clicks)         AS clicks,
-            MAX(sales)          AS sales,
-            MAX(orders)         AS orders,
-            MAX(units_sold)     AS units_sold
-          FROM adjusted_campaign_performance
-          WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-          ${channelFilter(channel, adType)}
-          ${marketplaceFilterSafe(marketplace)}
-          GROUP BY CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END,
-                   campaign_name, ad_type, campaign_status, campaign_budget_amount, date
-        ) acp
-        GROUP BY acp.campaign_id, acp.campaign_name, acp.ad_type
+        GROUP BY campaign_id, campaign_name, ad_type
       )
       SELECT
         campaign_id,
@@ -464,10 +434,10 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
         CASE WHEN impressions > 0 THEN clicks / impressions ELSE NULL END AS ctr,
         CASE WHEN clicks > 0      THEN spend / clicks       ELSE NULL END AS cpc,
         CASE WHEN clicks > 0      THEN orders / clicks      ELSE NULL END AS cvr
-      FROM base
+      FROM cp
       ORDER BY spend DESC
       LIMIT ?
-    `, [clientId, clientId, limit]));
+    `, [clientId, limit]));
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -482,41 +452,21 @@ router.get('/by-campaign-type', requireAuth, planDataWindow, async (req, res, ne
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
     const rows = await reqCache(clientId, req, () => query(`
-      -- DSP dedup: same order can appear under multiple campaign_ids due to 64-bit truncation.
-      -- Deduplicate DSP rows by (campaign_name, date) before rolling up to ad_type totals.
-      WITH deduped AS (
-        SELECT
-          ad_type,
-          CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END AS canon_id,
-          date,
-          MAX(adjusted_spend) AS adjusted_spend,
-          MAX(impressions)    AS impressions,
-          MAX(clicks)         AS clicks,
-          MAX(sales)          AS sales,
-          MAX(orders)         AS orders
-        FROM adjusted_campaign_performance
-        WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-        ${marketplaceFilterSafe(marketplace)}
-        GROUP BY ad_type, CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END, date
-      ),
-      cp AS (
-        SELECT ad_type,
-          SUM(impressions)    AS impressions,
-          SUM(clicks)         AS clicks,
-          SUM(adjusted_spend) AS spend,
-          SUM(sales)          AS sales,
-          SUM(orders)         AS orders
-        FROM deduped
-        GROUP BY ad_type
-      )
       SELECT
         ad_type AS campaign_type,
         ad_type AS connection_type,
-        impressions, clicks, spend, sales, orders,
-        CASE WHEN sales > 0 THEN spend / sales ELSE NULL END AS acos,
-        CASE WHEN spend > 0 THEN sales / spend ELSE NULL END AS roas
-      FROM cp
-      ORDER BY spend DESC
+        SUM(impressions)    AS impressions,
+        SUM(clicks)         AS clicks,
+        SUM(adjusted_spend) AS spend,
+        SUM(sales)          AS sales,
+        SUM(orders)         AS orders,
+        CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas
+      FROM deduped_campaign_performance
+      WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
+      ${marketplaceFilterSafe(marketplace)}
+      GROUP BY ad_type
+      ORDER BY SUM(adjusted_spend) DESC
     `, [clientId]));
     res.json(rows);
   } catch (err) { next(err); }
@@ -532,40 +482,21 @@ router.get('/roas-by-type', requireAuth, planDataWindow, async (req, res, next) 
 
     const [roasRows, salesRow] = await reqCache(clientId, req, () => Promise.all([
       query(`
-        -- DSP dedup: deduplicate by (campaign_name, date) before rolling up to ad_type
-        WITH deduped AS (
-          SELECT
-            ad_type,
-            CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END AS canon_id,
-            date,
-            MAX(adjusted_spend) AS adjusted_spend,
-            MAX(impressions)    AS impressions,
-            MAX(clicks)         AS clicks,
-            MAX(sales)          AS sales,
-            MAX(orders)         AS orders
-          FROM adjusted_campaign_performance
-          WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
-          GROUP BY ad_type, CASE WHEN ad_type = 'DSP' THEN campaign_name ELSE campaign_id END, date
-        ),
-        cp AS (
-          SELECT ad_type,
-            SUM(impressions)    AS impressions,
-            SUM(clicks)         AS clicks,
-            SUM(adjusted_spend) AS spend,
-            SUM(sales)          AS sales,
-            SUM(orders)         AS orders
-          FROM deduped
-          GROUP BY ad_type
-        )
         SELECT
           ad_type AS campaign_type,
           ad_type AS connection_type,
-          impressions, clicks, spend, sales, orders,
-          CASE WHEN spend > 0       THEN sales / spend        ELSE NULL END AS roas,
-          CASE WHEN sales > 0       THEN spend / sales        ELSE NULL END AS acos,
-          CASE WHEN impressions > 0 THEN clicks / impressions ELSE NULL END AS ctr
-        FROM cp
-        ORDER BY spend DESC
+          SUM(impressions)    AS impressions,
+          SUM(clicks)         AS clicks,
+          SUM(adjusted_spend) AS spend,
+          SUM(sales)          AS sales,
+          SUM(orders)         AS orders,
+          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas,
+          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
+        FROM deduped_campaign_performance
+        WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
+        GROUP BY ad_type
+        ORDER BY SUM(adjusted_spend) DESC
       `, [clientId]),
       query(`
         SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue
@@ -1011,9 +942,6 @@ router.get('/dsp-summary', requireAuth, planDataWindow, async (req, res, next) =
     const clientId = await resolveClientId(req);
 
     const rows = await reqCache(clientId, req, () => query(`
-      -- DSP dedup: campaign_id has 64-bit truncation issues causing the same order
-      -- to appear under multiple IDs. Deduplicate by campaign_name (order_name) per
-      -- date before aggregating to avoid double-counting spend/impressions.
       SELECT
         SUM(impressions)                                                          AS total_impressions,
         SUM(clicks)                                                               AS total_clicks,
@@ -1033,30 +961,10 @@ router.get('/dsp-summary', requireAuth, planDataWindow, async (req, res, next) =
         CASE WHEN SUM(impressions) > 0        THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate,
         CASE WHEN SUM(video_ad_start) > 0     THEN SUM(video_ad_complete) / SUM(video_ad_start) ELSE NULL END AS vcr,
         CASE WHEN SUM(adjusted_spend) > 0     THEN SUM(detail_page_views) / SUM(adjusted_spend) ELSE NULL END AS dpvr
-      FROM (
-        -- One canonical row per (order_name, date): pick the row with the highest campaign_id
-        -- (the un-truncated canonical ID is larger than its truncated variants).
-        SELECT campaign_name, date,
-          MAX(adjusted_spend)         AS adjusted_spend,
-          MAX(spend)                  AS spend,
-          MAX(impressions)            AS impressions,
-          MAX(clicks)                 AS clicks,
-          MAX(sales)                  AS sales,
-          MAX(orders)                 AS orders,
-          MAX(total_purchases)        AS total_purchases,
-          MAX(detail_page_views)      AS detail_page_views,
-          MAX(new_to_brand_purchases) AS new_to_brand_purchases,
-          MAX(new_to_brand_sales)     AS new_to_brand_sales,
-          MAX(viewable_impressions)   AS viewable_impressions,
-          MAX(add_to_cart)            AS add_to_cart,
-          MAX(video_ad_complete)      AS video_ad_complete,
-          MAX(video_ad_start)         AS video_ad_start
-        FROM adjusted_campaign_performance
-        WHERE client_id = ?
-          AND ad_type = 'DSP'
-          ${dateFilter("date", days, startDate, endDate)}
-        GROUP BY campaign_name, date
-      ) deduped
+      FROM deduped_campaign_performance
+      WHERE client_id = ?
+        AND ad_type = 'DSP'
+        ${dateFilter("date", days, startDate, endDate)}
     `, [clientId]));
 
     const d = rows[0] || {};
@@ -1094,12 +1002,8 @@ router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) =>
     const clientId = await resolveClientId(req);
 
     const rows = await reqCache(clientId, req, () => query(`
-      -- DSP dedup: group by campaign_name (order name) not campaign_id.
-      -- Amazon DSP order IDs are 64-bit integers that get truncated differently
-      -- by JSON.parse() across runs, creating duplicate campaign_id values for the
-      -- same order. campaign_name is stable and unique per order.
       SELECT
-        campaign_name                                                             AS campaign_id,
+        campaign_id,
         campaign_name                                                             AS order_name,
         MAX(order_budget)                                                         AS order_budget,
         MAX(order_start_date)                                                     AS order_start_date,
@@ -1118,30 +1022,11 @@ router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) =>
         CASE WHEN SUM(adjusted_spend) > 0  THEN SUM(sales) / SUM(adjusted_spend)   ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0     THEN SUM(clicks) / SUM(impressions)      ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0     THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate
-      FROM (
-        -- Deduplicate per (campaign_name, date) before order-level aggregation
-        SELECT campaign_name, date,
-          MAX(adjusted_spend)         AS adjusted_spend,
-          MAX(impressions)            AS impressions,
-          MAX(clicks)                 AS clicks,
-          MAX(sales)                  AS sales,
-          MAX(orders)                 AS orders,
-          MAX(detail_page_views)      AS detail_page_views,
-          MAX(new_to_brand_purchases) AS new_to_brand_purchases,
-          MAX(new_to_brand_sales)     AS new_to_brand_sales,
-          MAX(viewable_impressions)   AS viewable_impressions,
-          MAX(add_to_cart)            AS add_to_cart,
-          MAX(video_ad_complete)      AS video_ad_complete,
-          MAX(order_budget)           AS order_budget,
-          MAX(order_start_date)       AS order_start_date,
-          MAX(order_end_date)         AS order_end_date
-        FROM adjusted_campaign_performance
-        WHERE client_id = ?
-          AND ad_type = 'DSP'
-          ${dateFilter("date", days, startDate, endDate)}
-        GROUP BY campaign_name, date
-      ) deduped
-      GROUP BY campaign_name
+      FROM deduped_campaign_performance
+      WHERE client_id = ?
+        AND ad_type = 'DSP'
+        ${dateFilter("date", days, startDate, endDate)}
+      GROUP BY campaign_id, campaign_name
       ORDER BY SUM(adjusted_spend) DESC
       LIMIT ?
     `, [clientId, limit]));

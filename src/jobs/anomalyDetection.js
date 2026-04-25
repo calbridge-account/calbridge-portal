@@ -64,7 +64,7 @@ async function detectRunawaySpend(clientId) {
         MAX(ad_type)                 AS ad_product,
         SUM(spend)                   AS spend_today,
         MAX(campaign_budget_amount)  AS daily_budget
-      FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
       WHERE client_id = ?
         AND date = CURRENT_DATE()
       GROUP BY campaign_id
@@ -75,7 +75,7 @@ async function detectRunawaySpend(clientId) {
         AVG(daily_spend)  AS avg_daily_spend
       FROM (
         SELECT campaign_id, date, SUM(spend) AS daily_spend
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
         WHERE client_id = ?
           AND date >= DATEADD('day', -7, CURRENT_DATE())
           AND date <  CURRENT_DATE()
@@ -121,7 +121,7 @@ async function detectBudgetExhaustedEarly(clientId) {
       MAX(ad_type)                 AS ad_product,
       SUM(spend)                   AS spend_today,
       MAX(campaign_budget_amount)  AS daily_budget
-    FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+    FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
     WHERE client_id = ?
       AND date = CURRENT_DATE()
     GROUP BY campaign_id
@@ -153,7 +153,7 @@ async function detectAcosSpike(clientId) {
         SUM(spend)          AS spend_today,
         SUM(sales)          AS sales_today,
         CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos_today
-      FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
       WHERE client_id = ?
         AND date = CURRENT_DATE()
       GROUP BY campaign_id
@@ -167,7 +167,7 @@ async function detectAcosSpike(clientId) {
           campaign_id,
           date,
           CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS daily_acos
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
         WHERE client_id = ?
           AND date >= DATEADD('day', -7, CURRENT_DATE())
           AND date <  CURRENT_DATE()
@@ -215,7 +215,7 @@ async function detectZeroImpressions(clientId) {
         MAX(ad_type)             AS ad_product,
         MAX(campaign_status)     AS campaign_status,
         SUM(impressions)         AS impressions_today
-      FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
       WHERE client_id = ?
         AND date = CURRENT_DATE()
       GROUP BY campaign_id
@@ -226,7 +226,7 @@ async function detectZeroImpressions(clientId) {
         AVG(daily_impressions)  AS avg_daily_impressions
       FROM (
         SELECT campaign_id, date, SUM(impressions) AS daily_impressions
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
         WHERE client_id = ?
           AND date >= DATEADD('day', -7, CURRENT_DATE())
           AND date <  CURRENT_DATE()
@@ -271,7 +271,7 @@ async function detectCtrCollapse(clientId) {
         SUM(impressions)     AS impressions_today,
         SUM(clicks)          AS clicks_today,
         CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr_today
-      FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
       WHERE client_id = ?
         AND date = CURRENT_DATE()
       GROUP BY campaign_id
@@ -285,7 +285,7 @@ async function detectCtrCollapse(clientId) {
           campaign_id,
           date,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS daily_ctr
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
         WHERE client_id = ?
           AND date >= DATEADD('day', -7, CURRENT_DATE())
           AND date <  CURRENT_DATE()
@@ -334,7 +334,7 @@ async function detectImpressionShareCollapse(clientId) {
         MAX(campaign_name)                    AS campaign_name,
         MAX(ad_type)                          AS ad_product,
         AVG(top_of_search_impression_share)   AS impression_share_today
-      FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+      FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
       WHERE client_id = ?
         AND date = CURRENT_DATE()
         AND UPPER(ad_type) = 'SP'
@@ -349,7 +349,7 @@ async function detectImpressionShareCollapse(clientId) {
           campaign_id,
           date,
           AVG(top_of_search_impression_share)  AS daily_is
-        FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+        FROM CALBRIDGE_PROD.APP.deduped_campaign_performance
         WHERE client_id = ?
           AND date >= DATEADD('day', -7, CURRENT_DATE())
           AND date <  CURRENT_DATE()
