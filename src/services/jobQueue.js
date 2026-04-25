@@ -68,7 +68,7 @@ const JOB_QUEUE_MAP = {
 
   // Heavy: ingestion, staging, model builds — hold Snowflake connections, must be serialized
   submit_amazon_reports:        'heavy',
-  download_completed_reports:   'heavy',
+  download_completed_reports:   'light',  // moved from heavy — must never be blocked by long vendor/DSP jobs
   stage_raw_data:               'heavy',
   run_quality_checks:           'heavy',
   compute_freshness:            'heavy',
