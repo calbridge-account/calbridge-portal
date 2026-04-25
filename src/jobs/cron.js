@@ -356,7 +356,7 @@ const CRON_SCHEDULE = [
   // ── Every 15 min ───────────────────────────────────────────────────────────
   {
     jobId: 'submit_amazon_reports',
-    expr:  SCHEDULE_CRONS['every15min'],
+    expr:  '0 */6 * * *',   // every 6h — dedup prevents redundant requests within a cycle
   },
   {
     jobId: 'download_completed_reports',
