@@ -109,12 +109,6 @@ const JOB_HANDLERS = {
   refresh_queue_status:      () => refreshQueueStatus(),
   sync_job_metadata:         () => syncJobMetadata(),
 
-  // ── Hourly — DSP ingestion ──────────────────────────────────────────────
-  // DSP uses the same /reporting/reports endpoint as SP/SB/SD and shares
-  // ads_report_queue. Runs hourly to match intra-day refresh cadence.
-  // The rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads.
-  ingest_dsp:                () => ingestDspAllClients({ triggeredBy: 'cron' }),
-
   // ── Every 6 hours — Vendor retail ingestion ───────────────────────────────
   // Pulls vendor sales, inventory, traffic, net PPM, and forecasts via SP-API.
   // 3-day data lag on DAY reports; runs 4x/day so data is current within hours of availability.
@@ -451,17 +445,8 @@ const CRON_SCHEDULE = [
     expr:  '0 2 * * 0',     // weekly Sunday 02:00 UTC — reset D-15→D-60 rows for near-final pass
   },
 
-  // ── Every 6 hours — DSP (separate API, advertiser-scoped auth) ─────────
-  // Runs 4× per day: 00:00, 06:00, 12:00, 18:00 UTC.
-  // Now ingests all 5 report grains: campaign, order, lineItem, audience, product.
-  // The rolling-refresh 1-hour guard in ingestDsp() prevents redundant re-downloads
-  // within the same cycle.
-  {
-    jobId: 'ingest_dsp',
-    expr:  '0 */6 * * *',  // every 6 hours at :00
-  },
-
   // Every 6 hours — Vendor retail reports (SP-API, 3-day data lag)
+  // Note: DSP reports are now handled by submit_amazon_reports (every 15 min).
   {
     jobId: 'execute_dayparting',
     expr:  '0 * * * *',    // every hour at :00 — check dayparting rules
@@ -568,7 +553,7 @@ function startCron({ runImmediately = false } = {}) {
     console.log('[cron] Running startup jobs...');
     // Only run the cheap health checks on startup, not the heavy daily jobs
     // Also run ingest jobs on startup so missed runs self-heal after worker restarts
-    const startupJobs = ['check_connector_health', 'poll_report_status', 'refresh_queue_status', 'ingest_dsp', 'ingest_vendor_reports', 'ingest_seller_reports'];
+    const startupJobs = ['check_connector_health', 'poll_report_status', 'refresh_queue_status', 'ingest_vendor_reports', 'ingest_seller_reports'];
     for (const jobId of startupJobs) {
       setImmediate(() => withLock(jobId, JOB_HANDLERS[jobId] || (() => {})));
     }

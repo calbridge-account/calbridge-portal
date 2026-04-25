@@ -3647,7 +3647,9 @@ module.exports = {
   fetchProfiles,
   getAuthorizedProfiles,
   requestV3Report,
+  requestDspReport,
   downloadReport,
   REPORT_TYPES,
+  DSP_REPORT_TYPES,
   WRITE_FNS
 };

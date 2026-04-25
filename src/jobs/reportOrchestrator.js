@@ -132,7 +132,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
     return;
   }
 
-  const { REPORT_TYPES, requestV3Report, adsClient: makeAdsClient } = getAdsIngestion();
+  const { REPORT_TYPES, DSP_REPORT_TYPES, requestV3Report, requestDspReport, adsClient: makeAdsClient } = getAdsIngestion();
   const windows = buildDateWindows(daysBack);
 
   // Rolling refresh: reset the most recent window back to pending so every run
@@ -146,6 +146,10 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
       SET status = 'pending', completed_at = NULL, error_message = NULL
       WHERE report_date = ?
         AND status = 'completed'
+        AND report_type IN (
+          'spCampaigns','sbCampaigns','sdCampaigns','spTargeting',
+          'dspCampaign','dspOrder','dspLineItem','dspAudience','dspProduct'
+        )
         AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))
     `, [latestWindow.rangeKey]);
     const n = resetCount?.[0]?.['number of rows updated'] || 0;
@@ -243,8 +247,71 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
         } // windows
       } // profiles
 
+      // ── DSP reports (advertiser-scoped, same token) ──────────────────────────
+      let dspAdvertisers = [];
+      try {
+        const caRows = await query(`
+          SELECT platform_profile_id AS advertiser_id, agency_profile_id AS profile_id,
+                 account_name, account_id
+          FROM client_accounts
+          WHERE client_id = ? AND channel = 'dsp' AND is_active = TRUE
+            AND (valid_from IS NULL OR valid_from <= CURRENT_DATE())
+            AND (valid_to IS NULL OR valid_to > CURRENT_DATE())
+        `, [clientId]);
+        dspAdvertisers = caRows || [];
+      } catch (e) {
+        console.warn('[submitReports] DSP advertiser lookup failed (non-fatal):', e.message);
+      }
+
+      for (const adv of dspAdvertisers) {
+        const advertiserId   = String(adv.ADVERTISER_ID || adv.advertiser_id);
+        const dspProfileId   = String(adv.PROFILE_ID    || adv.profile_id);
+        const advAccountId   = adv.ACCOUNT_ID || adv.account_id || null;
+        const queueProfileId = advertiserId + '|' + dspProfileId;
+
+        for (const window of windows) {
+          for (const rt of DSP_REPORT_TYPES) {
+            const existing = await query(`
+              SELECT COUNT(*) AS cnt
+              FROM ads_report_queue
+              WHERE client_id   = ?
+                AND profile_id  = ?
+                AND report_type = ?
+                AND report_date = ?
+                AND (
+                  status IN ('pending', 'ready', 'completed')
+                  OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
+                )
+            `, [clientId, queueProfileId, rt.key, window.rangeKey]);
+            if (Number(existing?.[0]?.CNT || existing?.[0]?.cnt || 0) > 0) continue;
+
+            try {
+              await new Promise(r => setImmediate(r));
+              const client   = await makeAdsClient(clientId, 'ads');
+              const reportId = await requestDspReport(
+                client, dspProfileId, advertiserId,
+                rt.reportTypeId, rt.groupBy, rt.columns,
+                window.startIso, window.endIso
+              );
+              if (!reportId) continue;
+
+              await query(`
+                INSERT INTO ads_report_queue
+                  (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, owner_client_id, requested_at)
+                VALUES (?, ?, 'ads', ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP())
+              `, [reportId, clientId, queueProfileId, rt.key, window.rangeKey, advAccountId, clientId]);
+              queued++;
+              totalQueued++;
+              await sleep(100);
+            } catch (e) {
+              console.warn(`[submitReports] DSP ${advertiserId} ${window.rangeKey} ${rt.key}:`, e.message?.substring(0, 80));
+            }
+          } // DSP report types
+        } // windows
+      } // DSP advertisers
+
       await completeJob(runId, { rowsRead: profiles.length, rowsWritten: queued });
-      console.log(`[submitReports] ${clientId}: queued ${queued} reports`);
+      console.log(`[submitReports] ${clientId}: queued ${queued} reports (incl. DSP)`);
     } catch (err) {
       await failJob(runId, err.message);
       console.error(`[submitReports] ${clientId} failed:`, err.message);
