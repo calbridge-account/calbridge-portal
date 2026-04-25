@@ -2019,21 +2019,15 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks || null,
     new_to_brand_product_sales:   r.newToBrandProductSales || null,
   }));
-  // Key on (client_id, profile_id, date, order_id) — NOT advertiser_id.
-  // Amazon's 64-bit advertiser/order IDs can be truncated differently by JSON.parse(),
-  // causing the same real campaign to appear under two advertiser_id values.
-  // Excluding advertiser_id from the PK ensures a second write for the same
-  // order+date is an UPDATE (not a second INSERT), preventing double-counting.
-  // advertiser_id is still written/updated via dataColumns.
+  // Write to dsp_order_report — canonical single-source table for DSP order-level data.
+  // Keyed on (client_id, profile_id, order_id, date) — order_id is full 64-bit string
+  // from json-bigint (storeAsString:true), no JS Number truncation.
   const result = await batchMerge({
-    table: 'dsp_campaign_report',
-    // Key on order_name instead of order_id — 64-bit DSP IDs get truncated by JS Number,
-    // causing the same campaign to appear under multiple order_ids. Using order_name as
-    // the key ensures all truncation variants MERGE into one row instead of creating duplicates.
-    keyColumns: ['client_id', 'profile_id', 'date', 'order_name'],
+    table: 'dsp_order_report',
+    keyColumns: ['client_id', 'profile_id', 'order_id', 'date'],
     dataColumns: [
-      'advertiser_id', 'order_id', 'order_budget', 'order_start_date', 'order_end_date',
-      'order_currency', 'advertiser_name', 'entity_id',
+      'advertiser_id', 'order_name', 'advertiser_name', 'entity_id',
+      'order_budget', 'order_start_date', 'order_end_date', 'order_currency',
       'impressions', 'clicks', 'total_cost',
       'viewable_impressions', 'viewability_rate',
       'detail_page_views', 'detail_page_view_clicks',
@@ -2045,10 +2039,6 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     dateColumns: ['date', 'order_start_date', 'order_end_date'],
     rows: mapped,
   });
-  // Pass normalizedRows (not raw rows) to writeDspRawCampaign so order_id values
-  // match the canonical ID. Using raw rows here could cause MERGE key mismatches
-  // if different downloads return different 64-bit truncation variants of the same ID.
-  await writeDspRawCampaign(clientId, profileId, normalizedRows).catch(e => console.warn('[dsp_raw_campaign] write failed:', e.message));
   return result;
 }
 
@@ -2064,45 +2054,43 @@ async function writeDspFlightReport(clientId, profileId, reportDate, rows) {
     client_id:                  clientId,
     date:                       String(r.date || '').substring(0, 10) || null,
     order_id:                   String(r.orderId || ''),
-    order_name:                 r.orderName     || null,
-    order_budget:               r.orderBudget   || null,
-    order_start_date:           r.orderStartDate ? String(r.orderStartDate).substring(0, 10) : null,
-    order_end_date:             r.orderEndDate   ? String(r.orderEndDate).substring(0, 10)   : null,
-    order_currency:             r.orderCurrency  || null,
-    advertiser_name:            r.advertiserName || null,
-    impressions:                r.impressions    || 0,
-    clicks:                     r.clicks         || 0,
-    total_cost:                 r.totalCost      || 0,
-    sales:                      r.sales          || null,
-    total_sales:                r.totalSales     || null,
-    purchases:                  r.purchases      || null,
-    total_purchases:            r.totalPurchases || null,
+    order_name:                 r.orderName      || null,
+    line_item_id:               String(r.lineItemId || ''),
+    line_item_name:             r.lineItemName    || null,
+    advertiser_name:            r.advertiserName  || null,
+    impressions:                r.impressions     || 0,
+    clicks:                     r.clicks          || 0,
+    total_cost:                 r.totalCost       || 0,
+    viewable_impressions:       r.viewableImpressions  || null,
+    viewability_rate:           r.viewabilityRate       || null,
+    detail_page_views:          r.detailPageViews       || null,
+    add_to_cart:                r.addToCart             || null,
+    purchases:                  r.purchases             || null,
+    total_purchases:            r.totalPurchases        || null,
+    sales:                      r.sales                 || null,
+    total_sales:                r.totalSales            || null,
     new_to_brand_purchases:     r.newToBrandPurchases    || null,
     new_to_brand_product_sales: r.newToBrandProductSales || null,
-    detail_page_views:          r.detailPageViews || null,
-    add_to_cart:                r.addToCart       || null,
+    video_ad_start:             r.videoAdStart          || null,
+    video_ad_complete:          r.videoAdComplete       || null,
   }));
-  const result = await batchMerge({
-    table: 'dsp_line_item_report',
-    // Key on order_name (not order_id) — same 64-bit truncation issue as dsp_campaign_report.
-    // Amazon DSP order IDs exceed Number.MAX_SAFE_INTEGER; JSON.parse truncates them
-    // differently on each download, producing multiple order_id variants for the same
-    // campaign. order_name is stable and unique per campaign.
-    keyColumns:  ['client_id', 'profile_id', 'date', 'order_name'],
+  // Write to dsp_flight_report — canonical line-item grain table.
+  // Keyed on (client_id, profile_id, order_id, line_item_id, date).
+  return batchMerge({
+    table: 'dsp_flight_report',
+    keyColumns:  ['client_id', 'profile_id', 'order_id', 'line_item_id', 'date'],
     dataColumns: [
-      'advertiser_id', 'order_id', 'advertiser_name',  // order_name is a key column — do NOT repeat here
+      'advertiser_id', 'order_name', 'line_item_name', 'advertiser_name',
       'impressions', 'clicks', 'total_cost',
       'viewable_impressions', 'viewability_rate',
-      'sales', 'total_sales', 'purchases', 'total_purchases',
-      'new_to_brand_purchases', 'new_to_brand_product_sales',
       'detail_page_views', 'add_to_cart',
+      'purchases', 'total_purchases', 'sales', 'total_sales',
+      'new_to_brand_purchases', 'new_to_brand_product_sales',
       'video_ad_start', 'video_ad_complete',
     ],
     dateColumns: ['date'],
     rows: mapped,
   });
-  await writeDspRawFlight(clientId, profileId, rows).catch(e => console.warn('[dsp_raw_flight] write failed:', e.message));
-  return result;
 }
 
 // ── DSP Ad Report (ad grain) ─────────────────────────────────────────────────

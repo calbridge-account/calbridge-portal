@@ -862,35 +862,18 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
 
           UNION ALL
 
-          -- DSP: spend/impressions from dsp_raw_flight (order-level, matches console)
-          --      attribution from dsp_raw_campaign (total_sales/purchases have halo data)
-          --      COALESCE: flight wins on spend; campaign wins on attribution
-          SELECT COALESCE(f.client_id, c.client_id) AS client_id,
-            COALESCE(f.date, c.date)::DATE AS date,
-            'DSP' AS ad_type,
-            COUNT(DISTINCT COALESCE(f.order_name, c.order_name)),
-            SUM(COALESCE(f.impressions, c.impressions, 0)),
-            SUM(COALESCE(f.clicks, c.clicks, 0)),
-            SUM(COALESCE(f.total_cost, c.total_cost, 0)),
-            SUM(COALESCE(c.total_sales, 0)),
-            SUM(COALESCE(c.total_purchases, 0)),
-            SUM(COALESCE(c.new_to_brand_purchases, 0)),
-            SUM(COALESCE(c.new_to_brand_product_sales, 0)),
-            SUM(COALESCE(f.viewable_impressions, c.viewable_impressions, 0)),
-            SUM(COALESCE(c.detail_page_views, 0)),
-            SUM(COALESCE(c.add_to_cart, 0)), NULL::FLOAT
-          FROM (
-            SELECT client_id, date::DATE AS date, order_name,
-              SUM(total_cost) AS total_cost, SUM(impressions) AS impressions,
-              SUM(clicks) AS clicks, SUM(viewable_impressions) AS viewable_impressions
-            FROM CALBRIDGE_PROD.APP.dsp_raw_flight
-            WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            GROUP BY client_id, date::DATE, order_name
-          ) f
-          FULL OUTER JOIN CALBRIDGE_PROD.APP.dsp_raw_campaign c
-            ON c.client_id = f.client_id AND c.date = f.date AND c.order_name = f.order_name
-               AND c.date >= DATEADD('day', -95, CURRENT_DATE())
-          GROUP BY COALESCE(f.client_id, c.client_id), COALESCE(f.date, c.date)::DATE
+          -- DSP: sourced from adjusted_campaign_performance so spend adjustments flow into marts
+          SELECT client_id, date::DATE AS date, 'DSP' AS ad_type,
+            COUNT(DISTINCT campaign_id),
+            SUM(COALESCE(impressions,0)), SUM(COALESCE(clicks,0)), SUM(COALESCE(adjusted_spend,0)),
+            SUM(COALESCE(sales,0)), SUM(COALESCE(total_purchases,0)),
+            SUM(COALESCE(new_to_brand_purchases,0)), SUM(COALESCE(new_to_brand_sales,0)),
+            SUM(COALESCE(viewable_impressions,0)), SUM(COALESCE(detail_page_views,0)),
+            SUM(COALESCE(add_to_cart,0)), NULL::FLOAT
+          FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+          WHERE ad_type = 'DSP'
+            AND date >= DATEADD('day', -95, CURRENT_DATE())
+          GROUP BY client_id, date::DATE
         ) src
         ON tgt.client_id = src.client_id AND tgt.date = src.date AND tgt.ad_type = src.ad_type
         WHEN MATCHED THEN UPDATE SET
@@ -957,39 +940,26 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
 
           UNION ALL
 
-          -- DSP campaign perf: flight for spend/impr, campaign for attribution
-          SELECT COALESCE(f.client_id, c.client_id) AS client_id,
-            COALESCE(f.date, c.date)::DATE AS date,
-            'DSP' AS ad_type,
-            COALESCE(f.order_name, c.order_name) AS campaign_id,
-            COALESCE(f.order_name, c.order_name) AS campaign_name,
-            NULL AS campaign_status,
-            MAX(c.order_budget) AS daily_budget,
-            SUM(COALESCE(f.impressions, c.impressions, 0)) AS impressions,
-            SUM(COALESCE(f.clicks, c.clicks, 0)) AS clicks,
-            SUM(COALESCE(f.total_cost, c.total_cost, 0)) AS spend,
-            SUM(COALESCE(c.total_sales, 0)) AS sales,
-            SUM(COALESCE(c.total_purchases, 0)) AS orders,
+          -- DSP campaign perf: from adjusted_campaign_performance (spend adjustments flow through)
+          SELECT client_id, date::DATE AS date, 'DSP' AS ad_type,
+            campaign_id, campaign_name, campaign_status,
+            MAX(campaign_budget_amount) AS daily_budget,
+            SUM(COALESCE(impressions,0)) AS impressions,
+            SUM(COALESCE(clicks,0)) AS clicks,
+            SUM(COALESCE(adjusted_spend,0)) AS spend,
+            SUM(COALESCE(sales,0)) AS sales,
+            SUM(COALESCE(orders,0)) AS orders,
             NULL::FLOAT AS sales_7d, NULL::FLOAT AS orders_7d,
-            SUM(COALESCE(c.new_to_brand_purchases, 0))::FLOAT AS ntb_purchases,
-            SUM(COALESCE(c.new_to_brand_product_sales, 0)) AS ntb_sales,
-            SUM(COALESCE(c.detail_page_views, 0)) AS detail_page_views,
-            SUM(COALESCE(c.add_to_cart, 0)) AS add_to_cart,
-            SUM(COALESCE(f.viewable_impressions, c.viewable_impressions, 0)) AS viewable_impressions,
+            SUM(COALESCE(new_to_brand_purchases,0))::FLOAT AS ntb_purchases,
+            SUM(COALESCE(new_to_brand_sales,0)) AS ntb_sales,
+            SUM(COALESCE(detail_page_views,0)) AS detail_page_views,
+            SUM(COALESCE(add_to_cart,0)) AS add_to_cart,
+            SUM(COALESCE(viewable_impressions,0)) AS viewable_impressions,
             NULL::FLOAT AS top_of_search_impression_share
-          FROM (
-            SELECT client_id, date::DATE AS date, order_name,
-              SUM(total_cost) AS total_cost, SUM(impressions) AS impressions,
-              SUM(clicks) AS clicks, SUM(viewable_impressions) AS viewable_impressions
-            FROM CALBRIDGE_PROD.APP.dsp_raw_flight
-            WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            GROUP BY client_id, date::DATE, order_name
-          ) f
-          FULL OUTER JOIN CALBRIDGE_PROD.APP.dsp_raw_campaign c
-            ON c.client_id = f.client_id AND c.date = f.date AND c.order_name = f.order_name
-               AND c.date >= DATEADD('day', -95, CURRENT_DATE())
-          GROUP BY COALESCE(f.client_id, c.client_id), COALESCE(f.date, c.date)::DATE,
-                   COALESCE(f.order_name, c.order_name)
+          FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
+          WHERE ad_type = 'DSP'
+            AND date >= DATEADD('day', -95, CURRENT_DATE())
+          GROUP BY client_id, date::DATE, campaign_id, campaign_name, campaign_status
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date
            AND tgt.ad_type=src.ad_type AND tgt.campaign_id=src.campaign_id
@@ -1019,6 +989,8 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
     }
 
     // ── MARTS.DSP_LINE_ITEM ─────────────────────────────────────────────────────
+    // TODO: update to source from dsp_flight_report once flight report columns are confirmed.
+    // Currently uses dsp_raw_flight + dsp_raw_campaign FULL OUTER JOIN (pinned for separate PR).
     try {
       await query(`
         MERGE INTO CALBRIDGE_PROD.MARTS.DSP_LINE_ITEM tgt
