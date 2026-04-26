@@ -539,7 +539,7 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       dataStartTime:    startDate,
       dataEndTime:      endDate,
     }, marketplaceId);
-    const rows = Array.isArray(data) ? data : (data?.reportData || data?.netPpmByAsin || []);
+    const rows = Array.isArray(data) ? data : (data?.netPureProductMarginByAsin || data?.reportData || data?.netPpmByAsin || []);
     const written = await writeVendorNetPpm(clientId, rows);
     results.vendorNetPpm = written;
     totalWritten += written;
@@ -725,7 +725,7 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
         reportPeriod: 'DAY',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
-      const rows = toRows(data, 'netPpmByAsin', 'reportData');
+      const rows = toRows(data, 'netPureProductMarginByAsin', 'netPpmByAsin', 'reportData');
       const written = await writeVendorNetPpm(clientId, rows);
       results.vendorNetPpm += written;
       console.log(`[vendorBackfill] NET_PPM: ${written} rows`);

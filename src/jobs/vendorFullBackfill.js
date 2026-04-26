@@ -138,7 +138,7 @@ function buildChunks(start, end) {
     // NetPPM
     try {
       const data    = await fetchReport('GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', start, end);
-      const rows    = toRows(data, 'netPpmByAsin', 'reportData');
+      const rows    = toRows(data, 'netPureProductMarginByAsin', 'netPpmByAsin', 'reportData');
       const written = await writeVendorNetPpm(CLIENT_ID, rows);
       ppmTotal += (written || 0);
       console.log(`  NET_PPM: ${written} rows (total: ${ppmTotal})`);
