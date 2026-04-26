@@ -349,14 +349,25 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
     // ── Trigger historical backfill on first-time vendor or seller connection ──
     // Fire-and-forget in background so the OAuth redirect is not blocked.
     // Only runs when a vendor or seller account is newly connected (INSERT path).
-    if (['vendor', 'seller'].includes(type) && existing.length === 0) {
-      console.log(`[Amazon] First ${type} connection for ${clientId} — triggering historical backfill`);
+    if (type === 'vendor' && existing.length === 0) {
+      console.log(`[Amazon] First vendor connection for ${clientId} — triggering vendor historical backfill`);
       setImmediate(async () => {
         try {
           const { runVendorBackfill } = require('../jobs/vendorBackfill');
           await runVendorBackfill(clientId);
         } catch (bfErr) {
-          console.error(`[Amazon] Historical backfill failed for ${clientId}:`, bfErr.message);
+          console.error(`[Amazon] Vendor historical backfill failed for ${clientId}:`, bfErr.message);
+        }
+      });
+    }
+    if (type === 'seller' && existing.length === 0) {
+      console.log(`[Amazon] First seller connection for ${clientId} — triggering seller historical backfill`);
+      setImmediate(async () => {
+        try {
+          const { sellerBackfill } = require('../jobs/sellerIngestion');
+          await sellerBackfill(clientId);
+        } catch (bfErr) {
+          console.error(`[Amazon] Seller historical backfill failed for ${clientId}:`, bfErr.message);
         }
       });
     }
