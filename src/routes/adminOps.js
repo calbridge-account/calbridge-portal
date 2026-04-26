@@ -612,8 +612,9 @@ router.post('/trigger-sync', async (req, res, next) => {
 });
 
 // POST /admin/trigger-vendor-backfill
-// Backfill vendor reports for a given date range (chunked into 31-day windows).
-// Body: { startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD', clientId: '...' (optional) }
+// Full historical backfill — probes earliest available date per report type,
+// then walks 14-day DAY-grain chunks from earliest to today.
+// Body: { clientId: '...' (optional, defaults to all active vendor clients) }
 router.post('/trigger-vendor-backfill', async (req, res, next) => {
   const internalToken = process.env.INTERNAL_SYNC_TOKEN;
   const providedToken = req.headers['x-internal-token'] || req.body?.token;
@@ -621,22 +622,20 @@ router.post('/trigger-vendor-backfill', async (req, res, next) => {
   const isTokenValid  = internalToken && providedToken === internalToken;
   if (!isAdmin && !isTokenValid) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { startDate, endDate, clientId } = req.body;
-  if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate required (YYYY-MM-DD)' });
-
-  res.json({ ok: true, message: 'Vendor backfill triggered', startDate, endDate, triggeredAt: new Date().toISOString() });
+  const { clientId } = req.body;
+  res.json({ ok: true, message: 'Vendor backfill triggered (probes limits then runs)', triggeredAt: new Date().toISOString() });
 
   setImmediate(async () => {
     try {
-      const { backfillVendorReports } = require('../jobs/vendorIngestion');
+      const { runVendorBackfill } = require('../jobs/vendorBackfill');
       const { query: _q } = require('../services/snowflakeService');
       const targetClients = clientId
         ? [{ CLIENT_ID: clientId }]
-        : await _q("SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL");
+        : await _q(`SELECT DISTINCT client_id FROM CALBRIDGE_PROD.APP.amazon_connections WHERE connection_type = 'vendor' AND is_active = TRUE`);
       for (const row of targetClients) {
         const cid = row.CLIENT_ID || row.client_id;
-        console.log(`[vendor-backfill] Starting ${startDate} → ${endDate} for ${cid}`);
-        await backfillVendorReports(cid, startDate, endDate).catch(e =>
+        console.log(`[vendor-backfill] Starting full backfill for ${cid}`);
+        await runVendorBackfill(cid).catch(e =>
           console.error(`[vendor-backfill] ${cid} failed:`, e.message));
       }
       console.log('[vendor-backfill] ✅ All clients done');

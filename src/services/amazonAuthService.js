@@ -345,6 +345,21 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
     _tokenCache.delete(`${clientId}:${type}`);
 
     console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} — connected OK${accountId ? ` (account=${accountId})` : ''}`);
+
+    // ── Trigger historical backfill on first-time vendor or seller connection ──
+    // Fire-and-forget in background so the OAuth redirect is not blocked.
+    // Only runs when a vendor or seller account is newly connected (INSERT path).
+    if (['vendor', 'seller'].includes(type) && existing.length === 0) {
+      console.log(`[Amazon] First ${type} connection for ${clientId} — triggering historical backfill`);
+      setImmediate(async () => {
+        try {
+          const { runVendorBackfill } = require('../jobs/vendorBackfill');
+          await runVendorBackfill(clientId);
+        } catch (bfErr) {
+          console.error(`[Amazon] Historical backfill failed for ${clientId}:`, bfErr.message);
+        }
+      });
+    }
   } catch (err) {
     console.error(`[Amazon] amazon_connections write failed: ${err.message}`);
     throw err; // re-throw — without amazon_connections we have no token stored
