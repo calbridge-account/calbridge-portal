@@ -4,8 +4,8 @@
  * Pulls 6 report types on a rolling basis:
  *   - GET_VENDOR_SALES_REPORT          → VENDOR_SALES (DAY grain, 15-day window)
  *   - GET_VENDOR_INVENTORY_REPORT      → VENDOR_INVENTORY (DAY grain, 15-day window)
- *   - GET_VENDOR_TRAFFIC_REPORT        → VENDOR_TRAFFIC (WEEK grain, 8-week window)
- *   - GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT → VENDOR_NET_PPM (WEEK grain, 8-week window)
+ *   - GET_VENDOR_TRAFFIC_REPORT        → VENDOR_TRAFFIC (WEEK grain, 4-week window — SP-API max ~30d)
+ *   - GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT → VENDOR_NET_PPM (WEEK grain, 4-week window — SP-API max ~30d)
  *   - GET_VENDOR_FORECASTING_REPORT    → VENDOR_FORECASTS (most recent week only)
  *   - GET_VENDOR_REAL_TIME_INVENTORY_REPORT → VENDOR_INVENTORY (supplemental, 24h window)
  *
@@ -504,8 +504,9 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       const d = new Date(rawSat + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
     })();
     const endSat = new Date(endDate + 'T00:00:00Z');
-    // 8-week window — always backfills any missed weeks automatically
-    const startSun = new Date(endSat); startSun.setUTCDate(endSat.getUTCDate() - (7 * 8 - 1));
+    // 4-week window — SP-API vendor reports have a ~30-day max range per request.
+    // 8 weeks caused FATAL errors. 4 weeks (28 days) stays safely under the limit.
+    const startSun = new Date(endSat); startSun.setUTCDate(endSat.getUTCDate() - (7 * 4 - 1));
     const startDate = startSun.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
       reportPeriod:     'WEEK',
@@ -535,7 +536,8 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       const d = new Date(rawSat2 + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
     })();
     const endSat2 = new Date(endDate + 'T00:00:00Z');
-    const startSun2 = new Date(endSat2); startSun2.setUTCDate(endSat2.getUTCDate() - (7 * 8 - 1));
+    // 4-week window — same SP-API max range constraint as traffic report
+    const startSun2 = new Date(endSat2); startSun2.setUTCDate(endSat2.getUTCDate() - (7 * 4 - 1));
     const startDate = startSun2.toISOString().substring(0,10);
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
       reportPeriod:     'WEEK',
@@ -565,7 +567,8 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       const d = new Date(rawSatInv + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().substring(0,10);
     })();
     const invEndSat = new Date(invEndDate + 'T00:00:00Z');
-    const invStartSun = new Date(invEndSat); invStartSun.setUTCDate(invEndSat.getUTCDate() - (7 * 8 - 1));
+    // 4-week window — same SP-API max range constraint
+    const invStartSun = new Date(invEndSat); invStartSun.setUTCDate(invEndSat.getUTCDate() - (7 * 4 - 1));
     const invWeekStart = invStartSun.toISOString().substring(0,10);
     console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT (WEEK grain)...');
     const invWeekData = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
