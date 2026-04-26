@@ -21,7 +21,8 @@
 'use strict';
 
 require('dotenv').config();
-const { writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm } = require('./vendorIngestion');
+// Write functions required lazily inside runVendorBackfill to avoid circular dependency
+// (vendorIngestion is a large module; top-level require fires before exports are set)
 const { query } = require('../services/snowflakeService');
 const { getValidToken } = require('../services/amazonAuthService');
 const axios  = require('axios');
@@ -88,7 +89,7 @@ async function probeEarliestDate(client, reportType, reportOptions = {}, marketp
       const start = Date.now();
       let status = 'IN_QUEUE';
       while (Date.now() - start < 90000) {
-        await sleep(6000);
+        await sleep(3000);
         const poll = await client.get(`/reports/2021-06-30/reports/${reportId}`);
         status = poll.data.processingStatus;
         if (status === 'DONE') { earliest = anchor; break; }
@@ -170,7 +171,7 @@ async function runVendorBackfill(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   const today     = toDateStr(new Date());
   const endDate   = daysAgo(3); // D-3 lag
 
-  const CHUNK_DAYS = 14; // safe under the SP-API 30-day max
+  const CHUNK_DAYS = 14; // vendor reports max 14-day windows (ads reports allow 31)
 
   function buildChunks(startDate) {
     if (!startDate) return [];
@@ -198,6 +199,9 @@ async function runVendorBackfill(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   console.log(`[vendorBackfill] Estimated time: ~${Math.ceil(totalChunks * 35 / 60)} minutes`);
 
   // ── Step 4: Process all chunks ───────────────────────────────────────────────
+  // Lazy require avoids circular dependency (vendorIngestion exports set after init)
+  const { writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm } =
+    require('./vendorIngestion');
 
 
   let written = { sales: 0, inventory: 0, traffic: 0, ppm: 0 };
@@ -218,10 +222,10 @@ async function runVendorBackfill(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       const reportId = createRes?.data?.reportId;
       if (!reportId) throw new Error('No reportId');
 
-      // Poll up to 10 minutes
+      // Poll up to 10 minutes (fast 3s intervals — reports typically finish in ~5s)
       const start = Date.now();
       while (Date.now() - start < 600000) {
-        await sleep(8000);
+        await sleep(3000);
         const poll = await client.get(`/reports/2021-06-30/reports/${reportId}`);
         const { processingStatus, reportDocumentId } = poll.data;
         if (processingStatus === 'DONE' && reportDocumentId) {

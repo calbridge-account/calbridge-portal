@@ -226,50 +226,60 @@ async function writeVendorInventory(clientId, rows) {
 
 async function writeVendorTraffic(clientId, rows) {
   if (!Array.isArray(rows) || !rows.length) return 0;
+  // Bulk MERGE via VALUES list — avoids N×700ms round-trips
+  const BATCH = 500;
   let written = 0;
-  for (const row of rows) {
-    const asin      = row.asin || row.parentAsin;
-    const startDate = row.startDate || row.reportingDate;
-    const endDate   = row.endDate   || row.reportingDate;
-    if (!asin || !startDate) continue;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH).filter(r => (r.asin || r.parentAsin) && (r.startDate || r.reportingDate));
+    if (!batch.length) continue;
+    const vals = batch.map(() => '(?,?,?,?,?)').join(',');
+    const params = batch.flatMap(row => [
+      clientId,
+      row.asin || row.parentAsin,
+      row.startDate || row.reportingDate,
+      row.endDate || row.reportingDate,
+      row.glanceViews || row.acr || 0,
+    ]);
     await query(`
       MERGE INTO CALBRIDGE_PROD.APP.VENDOR_TRAFFIC t
-      USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
+      USING (SELECT column1 AS client_id, column2 AS asin, column3 AS start_date, column4 AS end_date, column5 AS glance_views
+             FROM VALUES ${vals}) s
       ON t.client_id = s.client_id AND t.asin = s.asin AND t.start_date = s.start_date
-      WHEN MATCHED THEN UPDATE SET end_date = ?, glance_views = ?, synced_at = CURRENT_TIMESTAMP()
+      WHEN MATCHED THEN UPDATE SET end_date = s.end_date, glance_views = s.glance_views, synced_at = CURRENT_TIMESTAMP()
       WHEN NOT MATCHED THEN INSERT (client_id, asin, start_date, end_date, glance_views, synced_at)
-        VALUES (?,?,?,?,?,CURRENT_TIMESTAMP())
-    `, [
-      clientId, asin, startDate,
-      endDate, row.glanceViews || row.acr || 0,
-      clientId, asin, startDate, endDate, row.glanceViews || row.acr || 0,
-    ]);
-    written++;
+        VALUES (s.client_id, s.asin, s.start_date, s.end_date, s.glance_views, CURRENT_TIMESTAMP())
+    `, params);
+    written += batch.length;
   }
   return written;
 }
 
 async function writeVendorNetPpm(clientId, rows) {
   if (!Array.isArray(rows) || !rows.length) return 0;
+  // Bulk MERGE via VALUES list
+  const BATCH = 500;
   let written = 0;
-  for (const row of rows) {
-    const asin      = row.asin || row.parentAsin;
-    const startDate = row.startDate || row.reportingDate;
-    const endDate   = row.endDate   || row.reportingDate;
-    if (!asin || !startDate) continue;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH).filter(r => (r.asin || r.parentAsin) && (r.startDate || r.reportingDate));
+    if (!batch.length) continue;
+    const vals = batch.map(() => '(?,?,?,?,?)').join(',');
+    const params = batch.flatMap(row => [
+      clientId,
+      row.asin || row.parentAsin,
+      row.startDate || row.reportingDate,
+      row.endDate || row.reportingDate,
+      row.netPureProductMargin ?? row.netPPM ?? null,
+    ]);
     await query(`
       MERGE INTO CALBRIDGE_PROD.APP.VENDOR_NET_PPM t
-      USING (SELECT ? AS client_id, ? AS asin, ? AS start_date) s
+      USING (SELECT column1 AS client_id, column2 AS asin, column3 AS start_date, column4 AS end_date, column5 AS net_ppm
+             FROM VALUES ${vals}) s
       ON t.client_id = s.client_id AND t.asin = s.asin AND t.start_date = s.start_date
-      WHEN MATCHED THEN UPDATE SET end_date = ?, net_pure_product_margin = ?, synced_at = CURRENT_TIMESTAMP()
+      WHEN MATCHED THEN UPDATE SET end_date = s.end_date, net_pure_product_margin = s.net_ppm, synced_at = CURRENT_TIMESTAMP()
       WHEN NOT MATCHED THEN INSERT (client_id, asin, start_date, end_date, net_pure_product_margin, synced_at)
-        VALUES (?,?,?,?,?,CURRENT_TIMESTAMP())
-    `, [
-      clientId, asin, startDate,
-      endDate, row.netPureProductMargin ?? row.netPPM ?? null,
-      clientId, asin, startDate, endDate, row.netPureProductMargin ?? row.netPPM ?? null,
-    ]);
-    written++;
+        VALUES (s.client_id, s.asin, s.start_date, s.end_date, s.net_ppm, CURRENT_TIMESTAMP())
+    `, params);
+    written += batch.length;
   }
   return written;
 }
@@ -665,51 +675,40 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     }
   }
 
-  // ── WEEK chunks: align to Sunday→Saturday ────────────────────────────────
-  // Snap startDate back to nearest Sunday
-  const wkStart = new Date(startDate + 'T00:00:00Z');
-  const wkStartDay = wkStart.getUTCDay(); // 0=Sun
-  if (wkStartDay !== 0) wkStart.setUTCDate(wkStart.getUTCDate() - wkStartDay);
+  // ── Traffic + NetPPM: DAY grain, 14-day chunks (matches daily ingest approach) ──
+  // These reports do NOT support WEEK grain for backfill — DAY grain with max 14-day
+  // windows is the correct approach, same as the daily ingest rolling window.
+  // No distributorView/sellingProgram allowed for traffic or netPPM.
 
-  // Snap endDate forward to nearest Saturday, but cap at last completed Saturday
-  const lastSat = new Date(lastCompletedSaturday() + 'T00:00:00Z');
-  const wkEnd = new Date(endDate + 'T00:00:00Z');
-  const wkEndDay = wkEnd.getUTCDay();
-  if (wkEndDay !== 6) wkEnd.setUTCDate(wkEnd.getUTCDate() + (6 - wkEndDay));
-  if (wkEnd > lastSat) wkEnd.setTime(lastSat.getTime());
+  // Cap traffic/netPPM start at 13 months ago (API hard limit)
+  const thirteenMonthsAgo = new Date();
+  thirteenMonthsAgo.setMonth(thirteenMonthsAgo.getMonth() - 13);
+  const trafficStart = new Date(startDate + 'T00:00:00Z') < thirteenMonthsAgo
+    ? toDateStr(thirteenMonthsAgo) : startDate;
 
-  const weekChunks = [];
-  let wkCursor = new Date(wkStart);
-  while (wkCursor <= wkEnd) {
-    const chunkSat = new Date(wkCursor);
-    chunkSat.setUTCDate(chunkSat.getUTCDate() + 6); // Sun + 6 = Sat
-    if (chunkSat > wkEnd) chunkSat.setTime(wkEnd.getTime());
-    weekChunks.push({ start: toDateStr(wkCursor), end: toDateStr(chunkSat) });
-    wkCursor = new Date(chunkSat);
-    wkCursor.setUTCDate(wkCursor.getUTCDate() + 1); // next Sunday
+  const trafficChunks = [];
+  let tCursor = new Date(trafficStart + 'T00:00:00Z');
+  const tEnd = new Date(endDate + 'T00:00:00Z');
+  while (tCursor <= tEnd) {
+    const chunkEnd = new Date(tCursor);
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + 13); // 14 days
+    if (chunkEnd > tEnd) chunkEnd.setTime(tEnd.getTime());
+    trafficChunks.push({ start: toDateStr(tCursor), end: toDateStr(chunkEnd) });
+    tCursor = new Date(chunkEnd);
+    tCursor.setUTCDate(tCursor.getUTCDate() + 1);
   }
-  console.log(`[vendorBackfill] WEEK: ${weekChunks.length} chunks (${toDateStr(wkStart)} → ${toDateStr(wkEnd)})`);
+  console.log(`[vendorBackfill] TRAFFIC/PPM: ${trafficChunks.length} DAY chunks (${trafficStart} → ${endDate})`);
 
-  // Batch week chunks: each chunk is one week, combine into groups of 8 to reduce API calls
-  // Amazon allows multi-week ranges as long as start=Sunday and end=Saturday within the lookback
-  const WEEKS_PER_REQUEST = 8; // stay well within any undocumented limits
-  const weekBatches = [];
-  for (let i = 0; i < weekChunks.length; i += WEEKS_PER_REQUEST) {
-    const batch = weekChunks.slice(i, i + WEEKS_PER_REQUEST);
-    weekBatches.push({ start: batch[0].start, end: batch[batch.length - 1].end });
-  }
-  console.log(`[vendorBackfill] WEEK batches: ${weekBatches.length} (${WEEKS_PER_REQUEST} weeks each)`);
-
-  for (const batch of weekBatches) {
+  for (const chunk of trafficChunks) {
     results.weekChunks++;
     const client = await spClient(clientId);
-    console.log(`[vendorBackfill] WEEK batch ${results.weekChunks}/${weekBatches.length}: ${batch.start} → ${batch.end}`);
+    console.log(`[vendorBackfill] TRAFFIC/PPM chunk ${results.weekChunks}/${trafficChunks.length}: ${chunk.start} → ${chunk.end}`);
 
-    // Traffic (WEEK) — no distributorView/sellingProgram
+    // Traffic (DAY) — no distributorView/sellingProgram
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
-        reportPeriod: 'WEEK',
-        dataStartTime: batch.start, dataEndTime: batch.end,
+        reportPeriod: 'DAY',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'trafficByAsin', 'reportData');
       const written = await writeVendorTraffic(clientId, rows);
@@ -720,11 +719,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     }
     await sleep(2000);
 
-    // Net PPM (WEEK) — no distributorView/sellingProgram
+    // Net PPM (DAY) — no distributorView/sellingProgram
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
-        reportPeriod: 'WEEK',
-        dataStartTime: batch.start, dataEndTime: batch.end,
+        reportPeriod: 'DAY',
+        dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'netPpmByAsin', 'reportData');
       const written = await writeVendorNetPpm(clientId, rows);
@@ -733,25 +732,9 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     } catch (err) {
       console.warn(`[vendorBackfill] NET_PPM failed:`, err.message?.substring(0, 200));
     }
-    await sleep(2000);
 
-    // Inventory WEEK grain — provides sell_through_rate, unhealthy_units, fill_rate, lead_time
-    // These fields are NULL in DAY grain inventory rows; WEEK grain is the only source.
-    try {
-      const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
-        reportPeriod: 'WEEK', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
-        dataStartTime: batch.start, dataEndTime: batch.end,
-      }, marketplaceId, 600000);
-      const rows = toRows(data, 'inventoryByAsin', 'reportData');
-      const written = await writeVendorInventory(clientId, rows);
-      results.vendorInventory += written;
-      console.log(`[vendorBackfill] INVENTORY (WEEK): ${written} rows`);
-    } catch (err) {
-      console.warn(`[vendorBackfill] INVENTORY (WEEK) failed:`, err.message?.substring(0, 200));
-    }
-
-    if (results.weekChunks < weekBatches.length) {
-      console.log(`[vendorBackfill] Waiting 30s before next week batch...`);
+    if (results.weekChunks < trafficChunks.length) {
+      console.log(`[vendorBackfill] Waiting 30s before next traffic/ppm chunk...`);
       await sleep(30000);
     }
   }
