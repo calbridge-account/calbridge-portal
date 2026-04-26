@@ -21,7 +21,7 @@
 'use strict';
 
 require('dotenv').config();
-const { ingestVendorReports, backfillVendorReports } = require('./vendorIngestion');
+const { writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm } = require('./vendorIngestion');
 const { query } = require('../services/snowflakeService');
 const { getValidToken } = require('../services/amazonAuthService');
 const axios  = require('axios');
@@ -84,10 +84,10 @@ async function probeEarliestDate(client, reportType, reportOptions = {}, marketp
       const reportId = createRes?.data?.reportId;
       if (!reportId) continue;
 
-      // Poll up to 3 minutes
+      // Poll up to 90 seconds per anchor — keep probes snappy
       const start = Date.now();
       let status = 'IN_QUEUE';
-      while (Date.now() - start < 180000) {
+      while (Date.now() - start < 90000) {
         await sleep(6000);
         const poll = await client.get(`/reports/2021-06-30/reports/${reportId}`);
         status = poll.data.processingStatus;
@@ -133,16 +133,18 @@ async function runVendorBackfill(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   // ── Step 1: Probe each report type ──────────────────────────────────────────
   console.log('[vendorBackfill] Probing earliest available dates...');
 
-  const [salesStart, inventoryStart, trafficStart, ppmStart] = await Promise.all([
-    probeEarliestDate(client, 'GET_VENDOR_SALES_REPORT',
-      { reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL' }, marketplaceId),
-    probeEarliestDate(client, 'GET_VENDOR_INVENTORY_REPORT',
-      { reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL' }, marketplaceId),
-    probeEarliestDate(client, 'GET_VENDOR_TRAFFIC_REPORT',
-      { reportPeriod: 'DAY' }, marketplaceId),
-    probeEarliestDate(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT',
-      { reportPeriod: 'DAY' }, marketplaceId),
-  ]);
+  // Sequential probes to avoid concurrent report limits and get clear per-type logging
+  const salesStart     = await probeEarliestDate(client, 'GET_VENDOR_SALES_REPORT',
+    { reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL' }, marketplaceId);
+  await sleep(3000);
+  const inventoryStart = await probeEarliestDate(client, 'GET_VENDOR_INVENTORY_REPORT',
+    { reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL' }, marketplaceId);
+  await sleep(3000);
+  const trafficStart   = await probeEarliestDate(client, 'GET_VENDOR_TRAFFIC_REPORT',
+    { reportPeriod: 'DAY' }, marketplaceId);
+  await sleep(3000);
+  const ppmStart       = await probeEarliestDate(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT',
+    { reportPeriod: 'DAY' }, marketplaceId);
 
   console.log(`[vendorBackfill] Earliest dates: sales=${salesStart} inventory=${inventoryStart} traffic=${trafficStart} ppm=${ppmStart}`);
 
@@ -196,7 +198,7 @@ async function runVendorBackfill(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   console.log(`[vendorBackfill] Estimated time: ~${Math.ceil(totalChunks * 35 / 60)} minutes`);
 
   // ── Step 4: Process all chunks ───────────────────────────────────────────────
-  const { writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm } = require('./vendorIngestion');
+
 
   let written = { sales: 0, inventory: 0, traffic: 0, ppm: 0 };
   let chunkNum = 0;

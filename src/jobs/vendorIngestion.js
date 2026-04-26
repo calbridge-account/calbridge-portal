@@ -760,4 +760,4 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
   return results;
 }
 
-module.exports = { ingestVendorReports, backfillVendorReports };
+module.exports = { ingestVendorReports, backfillVendorReports, writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm };
