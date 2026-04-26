@@ -12,6 +12,23 @@ const Store = session.Store;
 // Probability of running expired-session cleanup on each `set` call (1%)
 const CLEANUP_PROBABILITY = 0.01;
 
+// In-process session cache — avoids Snowflake round-trip on every request
+// TTL: 30 seconds (safe; session data doesn't change that fast)
+const SESSION_CACHE_TTL_MS = 30_000;
+const _sessionCache = new Map(); // sid → { sess, ts }
+function _cacheGet(sid) {
+  const hit = _sessionCache.get(sid);
+  if (hit && Date.now() - hit.ts < SESSION_CACHE_TTL_MS) return hit.sess;
+  _sessionCache.delete(sid);
+  return null;
+}
+function _cacheSet(sid, sess) {
+  _sessionCache.set(sid, { sess, ts: Date.now() });
+}
+function _cacheDel(sid) {
+  _sessionCache.delete(sid);
+}
+
 class SnowflakeStore extends Store {
   constructor(options = {}) {
     super(options);
@@ -53,6 +70,10 @@ class SnowflakeStore extends Store {
    * Fetch a session by ID, only if not expired.
    */
   get(sid, cb) {
+    // Serve from in-process cache if fresh — avoids ~1s Snowflake round-trip per request
+    const cached = _cacheGet(sid);
+    if (cached) return cb(null, cached);
+
     query(
       'SELECT sess FROM sessions WHERE sid = ? AND expired_at > CURRENT_TIMESTAMP',
       [sid]
@@ -61,6 +82,7 @@ class SnowflakeStore extends Store {
       const raw = rows[0].SESS ?? rows[0].sess;
       // Snowflake VARIANT may come back as already-parsed object or as JSON string
       const sess = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      _cacheSet(sid, sess); // cache for next 30s
       cb(null, sess);
     }).catch(err => {
       console.error('[SnowflakeStore] get error (returning null session):', err.message, '| code:', err.code, '| sqlState:', err.sqlState);
@@ -91,6 +113,7 @@ class SnowflakeStore extends Store {
       [sid, sessJson, expiredAt]
     ).then(() => {
       console.log('[SnowflakeStore] set OK in', Date.now()-t, 'ms for sid', sid.substring(0,8));
+      _cacheSet(sid, sess); // keep cache warm after write
       this._maybeCleanup();
       cb(null);
     }).catch(err => {
@@ -104,6 +127,7 @@ class SnowflakeStore extends Store {
    * Delete a session row.
    */
   destroy(sid, cb) {
+    _cacheDel(sid); // evict from cache on logout
     query(
       'DELETE FROM sessions WHERE sid = ?',
       [sid]
