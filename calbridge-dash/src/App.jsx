@@ -47,6 +47,7 @@ import Pricing from './pages/Pricing';
 import Signup from './pages/Signup';
 import Brands from './pages/Brands';
 import ReportBuilder from './pages/ReportBuilder';
+import AgencyReports from './pages/AgencyReports';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/pricing"         element={<Pricing />} />
             <Route path="/signup"          element={<Signup />} />
             <Route path="/brands"          element={<Brands />} />
+            <Route path="/agency-reports"   element={<AgencyReports />} />
             <Route path="/reports"         element={<ReportBuilder />} />
             <Route path="/reports/:reportId" element={<ReportBuilder />} />
           </Routes>

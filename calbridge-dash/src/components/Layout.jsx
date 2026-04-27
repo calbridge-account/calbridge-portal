@@ -60,6 +60,7 @@ const AGENCY_NAV = [
   {
     group: 'Reports',
     items: [
+      { path: '/agency-reports', label: 'Agency Reports', emoji: '📊', minRole: 'viewer' },
       { path: '/reports', label: 'Report Builder', emoji: '📋', minRole: 'viewer' },
     ],
   },
