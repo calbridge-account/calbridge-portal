@@ -19,6 +19,14 @@
 
 const { Worker } = require('bullmq');
 const { REDIS_CONNECTION } = require('../services/jobQueue');
+const { recordJobFailure, recordJobSuccess } = require('../services/jobAlerts');
+
+// Jobs that warrant an email alert on repeated failure
+const CRITICAL_JOBS = new Set([
+  'ingest_vendor_realtime', 'ingest_vendor_daily', 'ingest_vendor_weekly',
+  'ingest_seller_realtime', 'ingest_seller_daily', 'ingest_seller_weekly',
+  'submit_amazon_reports', 'download_completed_reports', 'build_canonical_models',
+]);
 
 /**
  * Start both BullMQ workers.
@@ -73,11 +81,34 @@ function startWorkers(JOB_HANDLERS) {
 
   // ── Error handlers ─────────────────────────────────────────────────────────
   lightWorker.on('failed', (job, err) => {
-    console.error(`[worker:light] ${job?.data?.jobId ?? 'unknown'} failed:`, err.message);
+    const jobId = job?.data?.jobId ?? 'unknown';
+    console.error(`[worker:light] ${jobId} failed:`, err.message);
+    if (CRITICAL_JOBS.has(jobId)) {
+      recordJobFailure(jobId, err.message).catch(() => {});
+    }
   });
 
   heavyWorker.on('failed', (job, err) => {
-    console.error(`[worker:heavy] ${job?.data?.jobId ?? 'unknown'} failed:`, err.message);
+    const jobId = job?.data?.jobId ?? 'unknown';
+    console.error(`[worker:heavy] ${jobId} failed:`, err.message);
+    if (CRITICAL_JOBS.has(jobId)) {
+      recordJobFailure(jobId, err.message).catch(() => {});
+    }
+  });
+
+  // ── Success handlers (reset failure counters) ──────────────────────────────
+  lightWorker.on('completed', (job) => {
+    const jobId = job?.data?.jobId;
+    if (jobId && CRITICAL_JOBS.has(jobId)) {
+      recordJobSuccess(jobId).catch(() => {});
+    }
+  });
+
+  heavyWorker.on('completed', (job) => {
+    const jobId = job?.data?.jobId;
+    if (jobId && CRITICAL_JOBS.has(jobId)) {
+      recordJobSuccess(jobId).catch(() => {});
+    }
   });
 
   lightWorker.on('error', (err) => {
