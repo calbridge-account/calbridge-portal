@@ -176,6 +176,29 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
       let queued = 0;
 
+      // Prefetch all existing queue entries for this client into a Set.
+      // Replaces per-combination COUNT(*) queries — one query per client instead of
+      // one per profile×reportType×window (was ~480 queries/run at 2 clients).
+      // Key format: `${profileId}|${reportType}|${rangeKey}`
+      const existingSet = new Set();
+      try {
+        const existingRows = await query(`
+          SELECT profile_id, report_type, report_date
+          FROM ads_report_queue
+          WHERE client_id = ?
+            AND (
+              status IN ('pending', 'ready', 'completed')
+              OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
+            )
+            AND requested_at >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+        `, [clientId]);
+        for (const r of (existingRows || [])) {
+          existingSet.add(`${r.PROFILE_ID||r.profile_id}|${r.REPORT_TYPE||r.report_type}|${r.REPORT_DATE||r.report_date}`);
+        }
+      } catch (err) {
+        console.warn(`[submitReports] dedup prefetch failed for ${clientId} (non-fatal):`, err.message);
+      }
+
       // Phase 2b: build profileId → account_id lookup from client_accounts
       let profileAccountMap = {};
       try {
@@ -201,22 +224,8 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
         for (const window of windows) {
           for (const rt of REPORT_TYPES) {
-            // Dedup: skip if already pending/ready/completed for this combination.
-            // Also skip if failed <24h ago (avoid tight retry loops on transient errors).
-            const existing = await query(`
-              SELECT COUNT(*) AS cnt
-              FROM ads_report_queue
-              WHERE client_id    = ?
-                AND profile_id   = ?
-                AND report_type  = ?
-                AND report_date  = ?
-                AND (
-                  status IN ('pending', 'ready', 'completed')
-                  OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
-                )
-            `, [clientId, profileId, rt.key, window.rangeKey]);
-
-            if (Number(existing?.[0]?.CNT || existing?.[0]?.cnt || 0) > 0) continue;
+            // Dedup: check in-memory Set (prefetched above — one query per client)
+            if (existingSet.has(`${profileId}|${rt.key}|${window.rangeKey}`)) continue;
 
             try {
               await new Promise(r => setImmediate(r)); // yield event loop
@@ -234,7 +243,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
                   (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, requested_at)
                 VALUES (?, ?, 'ads', ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP())
               `, [reportId, clientId, profileId, rt.key, window.rangeKey, accountId]);
-
+              existingSet.add(`${profileId}|${rt.key}|${window.rangeKey}`);
               queued++;
               totalQueued++;
               await sleep(100);
@@ -271,19 +280,8 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
 
         for (const window of windows) {
           for (const rt of DSP_REPORT_TYPES) {
-            const existing = await query(`
-              SELECT COUNT(*) AS cnt
-              FROM ads_report_queue
-              WHERE client_id   = ?
-                AND profile_id  = ?
-                AND report_type = ?
-                AND report_date = ?
-                AND (
-                  status IN ('pending', 'ready', 'completed')
-                  OR (status = 'failed' AND requested_at >= DATEADD('hour', -24, CURRENT_TIMESTAMP()))
-                )
-            `, [clientId, queueProfileId, rt.key, window.rangeKey]);
-            if (Number(existing?.[0]?.CNT || existing?.[0]?.cnt || 0) > 0) continue;
+            // Dedup: check in-memory Set (same prefetch as SP/SB/SD above)
+            if (existingSet.has(`${queueProfileId}|${rt.key}|${window.rangeKey}`)) continue;
 
             try {
               await new Promise(r => setImmediate(r));
@@ -300,6 +298,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
                   (report_id, client_id, connection_type, profile_id, report_type, report_date, status, account_id, owner_client_id, requested_at)
                 VALUES (?, ?, 'ads', ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP())
               `, [reportId, clientId, queueProfileId, rt.key, window.rangeKey, advAccountId, clientId]);
+              existingSet.add(`${queueProfileId}|${rt.key}|${window.rangeKey}`);
               queued++;
               totalQueued++;
               await sleep(100);
