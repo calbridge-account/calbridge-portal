@@ -39,7 +39,7 @@ function getAdsIngestion() {
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
-const SUBMIT_DAYS_BACK  = Number(process.env.REPORT_DAYS_BACK  || 30);
+const SUBMIT_DAYS_BACK  = Number(process.env.REPORT_DAYS_BACK  || 30);  // reduced from 60 — cuts dedup query volume in half; 30d covers full attribution settlement
 const POLL_BATCH_SIZE   = Number(process.env.REPORT_POLL_BATCH || 20);
 const MAX_RANGE_DAYS    = 31; // Amazon v3 API max date range per request
 const REPORT_TIMEOUT_MS = 20 * 60 * 1000; // 20 min — abandon reports older than this
@@ -337,8 +337,7 @@ async function pollReportStatus({ triggeredBy = 'cron' } = {}) {
 
   try {
     // Fetch all pending reports across all clients, oldest first.
-    // Window is 30 days to cover any reports that fell outside a prior
-    // narrow poll window (e.g. submitted late at night and not picked up).
+    // Window is 30 days to match SUBMIT_DAYS_BACK — cover all submitted windows.
     const pending = await query(`
       SELECT report_id, client_id, connection_type, profile_id, requested_at,
              COALESCE(owner_client_id, client_id) AS token_client_id
