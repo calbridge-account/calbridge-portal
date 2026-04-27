@@ -78,19 +78,23 @@ const ALL_NAV_ITEMS = [...NAV, ...AGENCY_NAV].flatMap(s => s.items);
 
 function useNavConfig() {
   const [navConfig, setNavConfig] = useState({});
+  const [landingPath, setLandingPath] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     fetch('/nav-config', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (!cancelled && data?.config) setNavConfig(data.config);
+        if (!cancelled && data?.config) {
+          setNavConfig(data.config);
+          if (data.landingPath) setLandingPath(data.landingPath);
+        }
       })
       .catch(() => {}); // silently fall back to all-visible
     return () => { cancelled = true; };
   }, []);
 
-  return navConfig;
+  return { navConfig, landingPath };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -473,7 +477,16 @@ function TopBar() {
 export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
   const { hasRole, user, ready } = useUser() || { hasRole: () => true, user: null, ready: false };
-  const navConfig = useNavConfig();
+  const { navConfig, landingPath } = useNavConfig();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Redirect ads-only clients away from overview to their landing page
+  useEffect(() => {
+    if (landingPath && landingPath !== '/' && location.pathname === '/') {
+      navigate(landingPath, { replace: true });
+    }
+  }, [landingPath, location.pathname]);
   const { plan, trialEndsAt } = useBillingPlan();
   const showTrialBanner = plan === 'free' && trialEndsAt !== null;
 

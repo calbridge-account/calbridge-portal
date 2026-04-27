@@ -35,14 +35,23 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
     const plan = planRows[0]?.SUBSCRIPTION_PLAN || planRows[0]?.subscription_plan || 'free';
     const isProPlus = plan === 'pro' || plan === 'agency';
 
+    // Marketplace-aware: when CA is active, retail tabs lock since retail data is US-only
+    const activeMarketplace = req.session.activeMarketplace || 'US';
+    const isCA = activeMarketplace === 'CA';
+
+    // hasRetail = has either Seller or Vendor connected (drives overview visibility)
+    const hasRetail = hasVendor || hasSeller;
+
     const config = {
-      '/':            'visible',
+      // Overview: locked (grayed) when no retail connected — ads-only clients land on /advertising
+      '/':            hasRetail ? 'visible' : 'grayed',
       '/advertising': hasAds    ? 'visible' : 'locked',
       '/pacing':      hasAds    ? 'visible' : 'locked',
-      '/vendor':      hasVendor ? 'visible' : 'locked',
-      '/seller':      hasSeller ? 'visible' : 'locked',
-      '/forecasting': hasVendor ? 'visible' : 'locked',
-      '/cogs':        hasSeller ? 'visible' : 'locked',
+      // Retail tabs: locked when CA selected (no CA retail data) or connection missing
+      '/vendor':      isCA ? 'grayed' : (hasVendor ? 'visible' : 'locked'),
+      '/seller':      isCA ? 'grayed' : (hasSeller ? 'visible' : 'locked'),
+      '/forecasting': isCA ? 'grayed' : (hasVendor ? 'visible' : 'locked'),
+      '/cogs':        isCA ? 'grayed' : (hasSeller ? 'visible' : 'locked'),
       '/reports':     isProPlus ? 'visible' : 'grayed',
       '/account':     'visible',
     };
@@ -60,23 +69,28 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
 
     // Reasons for locked paths — frontend can show as tooltips
     const reasons = {
+      '/':            hasRetail ? null : 'No retail connections yet — overview not available',
       '/advertising': hasAds    ? null : 'Connect your Amazon Ads account to unlock advertising analytics',
       '/pacing':      hasAds    ? null : 'Connect your Amazon Ads account to unlock budget pacing',
-      '/vendor':      hasVendor ? null : 'Connect your Vendor Central account to unlock vendor analytics',
-      '/seller':      hasSeller ? null : 'Connect your Seller Central account to unlock seller analytics',
-      '/forecasting': hasVendor ? null : 'Connect your Vendor Central account to unlock demand forecasting',
-      '/cogs':        hasSeller ? null : 'Connect your Seller Central account to unlock COGS analytics',
+      '/vendor':      isCA      ? 'Vendor Central data is US-only — switch to US marketplace'
+                    : hasVendor ? null : 'Connect your Vendor Central account to unlock vendor analytics',
+      '/seller':      isCA      ? 'Seller Central data is US-only — switch to US marketplace'
+                    : hasSeller ? null : 'Connect your Seller Central account to unlock seller analytics',
+      '/forecasting': isCA      ? 'Forecasting data is US-only — switch to US marketplace'
+                    : hasVendor ? null : 'Connect your Vendor Central account to unlock demand forecasting',
+      '/cogs':        isCA      ? 'COGS data is US-only — switch to US marketplace'
+                    : hasSeller ? null : 'Connect your Seller Central account to unlock COGS analytics',
       '/reports':     isProPlus ? null : 'Report Builder requires Pro plan or above',
     };
 
     res.json({
       config,
       reasons,
-      connections: {
-        ads:    hasAds,
-        vendor: hasVendor,
-        seller: hasSeller,
-      },
+      connections: { ads: hasAds, vendor: hasVendor, seller: hasSeller },
+      activeMarketplace,
+      hasRetail,
+      // landingPath: frontend uses this to redirect on login when overview is grayed
+      landingPath: hasRetail ? '/' : (hasAds ? '/advertising' : '/account'),
     });
   } catch (err) { next(err); }
 });
