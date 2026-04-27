@@ -990,7 +990,7 @@ async function sellerBackfill(clientId) {
       }
 
       chunkEnd = chunkStart - 86400000; // step back one day to avoid overlap
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 35000)); // 35s between chunks — SP-API GET_SALES_AND_TRAFFIC limit ~1 req/30s
     }
     console.log(`[sellerBackfill] SALES_TRAFFIC total: ${results.salesTraffic} rows`);
   } catch (e) {
@@ -1073,7 +1073,7 @@ async function sellerBackfill(clientId) {
       }
 
       chunkEnd = chunkStart - 86400000;
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 35000));
     }
     console.log(`[sellerBackfill] RETURNS total: ${results.returns} rows`);
   } catch (e) {
@@ -1108,7 +1108,7 @@ async function sellerBackfill(clientId) {
       }
 
       chunkEnd = chunkStart - 86400000;
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 35000));
     }
     console.log(`[sellerBackfill] SHIPMENTS total: ${results.shipments} rows`);
   } catch (e) {
