@@ -8,10 +8,15 @@
  *   - RETAIL_LISTING        (GET_MERCHANT_LISTINGS_ALL_DATA — ASIN catalog enrichment)
  *   - RETAIL_FEE            (GET_FBA_ESTIMATED_FBA_FEES_TXT_DATA — FBA fee estimates)
  *   - RETAIL_FORECAST       (GET_RESTOCK_INVENTORY_RECOMMENDATIONS_REPORT — restock/demand forecast)
- *   - RETAIL_RETURN         (GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA — customer returns)
- *   - RETAIL_SHIPMENT       (GET_AMAZON_FULFILLED_SHIPMENTS_DATA_GENERAL — fulfilled shipments, no PII)
+ *   - RETAIL_RETURN           (GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA — customer returns)
+ *   - RETAIL_SHIPMENT         (GET_AMAZON_FULFILLED_SHIPMENTS_DATA_GENERAL — fulfilled shipments, no PII)
+ *   - RETAIL_ORDER_METRICS    (Sales API getOrderMetrics — hourly unit/order counts, intraday)
  *
- * Runs every 6 hours via ingest_seller_reports cron job.
+ * Cadence:
+ *   - ingestSellerRealtimeReports  every 6h  — orderMetrics only
+ *   - ingestSellerDailyReports     daily 07:00 UTC — sales traffic, FBA inventory, restock, returns, shipments
+ *   - ingestSellerWeeklyReports    weekly Sunday 07:00 UTC — FBA fees + listing snapshot
+ *   - ingestSellerReports          legacy wrapper (calls all three, for backfill/manual triggers)
  */
 
 'use strict';
@@ -868,18 +873,188 @@ async function ingestFulfilledShipments(clientId, client, daysBack = 90, startDa
   });
 }
 
-// ─── Main: one client ─────────────────────────────────────────────────────────
+// ─── 7. Order Metrics (intraday, Sales API) ──────────────────────────────────
+// RETAIL_ORDER_METRICS — created if needed.
+// Uses SP-API Sales API: GET /sales/v1/orderMetrics
+// Rolling 48h window (yesterday + today) to capture late hours.
 
-async function ingestSellerReports(clientId) {
+async function ensureOrderMetricsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW.RETAIL_ORDER_METRICS (
+      CLIENT_ID                      VARCHAR(36)    NOT NULL,
+      MARKETPLACE                    VARCHAR(10)    NOT NULL DEFAULT 'US',
+      INTERVAL_START                 TIMESTAMP_NTZ  NOT NULL,
+      INTERVAL_END                   TIMESTAMP_NTZ  NOT NULL,
+      GRANULARITY                    VARCHAR(20)    NOT NULL DEFAULT 'Hour',
+      UNIT_COUNT                     NUMBER(12,0),
+      ORDER_ITEM_COUNT               NUMBER(12,0),
+      ORDER_COUNT                    NUMBER(12,0),
+      AVERAGE_UNIT_PRICE_AMOUNT      FLOAT,
+      AVERAGE_UNIT_PRICE_CURRENCY    VARCHAR(5),
+      TOTAL_SALES_AMOUNT             FLOAT,
+      TOTAL_SALES_CURRENCY           VARCHAR(5),
+      INGESTED_AT                    TIMESTAMP_NTZ  DEFAULT CURRENT_TIMESTAMP()
+    )
+  `);
+}
+
+async function ingestOrderMetrics(clientId, client) {
+  // Rolling 48h: yesterday T00:00:00Z → now
+  const now       = new Date();
+  const yesterday = new Date(Date.now() - 86400000);
+  const intervalStart = yesterday.toISOString().split('T')[0] + 'T00:00:00Z';
+  const intervalEnd   = now.toISOString();
+
+  await acquireSpApiToken('getOrderMetrics');
+
+  let metricsData;
+  try {
+    const res = await client.get('/sales/v1/orderMetrics', {
+      params: {
+        marketplaceIds: 'ATVPDKIKX0DER',
+        interval:       `${intervalStart}--${intervalEnd}`,
+        granularity:    'Hour',
+      },
+    });
+    metricsData = res.data?.payload || res.data || [];
+  } catch (e) {
+    if (e?.response?.status === 403 || e?.response?.status === 404) {
+      console.log(`[sellerIngestion] getOrderMetrics not available for ${clientId} — skipping`);
+      return 0;
+    }
+    throw e;
+  }
+
+  if (!Array.isArray(metricsData) || !metricsData.length) {
+    console.log(`[sellerIngestion] getOrderMetrics: no data returned for ${clientId}`);
+    return 0;
+  }
+
+  await ensureOrderMetricsTable();
+
+  const toFloat = v => (v !== null && v !== undefined) ? (parseFloat(v) || null) : null;
+  const toInt   = v => (v !== null && v !== undefined) ? (parseInt(v, 10) || null)  : null;
+
+  const mapped = metricsData.map(item => ({
+    client_id:                   clientId,
+    marketplace:                 'US',
+    interval_start:              item.interval?.split('--')[0] || null,
+    interval_end:                item.interval?.split('--')[1] || null,
+    granularity:                 'Hour',
+    unit_count:                  toInt(item.unitCount),
+    order_item_count:            toInt(item.orderItemCount),
+    order_count:                 toInt(item.orderCount),
+    average_unit_price_amount:   toFloat(item.averageUnitPrice?.amount),
+    average_unit_price_currency: item.averageUnitPrice?.currencyCode || null,
+    total_sales_amount:          toFloat(item.totalSales?.amount),
+    total_sales_currency:        item.totalSales?.currencyCode || null,
+  })).filter(r => r.interval_start);
+
+  if (!mapped.length) return 0;
+
+  return bulkMerge(mapped, 500, (batch) => {
+    const placeholders = batch.map(() =>
+      '(?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).join(',');
+    const binds = [];
+    for (const r of batch) {
+      binds.push(
+        r.client_id, r.marketplace,
+        r.interval_start, r.interval_end, r.granularity,
+        r.unit_count, r.order_item_count, r.order_count,
+        r.average_unit_price_amount, r.average_unit_price_currency,
+        r.total_sales_amount, r.total_sales_currency
+      );
+    }
+    const sql = `
+      MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_ORDER_METRICS t
+      USING (
+        SELECT
+          v.col1  AS client_id,
+          v.col2  AS marketplace,
+          TRY_TO_TIMESTAMP(v.col3)  AS interval_start,
+          TRY_TO_TIMESTAMP(v.col4)  AS interval_end,
+          v.col5  AS granularity,
+          v.col6::NUMBER  AS unit_count,
+          v.col7::NUMBER  AS order_item_count,
+          v.col8::NUMBER  AS order_count,
+          v.col9::FLOAT   AS avg_unit_price_amount,
+          v.col10 AS avg_unit_price_currency,
+          v.col11::FLOAT  AS total_sales_amount,
+          v.col12 AS total_sales_currency
+        FROM VALUES ${placeholders}
+          AS v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12)
+      ) s
+        ON t.client_id       = s.client_id
+       AND t.marketplace     = s.marketplace
+       AND t.interval_start  = s.interval_start
+       AND t.granularity     = s.granularity
+      WHEN MATCHED THEN UPDATE SET
+        interval_end                  = s.interval_end,
+        unit_count                    = s.unit_count,
+        order_item_count              = s.order_item_count,
+        order_count                   = s.order_count,
+        average_unit_price_amount     = s.avg_unit_price_amount,
+        average_unit_price_currency   = s.avg_unit_price_currency,
+        total_sales_amount            = s.total_sales_amount,
+        total_sales_currency          = s.total_sales_currency,
+        ingested_at                   = CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT
+        (client_id, marketplace, interval_start, interval_end, granularity,
+         unit_count, order_item_count, order_count,
+         average_unit_price_amount, average_unit_price_currency,
+         total_sales_amount, total_sales_currency, ingested_at)
+        VALUES
+        (s.client_id, s.marketplace, s.interval_start, s.interval_end, s.granularity,
+         s.unit_count, s.order_item_count, s.order_count,
+         s.avg_unit_price_amount, s.avg_unit_price_currency,
+         s.total_sales_amount, s.total_sales_currency, CURRENT_TIMESTAMP())
+    `;
+    return { sql, binds };
+  });
+}
+
+// ─── Main: one client (cadence-split) ─────────────────────────────────────────
+
+/**
+ * ingestSellerRealtimeReports — every 6h.
+ * Fast path: only pulls intraday order metrics.
+ */
+async function ingestSellerRealtimeReports(clientId) {
   const conn = await getConnectionStatus(clientId);
   if (!conn?.seller?.connected) {
-    console.log(`[sellerIngestion] ${clientId}: no seller connection, skipping`);
+    console.log(`[sellerIngestion] ${clientId}: no seller connection, skipping (realtime)`);
     return { skipped: true };
   }
 
-  console.log(`[sellerIngestion] Starting for ${clientId}`);
+  console.log(`[sellerIngestion] Realtime starting for ${clientId}`);
+  const client  = await spClient(clientId);
+  const results = { orderMetrics: 0 };
+
+  try {
+    results.orderMetrics = await ingestOrderMetrics(clientId, client);
+    console.log(`[sellerIngestion] ORDER_METRICS: ${results.orderMetrics} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] ORDER_METRICS failed:`, e.message.slice(0, 120));
+  }
+
+  return results;
+}
+
+/**
+ * ingestSellerDailyReports — daily 07:00 UTC.
+ * Sales & Traffic, FBA Inventory, Restock, Customer Returns, Fulfilled Shipments.
+ */
+async function ingestSellerDailyReports(clientId) {
+  const conn = await getConnectionStatus(clientId);
+  if (!conn?.seller?.connected) {
+    console.log(`[sellerIngestion] ${clientId}: no seller connection, skipping (daily)`);
+    return { skipped: true };
+  }
+
+  console.log(`[sellerIngestion] Daily starting for ${clientId}`);
   let client = await spClient(clientId);
-  const results = { salesTraffic: 0, fbaInventory: 0, fbaFees: 0, restock: 0, returns: 0, shipments: 0 };
+  const results = { salesTraffic: 0, fbaInventory: 0, restock: 0, returns: 0, shipments: 0 };
   const clientRef = { current: client };
 
   // Sales & Traffic
@@ -894,6 +1069,7 @@ async function ingestSellerReports(clientId) {
 
   // FBA Inventory (with retry)
   try {
+    clientRef.current = client;
     results.fbaInventory = await withRetry(
       () => ingestFbaInventory(clientId, clientRef.current),
       () => spClient(clientId),
@@ -903,22 +1079,6 @@ async function ingestSellerReports(clientId) {
     console.log(`[sellerIngestion] FBA_INVENTORY: ${results.fbaInventory} rows written`);
   } catch (e) {
     console.warn(`[sellerIngestion] FBA_INVENTORY failed:`, e.message.slice(0, 120));
-  }
-
-  await new Promise(r => setTimeout(r, 2000));
-
-  // FBA Fees (with retry)
-  try {
-    clientRef.current = client;
-    results.fbaFees = await withRetry(
-      () => ingestFbaFees(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
-    console.log(`[sellerIngestion] FBA_FEES: ${results.fbaFees} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FBA_FEES failed:`, e.message.slice(0, 120));
   }
 
   await new Promise(r => setTimeout(r, 2000));
@@ -939,11 +1099,11 @@ async function ingestSellerReports(clientId) {
 
   await new Promise(r => setTimeout(r, 2000));
 
-  // Customer Returns (with retry)
+  // Customer Returns
   try {
     clientRef.current = client;
     results.returns = await withRetry(
-      () => ingestCustomerReturns(clientId, clientRef.current),
+      () => ingestCustomerReturns(clientId, clientRef.current, 7),
       () => spClient(clientId),
       clientRef
     );
@@ -955,11 +1115,11 @@ async function ingestSellerReports(clientId) {
 
   await new Promise(r => setTimeout(r, 2000));
 
-  // Fulfilled Shipments (with retry)
+  // Fulfilled Shipments
   try {
     clientRef.current = client;
     results.shipments = await withRetry(
-      () => ingestFulfilledShipments(clientId, clientRef.current),
+      () => ingestFulfilledShipments(clientId, clientRef.current, 7),
       () => spClient(clientId),
       clientRef
     );
@@ -967,6 +1127,89 @@ async function ingestSellerReports(clientId) {
     console.log(`[sellerIngestion] FULFILLED_SHIPMENTS: ${results.shipments} rows written`);
   } catch (e) {
     console.warn(`[sellerIngestion] FULFILLED_SHIPMENTS failed:`, e.message.slice(0, 120));
+  }
+
+  const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
+  console.log(`[sellerIngestion] Daily done — ${total} total rows for ${clientId}`);
+  return results;
+}
+
+/**
+ * ingestSellerWeeklyReports — weekly Sunday 07:00 UTC.
+ * FBA Fees + FBA Inventory listing snapshot.
+ */
+async function ingestSellerWeeklyReports(clientId) {
+  const conn = await getConnectionStatus(clientId);
+  if (!conn?.seller?.connected) {
+    console.log(`[sellerIngestion] ${clientId}: no seller connection, skipping (weekly)`);
+    return { skipped: true };
+  }
+
+  console.log(`[sellerIngestion] Weekly starting for ${clientId}`);
+  let client = await spClient(clientId);
+  const results = { fbaFees: 0, fbaInventory: 0 };
+  const clientRef = { current: client };
+
+  // FBA Fees
+  try {
+    clientRef.current = client;
+    results.fbaFees = await withRetry(
+      () => ingestFbaFees(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current;
+    console.log(`[sellerIngestion] FBA_FEES: ${results.fbaFees} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] FBA_FEES failed:`, e.message.slice(0, 120));
+  }
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  // FBA Inventory — also pulls GET_MERCHANT_LISTINGS_ALL_DATA as fallback
+  try {
+    clientRef.current = client;
+    results.fbaInventory = await withRetry(
+      () => ingestFbaInventory(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current;
+    console.log(`[sellerIngestion] FBA_INVENTORY (listing snapshot): ${results.fbaInventory} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] FBA_INVENTORY (weekly) failed:`, e.message.slice(0, 120));
+  }
+
+  const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
+  console.log(`[sellerIngestion] Weekly done — ${total} total rows for ${clientId}`);
+  return results;
+}
+
+// ─── Main: one client (legacy wrapper) ────────────────────────────────────────
+
+async function ingestSellerReports(clientId) {
+  // Legacy wrapper — calls all three cadence functions in sequence.
+  // Retained for backfill and manual triggers.
+  const realtimeRes = await ingestSellerRealtimeReports(clientId);
+  if (realtimeRes.skipped) return { skipped: true };
+
+  const results = { salesTraffic: 0, fbaInventory: 0, fbaFees: 0, restock: 0, returns: 0, shipments: 0, orderMetrics: 0 };
+  results.orderMetrics = realtimeRes.orderMetrics || 0;
+
+  const dailyRes = await ingestSellerDailyReports(clientId);
+  if (!dailyRes.skipped) {
+    results.salesTraffic = dailyRes.salesTraffic || 0;
+    results.fbaInventory = dailyRes.fbaInventory || 0;
+    results.restock      = dailyRes.restock      || 0;
+    results.returns      = dailyRes.returns      || 0;
+    results.shipments    = dailyRes.shipments    || 0;
+  }
+
+  const weeklyRes = await ingestSellerWeeklyReports(clientId);
+  if (!weeklyRes.skipped) {
+    results.fbaFees = weeklyRes.fbaFees || 0;
+    // fbaInventory from weekly may overwrite daily value; use whichever is larger
+    results.fbaInventory = Math.max(results.fbaInventory, weeklyRes.fbaInventory || 0);
   }
 
   const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -1177,9 +1420,13 @@ async function ingestSellerAllClients({ triggeredBy = 'cron' } = {}) {
 
 module.exports = {
   ingestSellerReports,
+  ingestSellerRealtimeReports,
+  ingestSellerDailyReports,
+  ingestSellerWeeklyReports,
   ingestSellerAllClients,
   sellerBackfill,
   // Export individual functions for direct use
+  ingestOrderMetrics,
   ingestFbaFees,
   ingestRestockRecommendations,
   ingestCustomerReturns,

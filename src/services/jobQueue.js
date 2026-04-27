@@ -38,6 +38,9 @@ const JOB_TIMEOUTS = {
   ingest_vendor_reports:        15 * 60 * 1000,  // 15 min max
   ingest_dsp:                   20 * 60 * 1000,  // 20 min max
   ingest_seller_reports:        20 * 60 * 1000,  // 20 min max (FBA poll + retries)
+  ingest_seller_realtime:        5 * 60 * 1000,  //  5 min max (order metrics only)
+  ingest_seller_daily:          20 * 60 * 1000,  // 20 min max
+  ingest_seller_weekly:         15 * 60 * 1000,  // 15 min max
   stage_raw_data:               10 * 60 * 1000,  // 10 min max
   download_completed_reports:   10 * 60 * 1000,  // 10 min max
   submit_amazon_reports:        10 * 60 * 1000,  // 10 min max
@@ -82,7 +85,10 @@ const JOB_QUEUE_MAP = {
   ingest_vendor_daily:           'heavy',
   ingest_vendor_weekly:          'heavy',
   ingest_vendor_reports:         'heavy',  // legacy
-  ingest_seller_reports:        'heavy',  // FBA_INVENTORY takes >5min — must be on heavy worker (30min lock)
+  ingest_seller_reports:         'heavy',  // legacy/manual — full cadence
+  ingest_seller_realtime:        'heavy',
+  ingest_seller_daily:           'heavy',
+  ingest_seller_weekly:          'heavy',
 };
 
 /**

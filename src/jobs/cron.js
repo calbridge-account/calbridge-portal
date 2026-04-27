@@ -155,7 +155,10 @@ const JOB_HANDLERS = {
   expire_stale_actions:      () => stageRawData().expireStaleActions({ triggeredBy: 'cron' }),
 
   // ── Every 6 hours — Seller Central ingestion ───────────────────────────────
-  ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),
+  ingest_seller_realtime:    () => ingestSellerRealtimeAllClients({ triggeredBy: 'cron' }),
+  ingest_seller_daily:       () => ingestSellerDailyAllClients({ triggeredBy: 'cron' }),
+  ingest_seller_weekly:      () => ingestSellerWeeklyAllClients({ triggeredBy: 'cron' }),
+  ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),  // legacy/manual
 
   // ── Every 5 min — flush buffered JOB_RUNS to Snowflake ───────────────────────
   flush_job_runs:               () => require('../services/jobRunner').flushJobRunBuffer({ triggeredBy: 'cron' }),
@@ -251,6 +254,74 @@ async function ingestVendorWeeklyAllClients({ triggeredBy = 'cron' } = {}) {
     }
     console.log(`[cron] ingest_vendor_weekly complete ─ ran for ${ran} client(s)`);
   } catch (err) { console.error('[cron] ingestVendorWeeklyAllClients error:', err.message); }
+}
+
+// ─── Seller ingestion helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+// Every 6h — order metrics only
+async function ingestSellerRealtimeAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const { query: _q } = require('../services/snowflakeService');
+    const { getConnectionStatus } = require('../services/amazonAuthService');
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+    const { ingestSellerRealtimeReports } = sellerIngestion();
+    let ran = 0;
+    for (let i = 0; i < (clients || []).length; i++) {
+      const clientId = clients[i].CLIENT_ID || clients[i].client_id;
+      if (i > 0) await new Promise(r => setTimeout(r, 90000));
+      try {
+        const conn = await getConnectionStatus(clientId);
+        if (!conn?.seller?.connected) continue;
+        await ingestSellerRealtimeReports(clientId);
+        ran++;
+      } catch (err) { console.warn(`[cron] ingest_seller_realtime ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_seller_realtime complete — ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestSellerRealtimeAllClients error:', err.message); }
+}
+
+// Daily — sales traffic, FBA inventory, restock, returns, shipments
+async function ingestSellerDailyAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const { query: _q } = require('../services/snowflakeService');
+    const { getConnectionStatus } = require('../services/amazonAuthService');
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+    const { ingestSellerDailyReports } = sellerIngestion();
+    let ran = 0;
+    for (let i = 0; i < (clients || []).length; i++) {
+      const clientId = clients[i].CLIENT_ID || clients[i].client_id;
+      if (i > 0) await new Promise(r => setTimeout(r, 90000));
+      try {
+        const conn = await getConnectionStatus(clientId);
+        if (!conn?.seller?.connected) continue;
+        await ingestSellerDailyReports(clientId);
+        ran++;
+      } catch (err) { console.warn(`[cron] ingest_seller_daily ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_seller_daily complete — ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestSellerDailyAllClients error:', err.message); }
+}
+
+// Weekly (Sunday) — FBA fees + listing snapshot
+async function ingestSellerWeeklyAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const { query: _q } = require('../services/snowflakeService');
+    const { getConnectionStatus } = require('../services/amazonAuthService');
+    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+    const { ingestSellerWeeklyReports } = sellerIngestion();
+    let ran = 0;
+    for (let i = 0; i < (clients || []).length; i++) {
+      const clientId = clients[i].CLIENT_ID || clients[i].client_id;
+      if (i > 0) await new Promise(r => setTimeout(r, 90000));
+      try {
+        const conn = await getConnectionStatus(clientId);
+        if (!conn?.seller?.connected) continue;
+        await ingestSellerWeeklyReports(clientId);
+        ran++;
+      } catch (err) { console.warn(`[cron] ingest_seller_weekly ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_seller_weekly complete — ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestSellerWeeklyAllClients error:', err.message); }
 }
 
 // Legacy — kept for manual triggers and backward compat
@@ -504,10 +575,10 @@ const CRON_SCHEDULE = [
     jobId: 'apply_daypart_schedules',
     expr:  '0 * * * *',    // every hour at :00 — apply 24h multiplier schedules
   },
-  {
-    jobId: 'ingest_seller_reports',
-    expr:  '15 */6 * * *',  // every 6h at :15 — offset from vendor (:30) and top-of-hour jobs
-  },
+  // { jobId: 'ingest_seller_reports', expr: '15 */6 * * *' },  // disabled — replaced by cadence-split jobs below (keep handler for manual use)
+  { jobId: 'ingest_seller_realtime', expr: '45 */6 * * *' },  // every 6h at :45 — order metrics
+  { jobId: 'ingest_seller_daily',    expr: '0 7 * * *' },     // daily 07:00 UTC — sales, inventory, restock, returns, shipments
+  { jobId: 'ingest_seller_weekly',   expr: '0 7 * * 0' },     // weekly Sunday 07:00 UTC — FBA fees + listing snapshot
   // Vendor cadence-split (2026-04-27)
   {
     jobId: 'ingest_vendor_realtime',
