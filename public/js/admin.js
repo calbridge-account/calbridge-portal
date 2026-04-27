@@ -408,6 +408,7 @@ const NAV_TABS = [
   { path: '/cogs',        label: 'COGS & Margins'     },
   { path: '/advertising', label: 'Advertising'        },
   { path: '/pacing',      label: 'Budget Pacing'      },
+  { path: '/reports',     label: 'Report Builder'     },
   { path: '/account',     label: 'Account'            },
 ];
 

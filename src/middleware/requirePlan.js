@@ -175,9 +175,18 @@ async function lookupPlan(req) {
   // Fetch from DB
   try {
     const rows = await query(
-      'SELECT subscription_plan, linked_client_id FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+      'SELECT subscription_plan, subscription_status, linked_client_id FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
       [clientId]
     );
+
+    // Immediate lock on payment failure — past_due/paused/cancelled = no paid features
+    const subStatus = rows[0]?.SUBSCRIPTION_STATUS || rows[0]?.subscription_status || null;
+    if (subStatus === 'past_due' || subStatus === 'paused' || subStatus === 'cancelled') {
+      req.session.planCache = { plan: 'free', fetchedAt: Date.now() };
+      req.userPlan = 'free';
+      return 'free';
+    }
+
     let raw = rows[0]?.SUBSCRIPTION_PLAN || rows[0]?.subscription_plan || null;
 
     // Team members inherit their parent account's plan

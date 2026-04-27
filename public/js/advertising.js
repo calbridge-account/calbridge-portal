@@ -488,7 +488,10 @@ async function loadChannelBreakdown() {
 
     // Always show all 4 columns when all channels present, otherwise dynamic
     const cols = rows.length === 1 ? 1 : rows.length === 2 ? 2 : rows.length === 3 ? 3 : 4;
-    container.style.gridTemplateColumns = `repeat(${Math.min(cols, 4)}, 1fr)`;
+    // Drive column count via kpi-grid class so it matches the KPI row above and respects responsive breakpoints
+    container.className = container.className.replace(/\bkpi-grid-\d+\b/g, '').trim();
+    container.classList.add(`kpi-grid-${Math.min(cols, 4)}`);
+    container.style.gridTemplateColumns = '';  // let CSS class handle it
 
     container.innerHTML = rows.map(r => {
       const type    = r.AD_TYPE;

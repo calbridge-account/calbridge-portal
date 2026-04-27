@@ -74,6 +74,7 @@ router.get('/', requireAuth, async (req, res, next) => {
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget
+      HAVING SUM(ap.spend) > 0 OR SUM(ap.impressions) > 0
       ORDER BY SUM(ap.spend) DESC NULLS LAST
     `, [days, await resolveClientId(req)]);
 

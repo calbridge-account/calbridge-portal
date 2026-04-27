@@ -61,9 +61,10 @@ async function getAffectedCampaigns(clientId, rule) {
     // All active SP campaigns for this client
     const rows = await query(`
       SELECT DISTINCT campaign_id, profile_id
-      FROM CALBRIDGE_PROD.APP.sp_campaign_report
+      FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
       WHERE client_id = ?
-        AND campaign_status = 'ENABLED'
+        AND ad_product = 'SPONSORED_PRODUCTS'
+        AND status = 'ENABLED'
         AND date >= DATEADD('day', -3, CURRENT_DATE())
     `, [clientId]);
     return rows.map(r => ({ campaignId: r.CAMPAIGN_ID, profileId: r.PROFILE_ID }));
@@ -74,8 +75,9 @@ async function getAffectedCampaigns(clientId, rule) {
     const rows = await query(`
       SELECT DISTINCT bcm.campaign_id, sc.profile_id
       FROM CALBRIDGE_PROD.APP.budget_campaign_map bcm
-      JOIN CALBRIDGE_PROD.APP.sp_campaign_report sc
+      JOIN CALBRIDGE_PROD.RAW.AD_CAMPAIGN sc
         ON sc.campaign_id = bcm.campaign_id AND sc.client_id = ?
+        AND sc.ad_product = 'SPONSORED_PRODUCTS'
         AND sc.date >= DATEADD('day', -3, CURRENT_DATE())
       WHERE bcm.budget_id IN (${placeholders})
     `, [clientId, ...appliesToIds]);
@@ -86,8 +88,10 @@ async function getAffectedCampaigns(clientId, rule) {
     const placeholders = appliesToIds.map(() => '?').join(',');
     const rows = await query(`
       SELECT DISTINCT campaign_id, profile_id
-      FROM CALBRIDGE_PROD.APP.sp_campaign_report
-      WHERE client_id = ? AND campaign_id IN (${placeholders})
+      FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+      WHERE client_id = ?
+        AND ad_product = 'SPONSORED_PRODUCTS'
+        AND campaign_id IN (${placeholders})
         AND date >= DATEADD('day', -3, CURRENT_DATE())
     `, [clientId, ...appliesToIds]);
     return rows.map(r => ({ campaignId: r.CAMPAIGN_ID, profileId: r.PROFILE_ID }));

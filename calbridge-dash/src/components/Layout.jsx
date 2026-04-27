@@ -34,6 +34,12 @@ const NAV = [
     ],
   },
   {
+    group: 'Reports',
+    items: [
+      { path: '/reports', label: 'Report Builder', emoji: '📋', minRole: 'viewer' },
+    ],
+  },
+  {
     group: 'Settings',
     items: [
       { path: '/account', label: 'Account', emoji: '⚙️', minRole: 'viewer' },
@@ -48,6 +54,12 @@ const AGENCY_NAV = [
     group: null,
     items: [
       { path: '/brands', label: 'Brands', emoji: '🏢', minRole: 'viewer' },
+    ],
+  },
+  {
+    group: 'Reports',
+    items: [
+      { path: '/reports', label: 'Report Builder', emoji: '📋', minRole: 'viewer' },
     ],
   },
   {
@@ -356,6 +368,8 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
 
 function TopBar() {
   const pageTitle = usePageTitle();
+  const location  = useLocation();
+  const isReports = location.pathname.startsWith('/reports');
   const { plan } = useBillingPlan();
   const { range } = useDateRange();
   const [syncing, setSyncing] = useState(false);
@@ -398,17 +412,21 @@ function TopBar() {
       <h1 className="text-base font-semibold text-gray-800 flex-1 truncate">
         {pageTitle}
       </h1>
-      <div className="flex-shrink-0">
-        <DateRangePicker />
-      </div>
-      <button
-        onClick={handleSync}
-        disabled={syncing}
-        className="flex-shrink-0 text-sm px-3 py-1.5 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-      >
-        {syncing ? 'Syncing…' : '↻ Sync Now'}
-      </button>
-      {canDownload && (
+      {!isReports && (
+        <div className="flex-shrink-0">
+          <DateRangePicker />
+        </div>
+      )}
+      {!isReports && (
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex-shrink-0 text-sm px-3 py-1.5 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {syncing ? 'Syncing…' : '↻ Sync Now'}
+        </button>
+      )}
+      {!isReports && canDownload && (
         <button
           onClick={handleDownloadReport}
           disabled={downloading}

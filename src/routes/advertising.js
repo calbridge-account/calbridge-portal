@@ -151,6 +151,7 @@ router.get('/', requireAuth, planDataWindow, async (req, res, next) => {
     const channel   = req.query.channel;
     const clientId  = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
+    console.log(`[adv-root] clientId=${clientId} range=${req.query.range} days=${days} start=${startDate} end=${endDate} channel=${channel} mp=${marketplace}`);
     const ck = cacheKey(clientId, 'adv-root', days, startDate, endDate, channel, marketplace);
 
     // Build mart date filter for this route: prefer explicit range, else rolling window
@@ -421,6 +422,7 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         GROUP BY campaign_id, campaign_name, ad_type
+        HAVING SUM(spend) > 0 OR SUM(impressions) > 0
       )
       SELECT
         campaign_id,
@@ -566,6 +568,7 @@ router.get('/asin-performance', requireAuth, planDataWindow, async (req, res, ne
           AND p.advertised_asin != 'UNATTRIBUTED'
           ${adType && adType !== 'DSP' ? '' : '/* sp-only table, no adType filter needed */'}
         GROUP BY p.advertised_asin
+        HAVING SUM(p.cost) > 0 OR SUM(p.impressions) > 0
         ORDER BY spend DESC
         LIMIT ?
       `, [clientId, limit]);
@@ -654,6 +657,7 @@ router.get('/keyword-efficiency', requireAuth, planDataWindow, async (req, res, 
         ${dateFilter("st.date", days, startDate, endDate)}
         AND st.search_term IS NOT NULL
       GROUP BY st.search_term, st.keyword
+      HAVING SUM(st.cost) > 0 OR SUM(st.impressions) > 0
     `, [clientId]));
 
     const mapped = rows.map(r => ({
@@ -689,6 +693,7 @@ router.get('/keyword-targeting', requireAuth, planDataWindow, async (req, res, n
     const limit     = Number(req.query.limit) || 500;
     const adType    = req.query.adType || null;  // 'SP' | 'SB' | null (all)
     const clientId  = await resolveClientId(req);
+    console.log(`[keyword-targeting] clientId=${clientId} days=${days} start=${startDate} end=${endDate} adType=${adType}`);
 
     // Build query — SP only, SB only, or both via UNION ALL
     let sql, binds;
@@ -717,7 +722,8 @@ router.get('/keyword-targeting', requireAuth, planDataWindow, async (req, res, n
       WHERE client_id = ?
         ${dateFilter('date', days, startDate, endDate)}
         AND COALESCE(keyword, targeting) IS NOT NULL
-      GROUP BY UPPER(TRIM(COALESCE(keyword, targeting))), COALESCE(match_type, 'AUTO')`;
+      GROUP BY UPPER(TRIM(COALESCE(keyword, targeting))), COALESCE(match_type, 'AUTO')
+      HAVING SUM(cost) > 0 OR SUM(impressions) > 0`;
 
     const sbSql = `
       SELECT
@@ -744,7 +750,8 @@ router.get('/keyword-targeting', requireAuth, planDataWindow, async (req, res, n
       WHERE client_id = ?
         ${dateFilter('report_date', days, startDate, endDate)}
         AND COALESCE(keyword_text, targeting_text) IS NOT NULL
-      GROUP BY UPPER(TRIM(COALESCE(keyword_text, targeting_text))), COALESCE(match_type, 'N/A')`;
+      GROUP BY UPPER(TRIM(COALESCE(keyword_text, targeting_text))), COALESCE(match_type, 'N/A')
+      HAVING SUM(cost) > 0 OR SUM(impressions) > 0`;
 
     if (adType === 'SP') {
       sql = spSql; binds = [clientId];
@@ -896,34 +903,35 @@ router.get('/sb-video', requireAuth, async (req, res, next) => {
     const ck = cacheKey(clientId, 'sb-video', days, startDate, endDate, marketplace);
     const rows = await cachedQuery(ck, DEFAULT_TTL_MS, () => query(`
       SELECT
-        SUM(impressions)                   AS total_impressions,
-        SUM(viewable_impressions)          AS viewable_impressions,
-        SUM(video_5_second_views)          AS v5s,
-        SUM(video_first_quartile_views)    AS v25,
-        SUM(video_midpoint_views)          AS v50,
-        SUM(video_third_quartile_views)    AS v75,
-        SUM(video_complete_views)          AS v100,
-        SUM(video_unmutes)                 AS unmutes,
+        SUM(video_5s_views)        AS v5s,
+        SUM(video_25pct_views)     AS v25,
+        SUM(video_50pct_views)     AS v50,
+        SUM(video_75pct_views)     AS v75,
+        SUM(video_100pct_views)    AS v100,
+        SUM(video_unmutes)         AS unmutes,
+        SUM(viewable_impressions)  AS viewable_impressions,
+        SUM(impressions)           AS total_impressions,
         CASE WHEN SUM(impressions) > 0
-          THEN SUM(video_5_second_views)::FLOAT / SUM(impressions) ELSE NULL END AS v5s_rate,
-        CASE WHEN SUM(video_5_second_views) > 0
-          THEN SUM(video_complete_views)::FLOAT / SUM(video_5_second_views) ELSE NULL END AS completion_rate,
+          THEN SUM(video_5s_views)::FLOAT / SUM(impressions) ELSE NULL END AS v5s_rate,
+        CASE WHEN SUM(video_5s_views) > 0
+          THEN SUM(video_100pct_views)::FLOAT / SUM(video_5s_views) ELSE NULL END AS completion_rate,
         CASE WHEN SUM(viewable_impressions) > 0
-          THEN SUM(video_complete_views)::FLOAT / SUM(viewable_impressions) ELSE NULL END AS vcr
-      FROM CALBRIDGE_PROD.APP.sb_campaign_report
+          THEN SUM(video_100pct_views)::FLOAT / SUM(viewable_impressions) ELSE NULL END AS vcr
+      FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
       WHERE client_id = ?
-        AND COALESCE(campaign_budget_currency_code, 'USD') = '${(marketplace === 'CA' ? 'CAD' : 'USD')}'
-        ${dateFilter('report_date', days, startDate, endDate)}
+        AND ad_product = 'SPONSORED_BRANDS'
+        ${dateFilter('date', days, startDate, endDate)}
+      HAVING SUM(impressions) > 0 OR SUM(video_5s_views) > 0
     `, [clientId]));
     const s = rows[0] || {};
     res.json({
       totalImpressions:   Number(s.TOTAL_IMPRESSIONS   || 0),
       viewableImpressions:Number(s.VIEWABLE_IMPRESSIONS || 0),
-      v5s:                Number(s.V5S  || 0),
-      v25:                Number(s.V25  || 0),
-      v50:                Number(s.V50  || 0),
-      v75:                Number(s.V75  || 0),
-      v100:               Number(s.V100 || 0),
+      v5s:                Number(s.V5S   || 0),
+      v25:                Number(s.V25   || 0),
+      v50:                Number(s.V50   || 0),
+      v75:                Number(s.V75   || 0),
+      v100:               Number(s.V100  || 0),
       unmutes:            Number(s.UNMUTES || 0),
       v5sRate:            s.V5S_RATE         != null ? Number(s.V5S_RATE)         : null,
       completionRate:     s.COMPLETION_RATE  != null ? Number(s.COMPLETION_RATE)  : null,
@@ -1148,10 +1156,11 @@ router.get('/keyword-campaigns', requireAuth, async (req, res, next) => {
       LEFT JOIN (
         SELECT campaign_id,
           MAX(campaign_name)           AS campaign_name,
-          MAX(campaign_status)         AS campaign_status,
-          MAX(campaign_budget_amount)  AS campaign_budget_amount
-        FROM sp_campaign_report
+          MAX(status)                  AS campaign_status,
+          MAX(daily_budget)            AS campaign_budget_amount
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
         WHERE client_id = ?
+          AND ad_product = 'SPONSORED_PRODUCTS'
           ${dateFilter('date', days, startDate, endDate)}
         GROUP BY campaign_id
       ) c ON c.campaign_id = k.campaign_id

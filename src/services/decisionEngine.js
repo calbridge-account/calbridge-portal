@@ -270,9 +270,14 @@ function loadSpKeywords(clientId, days, authorizedProfiles) {
       SUM(k.impressions)       AS impressions
     FROM CALBRIDGE_PROD.APP.sp_targeting_keyword_report k
     LEFT JOIN (
-      SELECT DISTINCT campaign_id, MAX(campaign_name) AS campaign_name
-      FROM CALBRIDGE_PROD.APP.sp_campaign_report
+      SELECT campaign_id,
+        MAX(campaign_name)  AS campaign_name,
+        MAX(status)         AS campaign_status,
+        MAX(daily_budget)   AS campaign_budget_amount
+      FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN
       WHERE client_id = ?
+        AND ad_product = 'SPONSORED_PRODUCTS'
+        AND date >= DATEADD('day', -?, CURRENT_DATE())
       GROUP BY campaign_id
     ) c ON c.campaign_id = k.campaign_id
     WHERE k.client_id = ?
@@ -282,7 +287,7 @@ function loadSpKeywords(clientId, days, authorizedProfiles) {
       ${profileFilter(authorizedProfiles)}
     GROUP BY k.keyword_id, k.targeting, k.match_type, k.keyword_bid, k.campaign_id, k.campaign_name, k.ad_group_id, k.profile_id
     HAVING SUM(k.cost) > 5 OR SUM(k.clicks) >= ?
-  `, [clientId, clientId, days, MIN_CLICKS]);
+  `, [clientId, days, clientId, days, MIN_CLICKS]);
 }
 
 function loadSbKeywords(clientId, days, authorizedProfiles) {
@@ -412,8 +417,15 @@ async function loadCooldownSet(clientId) {
     WHERE client_id = ?
       AND (
         status = 'pending'
-        OR (status = 'executed' AND executed_at >= DATEADD('day', -7, CURRENT_DATE()))
-        OR (status = 'approved')
+        OR status = 'approved'
+        -- launch_campaign gets 30-day cooldown (campaign needs time to spend)
+        OR (status = 'executed'
+            AND action_type = 'launch_campaign'
+            AND executed_at >= DATEADD('day', -30, CURRENT_DATE()))
+        -- all other action types get 7-day cooldown
+        OR (status = 'executed'
+            AND action_type != 'launch_campaign'
+            AND executed_at >= DATEADD('day', -7, CURRENT_DATE()))
       )
   `, [clientId]);
   return new Set(rows.map(r => String(r.ENTITY_ID)));
@@ -630,6 +642,27 @@ async function discoverIdleInventory(clientId, days, cooldownSet) {
   // These are products sitting in Amazon's warehouse with no ad support.
   // Recommendation: launch or expand SP campaigns.
   try {
+    // Pre-load ASINs that already have an active Auto.SP.IdleInv campaign
+    // (ENABLED or PAUSED within last 60 days). These should never get a new recommendation.
+    let activeIdleInvAsins = new Set();
+    try {
+      const activeCamps = await query(`
+        SELECT DISTINCT campaign_name
+        FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
+        WHERE client_id = ?
+          AND campaign_name ILIKE 'Auto.SP.IdleInv.%'
+          AND date >= DATEADD('day', -60, CURRENT_DATE())
+      `, [clientId]);
+      for (const r of activeCamps) {
+        const name = r.CAMPAIGN_NAME || r.campaign_name || '';
+        // Extract ASIN from Auto.SP.IdleInv.{ASIN}.{DATE}
+        const match = name.match(/^Auto\.SP\.IdleInv\.([A-Z0-9]+)\./i);
+        if (match) activeIdleInvAsins.add(match[1].toUpperCase());
+      }
+    } catch (e) {
+      console.warn('[DecisionEngine] Active IdleInv campaign check failed (non-fatal):', e.message?.substring(0, 80));
+    }
+
     const rows = await query(`
       WITH latest_inv AS (
         SELECT asin,
@@ -663,6 +696,8 @@ async function discoverIdleInventory(clientId, days, cooldownSet) {
     for (const r of rows) {
       const entityId = `idle_inv:${r.ASIN}`;
       if (cooldownSet.has(entityId)) continue;
+      // Skip if an Auto.SP.IdleInv campaign for this ASIN already exists (active or recent)
+      if (activeIdleInvAsins.has(String(r.ASIN).toUpperCase())) continue;
 
       const units   = Number(r.UNITS    || 0);
       const spend   = Number(r.SP_SPEND || 0);

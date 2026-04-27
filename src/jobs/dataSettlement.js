@@ -70,6 +70,7 @@ async function resetQueueWindow(clientId, daysBack, daysForward, minAgeHours) {
             error_message  = NULL
       WHERE client_id      = ?
         AND status         = 'completed'
+        -- Include DSP report types so attribution windows are re-fetched after campaign end
         AND ${END_DATE_EXPR}
               BETWEEN DATEADD('day', ?, CURRENT_DATE())
                   AND DATEADD('day', ?, CURRENT_DATE())

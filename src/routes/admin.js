@@ -406,7 +406,7 @@ router.delete('/spend-adjustments/:id', requireAdmin, async (req, res, next) => 
 // NAV CONFIG (per-client tab visibility)
 // ============================================================
 
-const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
+const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/reports', '/account'];
 const VALID_VISIBILITY = ['visible', 'grayed', 'hidden'];
 
 /**

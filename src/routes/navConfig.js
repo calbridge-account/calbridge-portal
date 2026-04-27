@@ -8,7 +8,7 @@ const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 
-const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/account'];
+const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/reports', '/account'];
 
 /**
  * GET /nav-config
@@ -27,6 +27,14 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
     const hasSeller = connections?.seller?.connected === true;
 
     // Base config — derive from connection status
+    // Check plan for Pro-gated features
+    const planRows = await query(
+      'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+      [clientId]
+    ).catch(() => []);
+    const plan = planRows[0]?.SUBSCRIPTION_PLAN || planRows[0]?.subscription_plan || 'free';
+    const isProPlus = plan === 'pro' || plan === 'agency';
+
     const config = {
       '/':            'visible',
       '/advertising': hasAds    ? 'visible' : 'locked',
@@ -35,6 +43,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/seller':      hasSeller ? 'visible' : 'locked',
       '/forecasting': hasVendor ? 'visible' : 'locked',
       '/cogs':        hasSeller ? 'visible' : 'locked',
+      '/reports':     isProPlus ? 'visible' : 'grayed',
       '/account':     'visible',
     };
 
@@ -57,6 +66,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/seller':      hasSeller ? null : 'Connect your Seller Central account to unlock seller analytics',
       '/forecasting': hasVendor ? null : 'Connect your Vendor Central account to unlock demand forecasting',
       '/cogs':        hasSeller ? null : 'Connect your Seller Central account to unlock COGS analytics',
+      '/reports':     isProPlus ? null : 'Report Builder requires Pro plan or above',
     };
 
     res.json({

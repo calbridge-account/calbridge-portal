@@ -7,18 +7,29 @@
 const BASE = '/vendor-analytics';
 
 async function fetchJSON(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const fullPath = `${BASE}${path}`;
+  const res = await fetch(fullPath, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
+    const text = await res.text();
+    if (text.trim().startsWith('<')) {
+      console.error('[API] Got HTML instead of JSON from:', fullPath, 'status:', res.status, 'preview:', text.substring(0, 120));
+    }
+    let err;
+    try { err = JSON.parse(text); } catch { err = { error: res.statusText }; }
     throw new Error(err.error || `HTTP ${res.status}`);
   }
 
-  return res.json();
+  const text = await res.text();
+  if (text.trim().startsWith('<')) {
+    console.error('[API] Got HTML instead of JSON (200) from:', fullPath, 'preview:', text.substring(0, 120));
+    throw new Error('Server returned HTML instead of JSON');
+  }
+  return JSON.parse(text);
 }
 
 /**
@@ -54,10 +65,21 @@ export const getPoSummary         = ()      => fetchJSON('/po-summary');
 async function fetchAdvertisingJSON(path) {
   const res = await fetch(path, { credentials: 'include' });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
+    const text = await res.text();
+    // If we got HTML back log the path so we can debug
+    if (text.trim().startsWith('<')) {
+      console.error('[API] Got HTML instead of JSON from:', path, 'status:', res.status, 'preview:', text.substring(0, 120));
+    }
+    let err;
+    try { err = JSON.parse(text); } catch { err = { error: res.statusText }; }
     throw new Error(err.error || `HTTP ${res.status}`);
   }
-  return res.json();
+  const text = await res.text();
+  if (text.trim().startsWith('<')) {
+    console.error('[API] Got HTML instead of JSON (200) from:', path, 'preview:', text.substring(0, 120));
+    throw new Error('Server returned HTML instead of JSON');
+  }
+  return JSON.parse(text);
 }
 
 export const getAdvertisingTrend  = (range, channel, marketplace) => {

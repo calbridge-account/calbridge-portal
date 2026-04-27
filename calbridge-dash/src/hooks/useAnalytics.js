@@ -74,10 +74,12 @@ export function useVendorAsins(range) {
 export function useAdvertising(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
   return useQuery({
-    queryKey: ['advertising', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
+    queryKey: ['advertising-v2', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertising(range, channel, activeMarketplace),
     staleTime: STALE_TIME,
-    retry: 2,
+    retry: 3,
+    retryOnMount: true,
+    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
 }
 

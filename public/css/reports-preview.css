@@ -1,0 +1,172 @@
+/* =============================================
+   Reports Preview — clean print/PDF page
+   No sidebar, no nav. Puppeteer renders this.
+   ============================================= */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  margin: 0;
+  background: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.report-page {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  overflow: hidden;
+  page-break-after: always;
+  background: #fff;
+}
+
+/* Brand accent support via CSS var */
+:root {
+  --preview-brand: #2d5a27;
+}
+
+/* Block layout — same absolute positioning as builder */
+.preview-block {
+  position: absolute;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.preview-block-title {
+  display: flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: #f9fafb;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+
+.preview-block-content {
+  flex: 1;
+  padding: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* KPI */
+.kpi-card {
+  text-align: center;
+  width: 100%;
+}
+
+.kpi-label {
+  font-size: 11px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 4px;
+}
+
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--preview-brand);
+  line-height: 1.1;
+}
+
+.kpi-sub {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+/* Chart */
+.chart-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Table */
+.block-table-wrap {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.block-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.block-table th {
+  background: #edf5ec;
+  color: #2d5a27;
+  font-weight: 600;
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.block-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid #f3f4f6;
+  color: #1a2e18;
+}
+
+.block-table tr:nth-child(even) td {
+  background: #f9fafb;
+}
+
+/* Text block */
+.text-block-content {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  color: #1a2e18;
+}
+
+/* Footer */
+.preview-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 10px;
+  color: #9ca3af;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  justify-content: space-between;
+}
+
+/* Loading spinner */
+.block-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 12px;
+  width: 100%;
+  height: 100%;
+}

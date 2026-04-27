@@ -233,6 +233,10 @@ export default function Advertising() {
 
   const combined = data?.combined || {};
   const byType   = data?.byType   || {};
+  // Debug: log when all channel has no data
+  if (!isLoading && !isError && activeChannel === 'all' && Object.keys(byType).length === 0) {
+    console.warn('[Advertising] channel=all returned empty byType, data:', data);
+  }
 
   // Daily trend data — normalize keys from server (uppercase Snowflake cols → lowercase)
   const dailyData = useMemo(() => (trendRows || []).map(r => {

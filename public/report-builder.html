@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Report Builder — Calbridge</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/report-builder.css">
+</head>
+<body class="dashboard-page">
+  <!-- Sidebar nav -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <img src="/images/calbridge-logo-220.png" alt="Calbridge" id="brand-logo">
+    </div>
+    <div class="sidebar-nav" id="sidebar-nav">
+      <a href="/dashboard.html" class="nav-item">📊 Overview</a>
+      <a href="/advertising.html" class="nav-item">📢 Advertising</a>
+      <a href="/campaigns.html" class="nav-item">📣 Campaigns</a>
+      <a href="/reports" class="nav-item active">📋 Report Builder</a>
+      <a href="/account.html" class="nav-item">⚙️ Account</a>
+    </div>
+    <div class="sidebar-footer">
+      <span id="client-name"></span>
+      <button class="btn-logout" id="btn-logout">Sign out</button>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <!-- Builder top bar -->
+    <div id="builder-topbar">
+      <div id="topbar-left">
+        <input type="text" id="report-name" value="Untitled Report" placeholder="Report name..." />
+      </div>
+      <div id="topbar-center">
+        <input type="date" id="global-start-date" />
+        <span>to</span>
+        <input type="date" id="global-end-date" />
+        <select id="global-marketplace">
+          <option value="US">US</option>
+          <option value="CA">CA</option>
+          <option value="UK">UK</option>
+          <option value="DE">DE</option>
+          <option value="FR">FR</option>
+        </select>
+      </div>
+      <div id="topbar-right">
+        <button id="btn-new-report">New</button>
+        <button id="btn-save">Save</button>
+        <button id="btn-preview">Preview</button>
+        <button id="btn-export-pdf">Export PDF</button>
+        <button id="btn-export-csv">Export CSV</button>
+      </div>
+    </div>
+
+    <div id="builder-layout">
+      <!-- Left panel -->
+      <div id="left-panel">
+        <div class="panel-section">
+          <div class="panel-title">My Reports</div>
+          <div id="reports-list"></div>
+          <button id="btn-new-from-template" class="btn-sm">+ New Report</button>
+        </div>
+        <div class="panel-section">
+          <div class="panel-title">Add Blocks</div>
+          <div class="block-library">
+            <div class="block-item" data-type="kpi" draggable="true">&#x1F4CA; KPI Card</div>
+            <div class="block-item" data-type="bar_chart" draggable="true">&#x1F4C8; Bar Chart</div>
+            <div class="block-item" data-type="line_chart" draggable="true">&#x1F4C9; Line Chart</div>
+            <div class="block-item" data-type="table" draggable="true">&#x1F5C3; Table</div>
+            <div class="block-item" data-type="text" draggable="true">&#x270F; Text Block</div>
+            <div class="block-item" data-type="image" draggable="true">&#x1F5BC; Image</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center canvas area -->
+      <div id="center-panel">
+        <!-- Tab bar -->
+        <div id="tab-bar">
+          <div id="tabs-container"></div>
+          <button id="btn-add-tab">+ Tab</button>
+        </div>
+        <!-- Tab filters -->
+        <div id="tab-filters">
+          <div id="tab-filter-bar">
+            <button id="tab-filter-toggle" class="filter-toggle-btn">
+              🔽 Page Filters <span id="tab-filter-count"></span>
+            </button>
+            <div id="tab-filter-panel" class="filter-panel hidden">
+              <!-- Populated by JS per tab/source -->
+            </div>
+          </div>
+        </div>
+        <!-- 16:9 canvas wrapper -->
+        <div id="canvas-wrapper">
+          <div id="report-canvas" class="show-grid"></div>
+        </div>
+      </div>
+
+      <!-- Right panel -->
+      <div id="right-panel">
+        <div id="right-panel-tabs">
+          <button class="rpanel-tab active" data-panel="block">Block</button>
+          <button class="rpanel-tab" data-panel="branding">Branding</button>
+        </div>
+        <div id="block-settings-panel">
+          <div id="no-block-selected">Click a block to edit its settings</div>
+          <div id="block-settings-form" style="display:none">
+            <!-- populated dynamically -->
+          </div>
+        </div>
+        <div id="branding-panel" style="display:none">
+          <div class="form-group">
+            <label>Primary Color</label>
+            <input type="color" id="brand-color" value="#2d5a27">
+          </div>
+          <div class="form-group">
+            <label>Footer Text</label>
+            <input type="text" id="brand-footer-text" value="Prepared by Calbridge">
+          </div>
+          <div class="form-group">
+            <label><input type="checkbox" id="brand-show-footer" checked> Show Footer</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template picker modal -->
+  <div id="template-modal" class="modal-overlay">
+    <div class="modal-box">
+      <h2>Start from a Template</h2>
+      <div id="template-grid"></div>
+      <button id="btn-blank-report">Start Blank</button>
+    </div>
+  </div>
+
+  <script src="/js/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/report-builder.js"></script>
+</body>
+</html>

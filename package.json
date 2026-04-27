@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1021.0",
+    "@sparticuz/chromium": "^147.0.2",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.73.5",
@@ -32,7 +33,9 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.3",
     "openai": "^6.32.0",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.20.0",
+    "puppeteer-core": "^24.42.0",
     "resend": "^6.9.4",
     "snowflake-sdk": "^2.3.5",
     "stripe": "^20.4.1",

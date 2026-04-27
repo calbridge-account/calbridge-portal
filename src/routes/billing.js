@@ -640,7 +640,34 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           );
         }
 
-        // TODO: Send payment failure email via Resend
+        // Send payment failure email
+        try {
+          const allRows = [...mgrRows.map(r => ({ id: r.MANAGER_ID, type: 'manager' })),
+                          ...clientRows.map(r => ({ id: r.CLIENT_ID, type: 'client' }))];
+          for (const acct of allRows) {
+            const emailRows = await query(
+              acct.type === 'manager'
+                ? 'SELECT email, name FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?'
+                : 'SELECT email, name FROM clients WHERE client_id = ?',
+              [acct.id]
+            ).catch(() => []);
+            const email = emailRows[0]?.EMAIL || emailRows[0]?.email;
+            if (!email) continue;
+            const r = resend();
+            await r.emails.send({
+              from: `Calbridge <${process.env.EMAIL_FROM}>`,
+              to: [email],
+              subject: 'Action required — payment failed on your Calbridge subscription',
+              html: `<p>Hi ${emailRows[0]?.NAME || emailRows[0]?.name || 'there'},</p>
+                <p>We were unable to process your Calbridge subscription payment. Your account has been temporarily downgraded to the free plan until payment is resolved.</p>
+                <p><a href="https://app.calbridge.ai/billing" style="background:#2d5a27;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Update Payment Method</a></p>
+                <p>If you need help, reply to this email.</p>
+                <p>— The Calbridge Team</p>`,
+            });
+          }
+        } catch (emailErr) {
+          console.warn('[Billing] Payment failure email error (non-fatal):', emailErr.message);
+        }
         console.warn('[Billing] Payment failed for customer:', invoice.customer);
         break;
       }

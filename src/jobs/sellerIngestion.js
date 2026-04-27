@@ -873,6 +873,456 @@ async function ingestFulfilledShipments(clientId, client, daysBack = 90, startDa
   });
 }
 
+// ─── 8. Settlement Reports ──────────────────────────────────────────────────
+// RETAIL_SETTLEMENT — table already exists.
+// Poll for reports Amazon has already generated (event-driven, not request-based).
+// Columns: client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+//   data_maturity, last_refreshed_at, settlement_id, start_date, end_date,
+//   deposit_date, total_amount, currency_code, transaction_type, amount, quantity, description
+
+async function ingestSettlementReports(clientId, client) {
+  // 1. Find the last ingested date for this client
+  let createdSince;
+  try {
+    const rows = await query(
+      `SELECT MAX(ingested_at) AS last_at FROM CALBRIDGE_PROD.RAW.RETAIL_SETTLEMENT WHERE client_id = ?`,
+      [clientId]
+    );
+    const lastAt = rows?.[0]?.LAST_AT || rows?.[0]?.last_at;
+    if (lastAt) {
+      createdSince = new Date(lastAt).toISOString();
+    } else {
+      createdSince = new Date(Date.now() - 90 * 86400000).toISOString();
+    }
+  } catch (e) {
+    console.warn(`[sellerIngestion] SETTLEMENT: could not query last ingested_at — using 90 days ago:`, e.message.slice(0, 80));
+    createdSince = new Date(Date.now() - 90 * 86400000).toISOString();
+  }
+
+  // 2. Poll for reports Amazon has already generated
+  await acquireSpApiToken('GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE');
+  let reportsList;
+  try {
+    const res = await client.get('/reports/2021-06-30/reports', {
+      params: {
+        reportTypes: 'GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE',
+        processingStatuses: 'DONE',
+        pageSize: 10,
+        createdSince,
+      },
+    });
+    reportsList = res.data?.reports || [];
+  } catch (e) {
+    console.warn(`[sellerIngestion] SETTLEMENT: reports list failed:`, e.message.slice(0, 120));
+    return 0;
+  }
+
+  if (!reportsList.length) {
+    console.log(`[sellerIngestion] SETTLEMENT: no new reports since ${createdSince}`);
+    return 0;
+  }
+
+  // 3. Check which report_ids we already have (skip dupes)
+  let existingReportIds = new Set();
+  try {
+    const existing = await query(
+      `SELECT DISTINCT report_id FROM CALBRIDGE_PROD.RAW.RETAIL_SETTLEMENT WHERE client_id = ?`,
+      [clientId]
+    );
+    for (const row of (existing || [])) {
+      existingReportIds.add(row.REPORT_ID || row.report_id);
+    }
+  } catch (e) {
+    console.warn(`[sellerIngestion] SETTLEMENT: could not check existing report_ids:`, e.message.slice(0, 80));
+  }
+
+  const toFloat = v => (v !== null && v !== undefined && v !== '') ? (parseFloat(v) || null) : null;
+  const toInt   = v => (v !== null && v !== undefined && v !== '') ? (parseInt(v, 10) || null)  : null;
+
+  let totalWritten = 0;
+
+  for (const report of reportsList) {
+    const reportId = report.reportId;
+    if (!reportId) continue;
+    if (existingReportIds.has(reportId)) {
+      console.log(`[sellerIngestion] SETTLEMENT: skipping already-ingested report ${reportId}`);
+      continue;
+    }
+
+    try {
+      // Download the report document
+      const reportDocumentId = report.reportDocumentId;
+      if (!reportDocumentId) {
+        console.warn(`[sellerIngestion] SETTLEMENT: report ${reportId} has no reportDocumentId — skipping`);
+        continue;
+      }
+      const docRes = await client.get(`/reports/2021-06-30/documents/${reportDocumentId}`);
+      const dl = await axios.get(docRes.data.url, { responseType: 'arraybuffer', timeout: 60000 });
+      let text;
+      if (docRes.data.compressionAlgorithm === 'GZIP') {
+        text = zlib.gunzipSync(Buffer.from(dl.data)).toString('utf8');
+      } else {
+        text = Buffer.from(dl.data).toString('utf8');
+      }
+
+      // Parse TSV
+      const { rows } = parseTsv(text);
+      if (!rows.length) {
+        console.log(`[sellerIngestion] SETTLEMENT: report ${reportId} has no rows — skipping`);
+        continue;
+      }
+
+      // Map TSV columns → table columns
+      const mapped = rows.map(r => ({
+        client_id:        clientId,
+        platform:         'amazon',
+        marketplace:      'US',
+        report_id:        reportId,
+        pipeline_run_id:  null,
+        data_maturity:    'final',
+        settlement_id:    r['settlement-id'] || null,
+        start_date:       r['settlement-start-date'] || null,
+        end_date:         r['settlement-end-date'] || null,
+        deposit_date:     r['deposit-date'] || null,
+        total_amount:     toFloat(r['total-amount']),
+        currency_code:    r['currency'] || 'USD',
+        transaction_type: r['transaction-type'] || null,
+        amount:           toFloat(r['amount']),
+        quantity:         toInt(r['quantity-purchased']),
+        description:      r['amount-description'] || null,
+      })).filter(r => r.settlement_id || r.transaction_type);
+
+      if (!mapped.length) continue;
+
+      // INSERT only (settlements are immutable) — MERGE with no-op on match
+      const written = await bulkMerge(mapped, 500, (batch) => {
+        const placeholders = batch.map(() =>
+          '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).join(',');
+        const binds = [];
+        for (const r of batch) {
+          binds.push(
+            r.client_id, r.platform, r.marketplace,
+            r.report_id, r.pipeline_run_id, r.data_maturity,
+            r.settlement_id, r.start_date, r.end_date, r.deposit_date,
+            r.total_amount, r.currency_code,
+            r.transaction_type, r.amount, r.quantity, r.description
+          );
+        }
+        const sql = `
+          MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_SETTLEMENT t
+          USING (
+            SELECT
+              v.col1  AS client_id,
+              v.col2  AS platform,
+              v.col3  AS marketplace,
+              v.col4  AS report_id,
+              v.col5  AS pipeline_run_id,
+              v.col6  AS data_maturity,
+              v.col7  AS settlement_id,
+              TRY_TO_DATE(v.col8)  AS start_date,
+              TRY_TO_DATE(v.col9)  AS end_date,
+              TRY_TO_DATE(v.col10) AS deposit_date,
+              v.col11::FLOAT AS total_amount,
+              v.col12 AS currency_code,
+              v.col13 AS transaction_type,
+              v.col14::FLOAT AS amount,
+              v.col15::NUMBER AS quantity,
+              v.col16 AS description
+            FROM VALUES ${placeholders}
+              AS v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,col13,col14,col15,col16)
+          ) s
+            ON  t.client_id        = s.client_id
+            AND t.report_id        = s.report_id
+            AND t.settlement_id    = s.settlement_id
+            AND t.transaction_type = s.transaction_type
+            AND t.description      = s.description
+          WHEN NOT MATCHED THEN INSERT
+            (client_id, platform, marketplace, ingested_at, report_id, pipeline_run_id,
+             data_maturity, last_refreshed_at, settlement_id, start_date, end_date,
+             deposit_date, total_amount, currency_code, transaction_type, amount, quantity, description)
+          VALUES
+            (s.client_id, s.platform, s.marketplace, CURRENT_TIMESTAMP(), s.report_id, s.pipeline_run_id,
+             s.data_maturity, CURRENT_TIMESTAMP(), s.settlement_id, s.start_date, s.end_date,
+             s.deposit_date, s.total_amount, s.currency_code, s.transaction_type, s.amount, s.quantity, s.description)
+        `;
+        return { sql, binds };
+      });
+
+      totalWritten += written;
+      console.log(`[sellerIngestion] SETTLEMENT: report ${reportId} → ${written} rows written`);
+    } catch (e) {
+      console.warn(`[sellerIngestion] SETTLEMENT: report ${reportId} failed:`, e.message.slice(0, 120));
+    }
+  }
+
+  return totalWritten;
+}
+
+// ─── 9. FBA Inventory Age ─────────────────────────────────────────────────────
+// RETAIL_INVENTORY_AGE — created if needed. Current snapshot only.
+
+async function ensureInventoryAgeTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW.RETAIL_INVENTORY_AGE (
+      client_id              VARCHAR(64)   NOT NULL,
+      platform               VARCHAR(20)   DEFAULT 'amazon',
+      marketplace            VARCHAR(20)   DEFAULT 'US',
+      snapshot_date          DATE          NOT NULL,
+      asin                   VARCHAR(20),
+      sku                    VARCHAR(100),
+      product_name           VARCHAR(500),
+      condition              VARCHAR(50),
+      qty_0_90_days          NUMBER,
+      qty_91_180_days        NUMBER,
+      qty_181_270_days       NUMBER,
+      qty_271_365_days       NUMBER,
+      qty_365_plus_days      NUMBER,
+      qty_total              NUMBER,
+      estimated_storage_cost FLOAT,
+      ingested_at            TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+      CONSTRAINT pk_retail_inventory_age PRIMARY KEY (client_id, snapshot_date, asin, sku)
+    )
+  `);
+}
+
+async function ingestFbaInventoryAge(clientId, client) {
+  let data;
+  try {
+    data = await requestAndPoll(client, 'GET_FBA_INVENTORY_AGED_DATA', {}, 300000);
+  } catch (e) {
+    if (e.message.includes('FATAL') || e.message.includes('CANCELLED')) {
+      console.log('[sellerIngestion] FBA_INVENTORY_AGE report not available — skipping');
+      return 0;
+    }
+    throw e;
+  }
+
+  if (typeof data !== 'string') {
+    console.warn('[sellerIngestion] FBA_INVENTORY_AGE: unexpected non-TSV response');
+    return 0;
+  }
+
+  const { rows } = parseTsv(data);
+  const validRows = rows.filter(r => r.asin);
+  if (!validRows.length) return 0;
+
+  await ensureInventoryAgeTable();
+
+  const today = new Date().toISOString().split('T')[0];
+  const toNum   = v => (v !== null && v !== undefined && v !== '') ? (parseInt(v, 10) || 0) : 0;
+  const toFloat = v => (v !== null && v !== undefined && v !== '') ? (parseFloat(v) || null) : null;
+
+  const mapped = validRows.map(r => ({
+    client_id:              clientId,
+    platform:               'amazon',
+    marketplace:            'US',
+    snapshot_date:          today,
+    asin:                   r.asin,
+    sku:                    r.sku || null,
+    product_name:           r['product-name'] || null,
+    condition:              r.condition || null,
+    qty_0_90_days:          toNum(r['qty-0-to-90-days']),
+    qty_91_180_days:        toNum(r['qty-91-to-180-days']),
+    qty_181_270_days:       toNum(r['qty-181-to-270-days']),
+    qty_271_365_days:       toNum(r['qty-271-to-365-days']),
+    qty_365_plus_days:      toNum(r['qty-365-plus-days']),
+    qty_total:              toNum(r['afn-total-quantity']),
+    estimated_storage_cost: toFloat(r['estimated-ltsf']),
+  }));
+
+  return bulkMerge(mapped, 500, (batch) => {
+    const placeholders = batch.map(() =>
+      '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).join(',');
+    const binds = [];
+    for (const r of batch) {
+      binds.push(
+        r.client_id, r.platform, r.marketplace, r.snapshot_date,
+        r.asin, r.sku, r.product_name, r.condition,
+        r.qty_0_90_days, r.qty_91_180_days, r.qty_181_270_days,
+        r.qty_271_365_days, r.qty_365_plus_days, r.qty_total,
+        r.estimated_storage_cost
+      );
+    }
+    const sql = `
+      MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_INVENTORY_AGE t
+      USING (
+        SELECT
+          v.col1  AS client_id,
+          v.col2  AS platform,
+          v.col3  AS marketplace,
+          v.col4::DATE AS snapshot_date,
+          v.col5  AS asin,
+          v.col6  AS sku,
+          v.col7  AS product_name,
+          v.col8  AS condition,
+          v.col9::NUMBER  AS qty_0_90_days,
+          v.col10::NUMBER AS qty_91_180_days,
+          v.col11::NUMBER AS qty_181_270_days,
+          v.col12::NUMBER AS qty_271_365_days,
+          v.col13::NUMBER AS qty_365_plus_days,
+          v.col14::NUMBER AS qty_total,
+          v.col15::FLOAT  AS estimated_storage_cost
+        FROM VALUES ${placeholders}
+          AS v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,col13,col14,col15)
+      ) s
+        ON  t.client_id     = s.client_id
+        AND t.snapshot_date = s.snapshot_date
+        AND t.asin          = s.asin
+        AND t.sku           = s.sku
+      WHEN MATCHED THEN UPDATE SET
+        product_name           = s.product_name,
+        condition              = s.condition,
+        qty_0_90_days          = s.qty_0_90_days,
+        qty_91_180_days        = s.qty_91_180_days,
+        qty_181_270_days       = s.qty_181_270_days,
+        qty_271_365_days       = s.qty_271_365_days,
+        qty_365_plus_days      = s.qty_365_plus_days,
+        qty_total              = s.qty_total,
+        estimated_storage_cost = s.estimated_storage_cost,
+        ingested_at            = CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT
+        (client_id, platform, marketplace, snapshot_date, asin, sku,
+         product_name, condition, qty_0_90_days, qty_91_180_days,
+         qty_181_270_days, qty_271_365_days, qty_365_plus_days,
+         qty_total, estimated_storage_cost, ingested_at)
+      VALUES
+        (s.client_id, s.platform, s.marketplace, s.snapshot_date, s.asin, s.sku,
+         s.product_name, s.condition, s.qty_0_90_days, s.qty_91_180_days,
+         s.qty_181_270_days, s.qty_271_365_days, s.qty_365_plus_days,
+         s.qty_total, s.estimated_storage_cost, CURRENT_TIMESTAMP())
+    `;
+    return { sql, binds };
+  });
+}
+
+// ─── 10. Stranded Inventory ───────────────────────────────────────────────────
+// RETAIL_STRANDED — created if needed. Current snapshot only.
+
+async function ensureStrandedTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS CALBRIDGE_PROD.RAW.RETAIL_STRANDED (
+      client_id       VARCHAR(64)   NOT NULL,
+      platform        VARCHAR(20)   DEFAULT 'amazon',
+      marketplace     VARCHAR(20)   DEFAULT 'US',
+      snapshot_date   DATE          NOT NULL,
+      asin            VARCHAR(20),
+      sku             VARCHAR(100),
+      product_name    VARCHAR(500),
+      condition       VARCHAR(50),
+      stranded_reason VARCHAR(200),
+      qty_stranded    NUMBER,
+      days_stranded   NUMBER,
+      ingested_at     TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+      CONSTRAINT pk_retail_stranded PRIMARY KEY (client_id, snapshot_date, asin, sku)
+    )
+  `);
+}
+
+async function ingestStrandedInventory(clientId, client) {
+  let data;
+  try {
+    data = await requestAndPoll(client, 'GET_STRANDED_INVENTORY_UI_DATA', {}, 300000);
+  } catch (e) {
+    if (e.message.includes('FATAL') || e.message.includes('CANCELLED')) {
+      console.log('[sellerIngestion] STRANDED_INVENTORY report not available — skipping');
+      return 0;
+    }
+    throw e;
+  }
+
+  if (typeof data !== 'string') {
+    console.warn('[sellerIngestion] STRANDED_INVENTORY: unexpected non-TSV response');
+    return 0;
+  }
+
+  const { rows } = parseTsv(data);
+  if (!rows.length) return 0;
+
+  await ensureStrandedTable();
+
+  const today = new Date().toISOString().split('T')[0];
+  const toNum = v => (v !== null && v !== undefined && v !== '') ? (parseInt(v, 10) || 0) : 0;
+
+  // Tolerant column resolution — Amazon uses different header names across report versions
+  const findCol = (row, candidates) => {
+    for (const c of candidates) {
+      if (row[c] !== undefined) return row[c] || null;
+    }
+    return null;
+  };
+
+  const mapped = rows
+    .filter(r => r.asin || findCol(r, ['sku', 'fnsku']))
+    .map(r => ({
+      client_id:       clientId,
+      platform:        'amazon',
+      marketplace:     'US',
+      snapshot_date:   today,
+      asin:            r.asin || null,
+      sku:             findCol(r, ['sku', 'merchant-sku', 'seller-sku']),
+      product_name:    findCol(r, ['product-name', 'title', 'item-name']),
+      condition:       findCol(r, ['condition', 'item-condition']),
+      stranded_reason: findCol(r, ['stranded-reason', 'reason', 'stranding-reason', 'status']),
+      qty_stranded:    toNum(findCol(r, ['qty-stranded', 'quantity-stranded', 'stranded-quantity', 'qty'])),
+      days_stranded:   toNum(findCol(r, ['days-stranded', 'number-of-days-stranded', 'days'])),
+    }));
+
+  if (!mapped.length) return 0;
+
+  return bulkMerge(mapped, 500, (batch) => {
+    const placeholders = batch.map(() =>
+      '(?,?,?,?,?,?,?,?,?,?,?)'
+    ).join(',');
+    const binds = [];
+    for (const r of batch) {
+      binds.push(
+        r.client_id, r.platform, r.marketplace, r.snapshot_date,
+        r.asin, r.sku, r.product_name, r.condition,
+        r.stranded_reason, r.qty_stranded, r.days_stranded
+      );
+    }
+    const sql = `
+      MERGE INTO CALBRIDGE_PROD.RAW.RETAIL_STRANDED t
+      USING (
+        SELECT
+          v.col1  AS client_id,
+          v.col2  AS platform,
+          v.col3  AS marketplace,
+          v.col4::DATE AS snapshot_date,
+          v.col5  AS asin,
+          v.col6  AS sku,
+          v.col7  AS product_name,
+          v.col8  AS condition,
+          v.col9  AS stranded_reason,
+          v.col10::NUMBER AS qty_stranded,
+          v.col11::NUMBER AS days_stranded
+        FROM VALUES ${placeholders}
+          AS v(col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11)
+      ) s
+        ON  t.client_id     = s.client_id
+        AND t.snapshot_date = s.snapshot_date
+        AND t.asin          = s.asin
+        AND t.sku           = s.sku
+      WHEN MATCHED THEN UPDATE SET
+        product_name    = s.product_name,
+        condition       = s.condition,
+        stranded_reason = s.stranded_reason,
+        qty_stranded    = s.qty_stranded,
+        days_stranded   = s.days_stranded,
+        ingested_at     = CURRENT_TIMESTAMP()
+      WHEN NOT MATCHED THEN INSERT
+        (client_id, platform, marketplace, snapshot_date, asin, sku,
+         product_name, condition, stranded_reason, qty_stranded, days_stranded, ingested_at)
+      VALUES
+        (s.client_id, s.platform, s.marketplace, s.snapshot_date, s.asin, s.sku,
+         s.product_name, s.condition, s.stranded_reason, s.qty_stranded, s.days_stranded, CURRENT_TIMESTAMP())
+    `;
+    return { sql, binds };
+  });
+}
+
 // ─── 7. Order Metrics (intraday, Sales API) ──────────────────────────────────
 // RETAIL_ORDER_METRICS — created if needed.
 // Uses SP-API Sales API: GET /sales/v1/orderMetrics
@@ -1054,7 +1504,7 @@ async function ingestSellerDailyReports(clientId) {
 
   console.log(`[sellerIngestion] Daily starting for ${clientId}`);
   let client = await spClient(clientId);
-  const results = { salesTraffic: 0, fbaInventory: 0, restock: 0, returns: 0, shipments: 0 };
+  const results = { salesTraffic: 0, fbaInventory: 0, restock: 0, returns: 0, shipments: 0, settlement: 0 };
   const clientRef = { current: client };
 
   // Sales & Traffic
@@ -1129,6 +1579,22 @@ async function ingestSellerDailyReports(clientId) {
     console.warn(`[sellerIngestion] FULFILLED_SHIPMENTS failed:`, e.message.slice(0, 120));
   }
 
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Settlement Reports (poll for new ones Amazon has already generated)
+  try {
+    clientRef.current = client;
+    results.settlement = await withRetry(
+      () => ingestSettlementReports(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current;
+    console.log(`[sellerIngestion] SETTLEMENT: ${results.settlement} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] SETTLEMENT failed:`, e.message.slice(0, 120));
+  }
+
   const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
   console.log(`[sellerIngestion] Daily done — ${total} total rows for ${clientId}`);
   return results;
@@ -1136,7 +1602,7 @@ async function ingestSellerDailyReports(clientId) {
 
 /**
  * ingestSellerWeeklyReports — weekly Sunday 07:00 UTC.
- * FBA Fees + FBA Inventory listing snapshot.
+ * FBA Fees + FBA Inventory listing snapshot + FBA Inventory Age + Stranded Inventory.
  */
 async function ingestSellerWeeklyReports(clientId) {
   const conn = await getConnectionStatus(clientId);
@@ -1147,7 +1613,7 @@ async function ingestSellerWeeklyReports(clientId) {
 
   console.log(`[sellerIngestion] Weekly starting for ${clientId}`);
   let client = await spClient(clientId);
-  const results = { fbaFees: 0, fbaInventory: 0 };
+  const results = { fbaFees: 0, fbaInventory: 0, inventoryAge: 0, stranded: 0 };
   const clientRef = { current: client };
 
   // FBA Fees
@@ -1178,6 +1644,38 @@ async function ingestSellerWeeklyReports(clientId) {
     console.log(`[sellerIngestion] FBA_INVENTORY (listing snapshot): ${results.fbaInventory} rows written`);
   } catch (e) {
     console.warn(`[sellerIngestion] FBA_INVENTORY (weekly) failed:`, e.message.slice(0, 120));
+  }
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  // FBA Inventory Age
+  try {
+    clientRef.current = client;
+    results.inventoryAge = await withRetry(
+      () => ingestFbaInventoryAge(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current;
+    console.log(`[sellerIngestion] FBA_INVENTORY_AGE: ${results.inventoryAge} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] FBA_INVENTORY_AGE failed:`, e.message.slice(0, 120));
+  }
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Stranded Inventory
+  try {
+    clientRef.current = client;
+    results.stranded = await withRetry(
+      () => ingestStrandedInventory(clientId, clientRef.current),
+      () => spClient(clientId),
+      clientRef
+    );
+    client = clientRef.current;
+    console.log(`[sellerIngestion] STRANDED_INVENTORY: ${results.stranded} rows written`);
+  } catch (e) {
+    console.warn(`[sellerIngestion] STRANDED_INVENTORY failed:`, e.message.slice(0, 120));
   }
 
   const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -1431,4 +1929,7 @@ module.exports = {
   ingestRestockRecommendations,
   ingestCustomerReturns,
   ingestFulfilledShipments,
+  ingestSettlementReports,
+  ingestFbaInventoryAge,
+  ingestStrandedInventory,
 };

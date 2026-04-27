@@ -34,6 +34,7 @@ const managerAccountRoutes = require('./routes/managerAccounts');
 const { agencyRouter }     = require('./routes/managerAccounts');
 const marginalRoasRoutes   = require('./routes/marginalRoas');
 const reportsRoutes        = require('./routes/reports');
+const reportBuilderRoutes  = require('./routes/reportBuilder');
 
 const app = express();
 
@@ -43,7 +44,7 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       // Allow Vite-built module scripts served from same origin
-      'script-src':  ["'self'", "'unsafe-inline'"],  // unsafe-inline needed for Vite module preload
+      'script-src':  ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],  // jsdelivr for interact.js (report builder)
       'script-src-attr': ["'none'"],
       'connect-src': ["'self'"],
       'img-src':     ["'self'", 'data:', 'blob:'],
@@ -85,27 +86,48 @@ app.use((req, res, next) => {
   }
   next();
 });
-// calbridge.ai root → landing page (must be BEFORE express.static)
-// teamcalbridge.com root → consulting site
+// Domain routing — must be BEFORE express.static
+// calbridge.ai → landing page (marketing site)
+// app.calbridge.ai → portal (login, signup, analytics)
+// teamcalbridge.com → consulting site
 app.use((req, res, next) => {
   const host = req.hostname || '';
-  if ((host === 'calbridge.ai' || host === 'www.calbridge.ai') && req.path === '/') {
+  const isCalbridge  = host === 'calbridge.ai' || host === 'www.calbridge.ai';
+  const isAppDomain  = host === 'app.calbridge.ai';
+
+  // calbridge.ai root → landing page
+  if (isCalbridge && req.path === '/') {
     return res.sendFile('landing.html', { root: path.join(__dirname, '../public') });
   }
+
+  // calbridge.ai/signup or /index → redirect to app subdomain (session cookie won't work here)
+  if (isCalbridge && (req.path === '/signup.html' || req.path === '/signup' || req.path === '/index.html' || (req.path === '/' && req.query.redirect))) {
+    return res.redirect(301, 'https://app.calbridge.ai' + req.originalUrl);
+  }
+
+  // calbridge.ai/analytics → redirect to app subdomain
+  if (isCalbridge && req.path.startsWith('/analytics')) {
+    return res.redirect(301, 'https://app.calbridge.ai' + req.originalUrl);
+  }
+
   if ((host === 'teamcalbridge.com' || host === 'www.teamcalbridge.com') && req.path === '/') {
     return res.sendFile('teamcalbridge/index.html', { root: path.join(__dirname, '../public') });
   }
   next();
 });
 
-// Deprecated HTML pages — redirect to React app equivalents
-app.get('/onboarding.html', (req, res) => res.redirect(301, '/analytics/account'));
+// ── ALL legacy HTML pages deprecated — 301 redirect to React app ────────────
+// Must be BEFORE express.static so the redirects take priority over the files.
+app.get('/dashboard.html',   (req, res) => res.redirect(301, '/analytics/'));
+app.get('/dashboard',        (req, res) => res.redirect(301, '/analytics/'));
+app.get('/advertising.html', (req, res) => res.redirect(301, '/analytics/advertising'));
+// Note: /advertising/* subroutes are API endpoints — do NOT redirect those
+app.get('/campaigns.html',   (req, res) => res.redirect(301, '/analytics/advertising/campaigns'));
+app.get('/account.html',     (req, res) => res.redirect(301, '/analytics/account'));
+app.get('/onboarding.html',  (req, res) => res.redirect(301, '/analytics/account'));
 app.get('/brand-setup.html', (req, res) => res.redirect(301, '/analytics/account'));
-app.get('/agency.html', (req, res) => res.redirect(301, '/analytics/brands'));
-
-// /dashboard.html + /index.html deprecated — redirect to React app (must be BEFORE express.static)
-app.get('/dashboard.html', (req, res) => res.redirect(301, '/analytics/'));
-app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
+app.get('/agency.html',      (req, res) => res.redirect(301, '/analytics/brands'));
+app.get('/glossary.html',    (req, res) => res.redirect(301, '/analytics/'));
 
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -153,9 +175,7 @@ app.use('/auth/forgot-password', authLimiter);
 // Routes
 app.use('/auth', authRoutes);
 app.use('/amazon', amazonRoutes);
-// /dashboard.html deprecated — redirect to React app
-app.get('/dashboard.html', (req, res) => res.redirect(301, '/analytics/'));
-app.get('/dashboard', (req, res) => res.redirect(301, '/analytics/'));
+// (dashboard redirects handled above before express.static)
 app.use('/advertising', advertisingRoutes);
 app.use('/account', accountRoutes);
 app.use('/decisions', decisionsRoutes);
@@ -180,6 +200,14 @@ app.use('/agency', agencyRouter);
 app.use('/api/marginal-roas', marginalRoasRoutes);
 app.use('/upload', require('./routes/upload'));
 app.use('/reports', reportsRoutes);
+app.use('/api/report-builder', reportBuilderRoutes);
+app.get('/reports-preview/:reportId', (req, res) => {
+  res.sendFile('reports-preview.html', { root: path.join(__dirname, '../public') });
+});
+app.get('/reports', (req, res) => {
+  res.sendFile('report-builder.html', { root: path.join(__dirname, '../public') });
+});
+app.get('/report-builder.html', (req, res) => res.redirect(301, '/reports'));
 
 // Ensure campaign_actions table exists (non-blocking)
 ensureCampaignActionsTable().catch(err =>
@@ -209,11 +237,11 @@ app.get('/terms', (req, res) => res.sendFile('terms.html', { root: path.join(__d
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
-// Log 4xx/5xx requests server-side (no sensitive data exposed to clients)
+// Log ALL requests temporarily for debugging
 app.use((req, res, next) => {
   res.on('finish', () => {
-    if (res.statusCode >= 400) {
-      console.error(`[http] ${req.method} ${req.path} → ${res.statusCode}`);
+    if (req.path.startsWith('/advertising') || req.path === '/advertising') {
+      console.log(`[http] ${req.method} ${req.originalUrl} → ${res.statusCode} host=${req.hostname} session=${!!req.session?.clientId}`);
     }
   });
   next();

@@ -312,11 +312,12 @@ async function applyDaypartSchedules(clientId) {
 
     try {
       if (entityType === 'campaign' && entityId) {
-        // Single campaign — find its profileId from sp_campaign_report
+        // Single campaign — find its profileId from RAW.AD_CAMPAIGN
         const profRows = await query(`
           SELECT DISTINCT profile_id
-          FROM   ${SCHEMA}.sp_campaign_report
+          FROM   CALBRIDGE_PROD.RAW.AD_CAMPAIGN
           WHERE  client_id   = ?
+            AND  ad_product  = 'SPONSORED_PRODUCTS'
             AND  campaign_id = ?
           LIMIT  1
         `, [clientId, entityId]);
@@ -331,8 +332,9 @@ async function applyDaypartSchedules(clientId) {
         // All campaigns in the portfolio
         const campRows = await query(`
           SELECT DISTINCT campaign_id, profile_id
-          FROM   ${SCHEMA}.sp_campaign_report
+          FROM   CALBRIDGE_PROD.RAW.AD_CAMPAIGN
           WHERE  client_id    = ?
+            AND  ad_product   = 'SPONSORED_PRODUCTS'
             AND  portfolio_id = ?
           ORDER  BY profile_id
         `, [clientId, entityId]);
@@ -354,8 +356,9 @@ async function applyDaypartSchedules(clientId) {
         // All SP campaigns for this client
         const campRows = await query(`
           SELECT DISTINCT campaign_id, profile_id
-          FROM   ${SCHEMA}.sp_campaign_report
-          WHERE  client_id = ?
+          FROM   CALBRIDGE_PROD.RAW.AD_CAMPAIGN
+          WHERE  client_id  = ?
+            AND  ad_product = 'SPONSORED_PRODUCTS'
           ORDER  BY profile_id
         `, [clientId]);
 
