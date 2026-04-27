@@ -35,23 +35,45 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
     const plan = planRows[0]?.SUBSCRIPTION_PLAN || planRows[0]?.subscription_plan || 'free';
     const isProPlus = plan === 'pro' || plan === 'agency';
 
-    // Marketplace-aware: when CA is active, retail tabs lock since retail data is US-only
+    // Marketplace-aware: check if retail (seller/vendor) is connected for the active marketplace
     const activeMarketplace = req.session.activeMarketplace || 'US';
-    const isCA = activeMarketplace === 'CA';
 
-    // hasRetail = has either Seller or Vendor connected (drives overview visibility)
-    const hasRetail = hasVendor || hasSeller;
+    // Check client_accounts for marketplace-specific retail connections
+    let hasVendorForMarketplace = hasVendor; // default: fall back to global connection status
+    let hasSellerForMarketplace = hasSeller;
+    try {
+      const mpRows = await query(
+        `SELECT channel, marketplace FROM CALBRIDGE_PROD.APP.client_accounts
+         WHERE client_id = ? AND channel IN ('seller','vendor') AND is_active = TRUE`,
+        [clientId]
+      );
+      // If we have marketplace-level data, use it; otherwise fall back to global
+      if (mpRows.length > 0) {
+        hasVendorForMarketplace = mpRows.some(r =>
+          (r.CHANNEL || r.channel) === 'vendor' &&
+          (r.MARKETPLACE || r.marketplace) === activeMarketplace
+        );
+        hasSellerForMarketplace = mpRows.some(r =>
+          (r.CHANNEL || r.channel) === 'seller' &&
+          (r.MARKETPLACE || r.marketplace) === activeMarketplace
+        );
+      }
+    } catch (_) { /* non-fatal, fall back to global */ }
+
+    // hasRetail = has either Seller or Vendor for current marketplace (drives overview visibility)
+    const hasRetail = hasVendor || hasSeller; // global — overview visible if any retail connected
+    const hasRetailForMarketplace = hasVendorForMarketplace || hasSellerForMarketplace;
 
     const config = {
-      // Overview: locked (grayed) when no retail connected — ads-only clients land on /advertising
+      // Overview: grayed when no retail connected globally — ads-only clients land on /advertising
       '/':            hasRetail ? 'visible' : 'grayed',
       '/advertising': hasAds    ? 'visible' : 'locked',
       '/pacing':      hasAds    ? 'visible' : 'locked',
-      // Retail tabs: locked when CA selected (no CA retail data) or connection missing
-      '/vendor':      isCA ? 'grayed' : (hasVendor ? 'visible' : 'locked'),
-      '/seller':      isCA ? 'grayed' : (hasSeller ? 'visible' : 'locked'),
-      '/forecasting': isCA ? 'grayed' : (hasVendor ? 'visible' : 'locked'),
-      '/cogs':        isCA ? 'grayed' : (hasSeller ? 'visible' : 'locked'),
+      // Retail tabs: grayed when no retail for active marketplace, locked if no connection at all
+      '/vendor':      hasVendorForMarketplace ? 'visible' : (hasVendor ? 'grayed' : 'locked'),
+      '/seller':      hasSellerForMarketplace ? 'visible' : (hasSeller ? 'grayed' : 'locked'),
+      '/forecasting': hasVendorForMarketplace ? 'visible' : (hasVendor ? 'grayed' : 'locked'),
+      '/cogs':        hasSellerForMarketplace ? 'visible' : (hasSeller ? 'grayed' : 'locked'),
       '/reports':     isProPlus ? 'visible' : 'grayed',
       '/account':     'visible',
     };
@@ -72,14 +94,18 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/':            hasRetail ? null : 'No retail connections yet — overview not available',
       '/advertising': hasAds    ? null : 'Connect your Amazon Ads account to unlock advertising analytics',
       '/pacing':      hasAds    ? null : 'Connect your Amazon Ads account to unlock budget pacing',
-      '/vendor':      isCA      ? 'Vendor Central data is US-only — switch to US marketplace'
-                    : hasVendor ? null : 'Connect your Vendor Central account to unlock vendor analytics',
-      '/seller':      isCA      ? 'Seller Central data is US-only — switch to US marketplace'
-                    : hasSeller ? null : 'Connect your Seller Central account to unlock seller analytics',
-      '/forecasting': isCA      ? 'Forecasting data is US-only — switch to US marketplace'
-                    : hasVendor ? null : 'Connect your Vendor Central account to unlock demand forecasting',
-      '/cogs':        isCA      ? 'COGS data is US-only — switch to US marketplace'
-                    : hasSeller ? null : 'Connect your Seller Central account to unlock COGS analytics',
+      '/vendor':      hasVendorForMarketplace ? null
+                    : hasVendor ? `No Vendor Central connection for ${activeMarketplace} marketplace`
+                    : 'Connect your Vendor Central account to unlock vendor analytics',
+      '/seller':      hasSellerForMarketplace ? null
+                    : hasSeller ? `No Seller Central connection for ${activeMarketplace} marketplace`
+                    : 'Connect your Seller Central account to unlock seller analytics',
+      '/forecasting': hasVendorForMarketplace ? null
+                    : hasVendor ? `No Vendor Central connection for ${activeMarketplace} marketplace`
+                    : 'Connect your Vendor Central account to unlock demand forecasting',
+      '/cogs':        hasSellerForMarketplace ? null
+                    : hasSeller ? `No Seller Central connection for ${activeMarketplace} marketplace`
+                    : 'Connect your Seller Central account to unlock COGS analytics',
       '/reports':     isProPlus ? null : 'Report Builder requires Pro plan or above',
     };
 
