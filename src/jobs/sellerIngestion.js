@@ -1493,7 +1493,8 @@ async function ingestSellerRealtimeReports(clientId) {
 
 /**
  * ingestSellerDailyReports — daily 07:00 UTC.
- * Sales & Traffic, FBA Inventory, Restock, Customer Returns, Fulfilled Shipments.
+ * Sales & Traffic, FBA Inventory, Restock, Customer Returns, Fulfilled Shipments, Settlement.
+ * All 6 reports run concurrently via Promise.allSettled — each gets its own spClient instance.
  */
 async function ingestSellerDailyReports(clientId) {
   const conn = await getConnectionStatus(clientId);
@@ -1502,97 +1503,86 @@ async function ingestSellerDailyReports(clientId) {
     return { skipped: true };
   }
 
-  console.log(`[sellerIngestion] Daily starting for ${clientId}`);
-  let client = await spClient(clientId);
+  console.log(`[sellerIngestion] Daily starting (parallel) for ${clientId}`);
   const results = { salesTraffic: 0, fbaInventory: 0, restock: 0, returns: 0, shipments: 0, settlement: 0 };
-  const clientRef = { current: client };
 
-  // Sales & Traffic
-  try {
-    results.salesTraffic = await ingestSalesTraffic(clientId, client);
+  // Run all 6 reports concurrently — each acquires its own spClient and token bucket slot.
+  // acquireSpApiToken is process-global, so concurrent calls queue correctly.
+  // Settlement uses the reports list endpoint (no requestAndPoll) — minimal bucket pressure.
+  const [
+    salesRes,
+    invRes,
+    restockRes,
+    returnsRes,
+    shipmentsRes,
+    settlementRes,
+  ] = await Promise.allSettled([
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestSalesTraffic(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestFbaInventory(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestRestockRecommendations(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestCustomerReturns(clientId, c, 7);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestFulfilledShipments(clientId, c, 7);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestSettlementReports(clientId, c);
+    })(),
+  ]);
+
+  if (salesRes.status === 'fulfilled') {
+    results.salesTraffic = salesRes.value || 0;
     console.log(`[sellerIngestion] SALES_TRAFFIC: ${results.salesTraffic} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] SALES_TRAFFIC failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] SALES_TRAFFIC failed:`, salesRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // FBA Inventory (with retry)
-  try {
-    clientRef.current = client;
-    results.fbaInventory = await withRetry(
-      () => ingestFbaInventory(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (invRes.status === 'fulfilled') {
+    results.fbaInventory = invRes.value || 0;
     console.log(`[sellerIngestion] FBA_INVENTORY: ${results.fbaInventory} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FBA_INVENTORY failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] FBA_INVENTORY failed:`, invRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Restock Recommendations (with retry)
-  try {
-    clientRef.current = client;
-    results.restock = await withRetry(
-      () => ingestRestockRecommendations(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (restockRes.status === 'fulfilled') {
+    results.restock = restockRes.value || 0;
     console.log(`[sellerIngestion] RESTOCK: ${results.restock} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] RESTOCK failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] RESTOCK failed:`, restockRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Customer Returns
-  try {
-    clientRef.current = client;
-    results.returns = await withRetry(
-      () => ingestCustomerReturns(clientId, clientRef.current, 7),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (returnsRes.status === 'fulfilled') {
+    results.returns = returnsRes.value || 0;
     console.log(`[sellerIngestion] CUSTOMER_RETURNS: ${results.returns} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] CUSTOMER_RETURNS failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] CUSTOMER_RETURNS failed:`, returnsRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Fulfilled Shipments
-  try {
-    clientRef.current = client;
-    results.shipments = await withRetry(
-      () => ingestFulfilledShipments(clientId, clientRef.current, 7),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (shipmentsRes.status === 'fulfilled') {
+    results.shipments = shipmentsRes.value || 0;
     console.log(`[sellerIngestion] FULFILLED_SHIPMENTS: ${results.shipments} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FULFILLED_SHIPMENTS failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] FULFILLED_SHIPMENTS failed:`, shipmentsRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Settlement Reports (poll for new ones Amazon has already generated)
-  try {
-    clientRef.current = client;
-    results.settlement = await withRetry(
-      () => ingestSettlementReports(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (settlementRes.status === 'fulfilled') {
+    results.settlement = settlementRes.value || 0;
     console.log(`[sellerIngestion] SETTLEMENT: ${results.settlement} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] SETTLEMENT failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] SETTLEMENT failed:`, settlementRes.reason?.message?.slice(0, 120));
   }
 
   const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -1603,6 +1593,7 @@ async function ingestSellerDailyReports(clientId) {
 /**
  * ingestSellerWeeklyReports — weekly Sunday 07:00 UTC.
  * FBA Fees + FBA Inventory listing snapshot + FBA Inventory Age + Stranded Inventory.
+ * All 4 reports run concurrently via Promise.allSettled — each gets its own spClient instance.
  */
 async function ingestSellerWeeklyReports(clientId) {
   const conn = await getConnectionStatus(clientId);
@@ -1611,71 +1602,60 @@ async function ingestSellerWeeklyReports(clientId) {
     return { skipped: true };
   }
 
-  console.log(`[sellerIngestion] Weekly starting for ${clientId}`);
-  let client = await spClient(clientId);
+  console.log(`[sellerIngestion] Weekly starting (parallel) for ${clientId}`);
   const results = { fbaFees: 0, fbaInventory: 0, inventoryAge: 0, stranded: 0 };
-  const clientRef = { current: client };
 
-  // FBA Fees
-  try {
-    clientRef.current = client;
-    results.fbaFees = await withRetry(
-      () => ingestFbaFees(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  // Run all 4 reports concurrently — each gets its own spClient instance.
+  const [
+    feesRes,
+    invRes,
+    ageRes,
+    strandedRes,
+  ] = await Promise.allSettled([
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestFbaFees(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestFbaInventory(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestFbaInventoryAge(clientId, c);
+    })(),
+    (async () => {
+      const c = await spClient(clientId);
+      return ingestStrandedInventory(clientId, c);
+    })(),
+  ]);
+
+  if (feesRes.status === 'fulfilled') {
+    results.fbaFees = feesRes.value || 0;
     console.log(`[sellerIngestion] FBA_FEES: ${results.fbaFees} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FBA_FEES failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] FBA_FEES failed:`, feesRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // FBA Inventory — also pulls GET_MERCHANT_LISTINGS_ALL_DATA as fallback
-  try {
-    clientRef.current = client;
-    results.fbaInventory = await withRetry(
-      () => ingestFbaInventory(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (invRes.status === 'fulfilled') {
+    results.fbaInventory = invRes.value || 0;
     console.log(`[sellerIngestion] FBA_INVENTORY (listing snapshot): ${results.fbaInventory} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FBA_INVENTORY (weekly) failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] FBA_INVENTORY (weekly) failed:`, invRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // FBA Inventory Age
-  try {
-    clientRef.current = client;
-    results.inventoryAge = await withRetry(
-      () => ingestFbaInventoryAge(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (ageRes.status === 'fulfilled') {
+    results.inventoryAge = ageRes.value || 0;
     console.log(`[sellerIngestion] FBA_INVENTORY_AGE: ${results.inventoryAge} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] FBA_INVENTORY_AGE failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] FBA_INVENTORY_AGE failed:`, ageRes.reason?.message?.slice(0, 120));
   }
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  // Stranded Inventory
-  try {
-    clientRef.current = client;
-    results.stranded = await withRetry(
-      () => ingestStrandedInventory(clientId, clientRef.current),
-      () => spClient(clientId),
-      clientRef
-    );
-    client = clientRef.current;
+  if (strandedRes.status === 'fulfilled') {
+    results.stranded = strandedRes.value || 0;
     console.log(`[sellerIngestion] STRANDED_INVENTORY: ${results.stranded} rows written`);
-  } catch (e) {
-    console.warn(`[sellerIngestion] STRANDED_INVENTORY failed:`, e.message.slice(0, 120));
+  } else {
+    console.warn(`[sellerIngestion] STRANDED_INVENTORY failed:`, strandedRes.reason?.message?.slice(0, 120));
   }
 
   const total = Object.values(results).reduce((a, b) => a + (Number(b) || 0), 0);
