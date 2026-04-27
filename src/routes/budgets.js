@@ -50,6 +50,7 @@ router.get('/campaigns/available', async (req, res) => {
     // Source campaigns from adjusted_campaign_performance — these are the actual
     // campaign IDs that have real spend data. ad_campaigns uses IDs from the entity
     // API which can come from different profiles and won't match performance data.
+    // Exclude campaigns already assigned to ANY budget for this client
     const rows = await query(
       `SELECT
          MAX_BY(campaign_id, adjusted_spend)  AS campaign_id,
@@ -59,9 +60,14 @@ router.get('/campaigns/available', async (req, res) => {
          MAX(date)                            AS last_active
        FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
        WHERE client_id = ?
+         AND campaign_id NOT IN (
+           SELECT DISTINCT campaign_id
+           FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP
+           WHERE client_id = ?
+         )
        GROUP BY campaign_name, ad_type
        ORDER BY total_spend DESC NULLS LAST`,
-      [clientId]
+      [clientId, clientId]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
