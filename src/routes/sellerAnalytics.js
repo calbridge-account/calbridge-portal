@@ -43,6 +43,18 @@ function parseRange(req) {
 router.get('/overview', requireAuth, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
+
+    // Retail data is US-only. Return empty state for non-US marketplaces.
+    if (marketplace && marketplace !== 'US') {
+      return res.json({
+        _noRetailData: true,
+        _marketplace: marketplace,
+        message: `Retail data is only available for the US marketplace. Switch to US to view seller analytics.`,
+        kpis: {}, trend: [], topAsins: []
+      });
+    }
+
     const { days, startDate, endDate } = parseRange(req);
 
     const [kpis, trend, topAsins, prevKpis] = await Promise.all([
@@ -149,6 +161,10 @@ router.get('/overview', requireAuth, async (req, res, next) => {
 router.get('/buybox', requireAuth, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
+    const marketplace = resolveMarketplace(req);
+    if (marketplace && marketplace !== 'US') {
+      return res.json({ _noRetailData: true, trend: [], asinBreakdown: [] });
+    }
     const { days, startDate, endDate } = parseRange(req);
 
     const [trend, asinBreakdown] = await Promise.all([

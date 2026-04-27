@@ -979,15 +979,23 @@ export default function Account() {
           </div>
         ) : (
           <div>
+            {/* US connections */}
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">🇺🇸 United States</p>
             <ConnectionBadge label="Advertising API (SP / SB / SD)" connected={connStatus?.ads?.connected}    connectedAt={connStatus?.ads?.connectedAt} />
             <ConnectionBadge label="DSP"                             connected={connStatus?.dsp?.connected}    connectedAt={connStatus?.dsp?.connectedAt} />
             <ConnectionBadge label="Vendor Central"                  connected={connStatus?.vendor?.connected} connectedAt={connStatus?.vendor?.connectedAt} />
             <ConnectionBadge label="Seller Central"                  connected={connStatus?.seller?.connected} connectedAt={connStatus?.seller?.connectedAt} />
+
+            {/* CA connections — same OAuth token, separate marketplace profile */}
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4 mb-2">🇨🇦 Canada</p>
+            <ConnectionBadge label="Advertising API (SP / SB / SD)" connected={connStatus?.ads?.connected}    connectedAt={connStatus?.ads?.connectedAt} />
+            <p className="text-xs text-gray-400 mt-1 mb-2 italic">Note: CA advertising shares the same connection as US. Retail data (Seller/Vendor) is US-only.</p>
+
             <div className="pt-3 mt-3 border-t border-gray-100 space-y-2">
-              <ConnectButton label="Connect / Reconnect Advertising"    href="/amazon/connect/ads" />
-              <ConnectButton label="Connect / Reconnect DSP"            href="/amazon/connect/dsp" />
-              <ConnectButton label="Connect / Reconnect Vendor Central" href="/amazon/connect/vendor" />
-              <ConnectButton label="Connect / Reconnect Seller Central" href="/amazon/connect/seller" />
+              <ConnectButton label="Connect / Reconnect Advertising (US + CA)"  href="/amazon/connect/ads" />
+              <ConnectButton label="Connect / Reconnect DSP"                    href="/amazon/connect/dsp" />
+              <ConnectButton label="Connect / Reconnect Vendor Central"         href="/amazon/connect/vendor" />
+              <ConnectButton label="Connect / Reconnect Seller Central"         href="/amazon/connect/seller" />
             </div>
           </div>
         )}
