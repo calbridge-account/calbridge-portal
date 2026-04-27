@@ -112,7 +112,10 @@ const JOB_HANDLERS = {
   // ── Every 6 hours — Vendor retail ingestion ───────────────────────────────
   // Pulls vendor sales, inventory, traffic, net PPM, and forecasts via SP-API.
   // 3-day data lag on DAY reports; runs 4x/day so data is current within hours of availability.
-  ingest_vendor_reports:     () => ingestVendorAllClients({ triggeredBy: 'cron' }),
+  ingest_vendor_realtime:    () => ingestVendorRealtimeAllClients({ triggeredBy: 'cron' }),
+  ingest_vendor_daily:       () => ingestVendorDailyAllClients({ triggeredBy: 'cron' }),
+  ingest_vendor_weekly:      () => ingestVendorWeeklyAllClients({ triggeredBy: 'cron' }),
+  ingest_vendor_reports:     () => ingestVendorAllClients({ triggeredBy: 'cron' }),  // legacy/manual
 
   // ── Hourly ────────────────────────────────────────────────────────────────
   stage_raw_data:               () => stageRawData().stageRawData({ triggeredBy: 'cron' }),
@@ -192,30 +195,76 @@ const JOB_HANDLERS = {
 };
 
 // ─── DSP ingestion helper ────────────────────────────────────────────────────
-// Runs ingestVendorReports for all active clients with a vendor connection.
-async function ingestVendorAllClients({ triggeredBy = 'cron' } = {}) {
+// Helper: get all active clients with a vendor connection
+async function getVendorClients() {
   const { query: _q } = require('../services/snowflakeService');
+  const { getConnectionStatus } = require('../services/amazonAuthService');
+  const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+  const connected = [];
+  for (const row of (clients || [])) {
+    const clientId = row.CLIENT_ID || row.client_id;
+    try {
+      const conn = await getConnectionStatus(clientId);
+      if (conn?.vendor?.connected) connected.push(clientId);
+    } catch (_) {}
+  }
+  return connected;
+}
+
+// Every 6h — RT only
+async function ingestVendorRealtimeAllClients({ triggeredBy = 'cron' } = {}) {
   try {
-    const clients = await _q(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
+    const clients = await getVendorClients();
+    const { ingestVendorRealtimeReports } = vendorIngestion();
+    let ran = 0;
+    for (const clientId of clients) {
+      try { await ingestVendorRealtimeReports(clientId); ran++; }
+      catch (err) { console.warn(`[cron] ingest_vendor_realtime ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_vendor_realtime complete ─ ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestVendorRealtimeAllClients error:', err.message); }
+}
+
+// Daily — sales, inventory, traffic, netPPM
+async function ingestVendorDailyAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const clients = await getVendorClients();
+    const { ingestVendorDailyReports } = vendorIngestion();
+    let ran = 0;
+    for (const clientId of clients) {
+      try { await ingestVendorDailyReports(clientId); ran++; }
+      catch (err) { console.warn(`[cron] ingest_vendor_daily ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_vendor_daily complete ─ ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestVendorDailyAllClients error:', err.message); }
+}
+
+// Weekly (Monday) — forecasts only
+async function ingestVendorWeeklyAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const clients = await getVendorClients();
+    const { ingestVendorWeeklyReports } = vendorIngestion();
+    let ran = 0;
+    for (const clientId of clients) {
+      try { await ingestVendorWeeklyReports(clientId); ran++; }
+      catch (err) { console.warn(`[cron] ingest_vendor_weekly ${clientId} failed:`, err.message); }
+    }
+    console.log(`[cron] ingest_vendor_weekly complete ─ ran for ${ran} client(s)`);
+  } catch (err) { console.error('[cron] ingestVendorWeeklyAllClients error:', err.message); }
+}
+
+// Legacy — kept for manual triggers and backward compat
+async function ingestVendorAllClients({ triggeredBy = 'cron' } = {}) {
+  try {
+    const clients = await getVendorClients();
     const { ingestVendorReports } = vendorIngestion();
     let ran = 0;
-    for (const row of (clients || [])) {
-      const clientId = row.CLIENT_ID || row.client_id;
-      try {
-        const { getConnectionStatus } = require('../services/amazonAuthService');
-        const conn = await getConnectionStatus(clientId);
-        if (!conn?.vendor?.connected) continue;
-        console.log(`[cron] ingest_vendor_reports starting for ${clientId}`);
-        await ingestVendorReports(clientId);
-        ran++;
-      } catch (err) {
-        console.warn(`[cron] ingest_vendor_reports ${clientId} failed:`, err.message);
-      }
+    for (const clientId of clients) {
+      try { console.log(`[cron] ingest_vendor_reports starting for ${clientId}`); await ingestVendorReports(clientId); ran++; }
+      catch (err) { console.warn(`[cron] ingest_vendor_reports ${clientId} failed:`, err.message); }
     }
     console.log(`[cron] ingest_vendor_reports complete ─ ran for ${ran} client(s)`);
-  } catch (err) {
-    console.error('[cron] ingestVendorAllClients error:', err.message);
-  }
+  } catch (err) { console.error('[cron] ingestVendorAllClients error:', err.message); }
 }
 
 // Runs ingestDsp for all active clients that have a DSP connection.
@@ -459,10 +508,21 @@ const CRON_SCHEDULE = [
     jobId: 'ingest_seller_reports',
     expr:  '15 */6 * * *',  // every 6h at :15 — offset from vendor (:30) and top-of-hour jobs
   },
+  // Vendor cadence-split (2026-04-27)
   {
-    jobId: 'ingest_vendor_reports',
-    expr:  '30 */6 * * *',  // 00:30, 06:30, 12:30, 18:30 UTC (offset from DSP)
+    jobId: 'ingest_vendor_realtime',
+    expr:  '30 */6 * * *',  // every 6h at :30 — RT sales + RT inventory
   },
+  {
+    jobId: 'ingest_vendor_daily',
+    expr:  '30 6 * * *',    // daily 06:30 UTC — sales, inventory, traffic, netPPM
+  },
+  {
+    jobId: 'ingest_vendor_weekly',
+    expr:  '0 8 * * 1',     // weekly Monday 08:00 UTC — forecasts (48h after Amazon Sat SLA)
+  },
+  // ingest_vendor_reports kept disabled (legacy/manual trigger only)
+
 
   // ── Daily (post-models) ────────────────────────────────────────────────────
   // Uncomment when score_opportunities is implemented:

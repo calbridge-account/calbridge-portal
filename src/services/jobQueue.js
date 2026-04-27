@@ -78,7 +78,10 @@ const JOB_QUEUE_MAP = {
   detect_anomalies:             'heavy',
   generate_operator_summary:    'heavy',
   ingest_dsp:                   'heavy',
-  ingest_vendor_reports:        'heavy',
+  ingest_vendor_realtime:        'heavy',
+  ingest_vendor_daily:           'heavy',
+  ingest_vendor_weekly:          'heavy',
+  ingest_vendor_reports:         'heavy',  // legacy
   ingest_seller_reports:        'heavy',  // FBA_INVENTORY takes >5min — must be on heavy worker (30min lock)
 };
 

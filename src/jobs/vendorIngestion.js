@@ -347,97 +347,30 @@ async function writeVendorForecasts(clientId, rows) {
  *
  * Phase 2c: resolves account_id from client_accounts for logging.
  */
-async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
-  // Hard 20-minute timeout — prevents vendor ingestion from hanging indefinitely
-  // and blocking the heavy queue for other jobs.
-  const JOB_TIMEOUT_MS = 20 * 60 * 1000;
-  let jobTimer;
-  const timeoutPromise = new Promise((_, reject) => {
-    jobTimer = setTimeout(() => reject(new Error('[vendorIngestion] Hard timeout after 20min — aborting to unblock queue')), JOB_TIMEOUT_MS);
+// ─── Timeout wrapper helper ──────────────────────────────────────────────────
+function withTimeout(fn, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`[vendorIngestion] Hard timeout after ${ms/60000}min — ${label}`)), ms);
+    fn().then(r => { clearTimeout(timer); resolve(r); })
+       .catch(e => { clearTimeout(timer); reject(e); });
   });
-
-  try {
-    return await Promise.race([_ingestVendorReports(clientId, marketplaceId), timeoutPromise]);
-  } finally {
-    clearTimeout(jobTimer);
-  }
 }
 
-async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
-  // Resolve account_id from client_accounts (Phase 2c) for logging/audit
-  let accountId = null;
-  try {
-    const acctRows = await query(`
-      SELECT account_id
-      FROM   CALBRIDGE_PROD.APP.client_accounts
-      WHERE  client_id = ?
-        AND  channel   = 'vendor'
-        AND  is_active = TRUE
-      LIMIT  1
-    `, [clientId]);
-    if (acctRows.length > 0) accountId = acctRows[0].ACCOUNT_ID || acctRows[0].account_id;
-  } catch (err) {
-    console.warn('[vendorIngestion] account_id lookup failed (non-fatal):', err.message);
-  }
-  if (accountId) console.log(`[vendorIngestion] client=${clientId} account_id=${accountId}`);
+/**
+ * REAL-TIME only — runs every 6h.
+ * GET_VENDOR_REAL_TIME_SALES_REPORT + GET_VENDOR_REAL_TIME_INVENTORY_REPORT
+ */
+async function ingestVendorRealtimeReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  return withTimeout(() => _ingestVendorRealtimeReports(clientId, marketplaceId), 10 * 60 * 1000, 'ingestVendorRealtimeReports');
+}
 
+async function _ingestVendorRealtimeReports(clientId, marketplaceId) {
   const client = await spClient(clientId);
   const results = {};
   let totalWritten = 0;
 
-  // ── 1. Vendor Sales (DAY grain, max 14 days per request) ──────────────────
+  // ── RT Sales (hourly ordered units/revenue, last 24h) ──────────────────────
   try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_SALES_REPORT...');
-    // DAY grain: confirmed D-3 lag (same as inventory). daysAgo(2) caused FATAL.
-    const endDate   = daysAgo(3);   // D-3 confirmed available
-    const startDate = daysAgo(17);  // 14-day window ending at D-3
-    const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
-      reportPeriod:     'DAY',
-      distributorView:  'SOURCING',
-      sellingProgram:   'RETAIL',
-      dataStartTime:    startDate,
-      dataEndTime:      endDate,
-    }, marketplaceId);
-    const rows = Array.isArray(data) ? data : (data?.reportData || data?.salesByAsin || []);
-    const written = await writeVendorSales(clientId, rows);
-    results.vendorSales = written;
-    totalWritten += written;
-    console.log(`[vendorIngestion] VENDOR_SALES: ${written} rows written`);
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_SALES failed:', err.message, (err.stack||'').split('\n')[1]);
-    results.vendorSales = 0;
-  }
-
-  await sleep(2000);
-
-  // ── 2. Vendor Inventory (DAY grain, max 14 days per request) ───────────────
-  try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT...');
-    // DAY grain: inventory data available at D-3 (confirmed empirically 2026-04-20)
-    const endDate   = daysAgo(3);   // D-3: inventory data lag is ~72h
-    const startDate = daysAgo(17);  // 14-day window ending at D-3
-    const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
-      reportPeriod:     'DAY',
-      distributorView:  'SOURCING',
-      sellingProgram:   'RETAIL',
-      dataStartTime:    startDate,
-      dataEndTime:      endDate,
-    }, marketplaceId);
-    const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
-    const written = await writeVendorInventory(clientId, rows);
-    results.vendorInventory = written;
-    totalWritten += written;
-    console.log(`[vendorIngestion] VENDOR_INVENTORY: ${written} rows written`);
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_INVENTORY failed:', err.message, (err.stack||'').split('\n')[1]);
-    results.vendorInventory = 0;
-  }
-
-  await sleep(2000);
-
-  // ── 2b. Real-time Sales (hourly ordered units/revenue, last 24h) ─────────────
-  try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_REAL_TIME_SALES_REPORT...');
     const rtSalesEnd   = new Date().toISOString().slice(0, 10);
     const rtSalesStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const rtSalesData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_SALES_REPORT', {
@@ -445,24 +378,25 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       dataEndTime:    rtSalesEnd,
       sellingProgram: 'RETAIL',
     }, marketplaceId);
-    const rtRows = (rtSalesData?.reportData || [])
-      .filter(r => r.asin && r.startTime);
-    // Write: upsert hourly rows into vendor_sales keyed on (client_id, asin, start_date=startTime)
+    const rtRows = (rtSalesData?.reportData || []).filter(r => r.asin && r.startTime);
+    // Batch MERGE — fixed from row-at-a-time
+    const BATCH = 500;
     let rtWritten = 0;
-    for (const r of rtRows) {
+    for (let i = 0; i < rtRows.length; i += BATCH) {
+      const batch = rtRows.slice(i, i + BATCH);
+      const vals = batch.map(() => '(?,?,?,?,?,?)').join(',');
+      const params = batch.flatMap(r => [clientId, r.asin, r.startTime, r.endTime, r.orderedUnits||0, r.orderedRevenue||0]);
       await query(`
         MERGE INTO CALBRIDGE_PROD.APP.vendor_sales t
-        USING (SELECT ? AS client_id, ? AS asin, ?::TIMESTAMP AS start_date) s
-          ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
-        WHEN MATCHED THEN UPDATE SET
-          ordered_units=?, ordered_revenue=?, synced_at=CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT
-          (client_id,asin,start_date,end_date,ordered_units,ordered_revenue,ordered_currency,synced_at)
-          VALUES (?,?,?,?,?,?,'USD',CURRENT_TIMESTAMP())
-      `, [clientId,r.asin,r.startTime, r.orderedUnits||0,r.orderedRevenue||0,
-          clientId,r.asin,r.startTime,r.endTime,r.orderedUnits||0,r.orderedRevenue||0])
-        .catch(() => {});
-      rtWritten++;
+        USING (SELECT column1 AS client_id, column2 AS asin, column3::TIMESTAMP AS start_date,
+                      column4 AS end_date, column5 AS ordered_units, column6 AS ordered_revenue
+               FROM VALUES ${vals}) s
+        ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
+        WHEN MATCHED THEN UPDATE SET ordered_units=s.ordered_units, ordered_revenue=s.ordered_revenue, synced_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (client_id,asin,start_date,end_date,ordered_units,ordered_revenue,ordered_currency,synced_at)
+          VALUES (s.client_id,s.asin,s.start_date,s.end_date,s.ordered_units,s.ordered_revenue,'USD',CURRENT_TIMESTAMP())
+      `, params).catch(() => {});
+      rtWritten += batch.length;
     }
     results.vendorRealtimeSales = rtWritten;
     totalWritten += rtWritten;
@@ -474,9 +408,8 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(1000);
 
-  // ── 2c. Real-time Inventory (hourly on-hand, last 24h — latest snapshot per ASIN) ─
+  // ── RT Inventory (hourly on-hand, last 24h — latest snapshot per ASIN) ─────
   try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_REAL_TIME_INVENTORY_REPORT...');
     const rtInvEnd   = new Date().toISOString().slice(0, 10);
     const rtInvStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const rtInvData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_INVENTORY_REPORT', {
@@ -484,149 +417,183 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
       dataEndTime:    rtInvEnd,
       sellingProgram: 'RETAIL',
     }, marketplaceId);
-    // Keep only the latest snapshot per ASIN
+    // Keep only latest snapshot per ASIN
     const latestByAsin = {};
     for (const row of (rtInvData?.reportData || [])) {
       if (!row.asin) continue;
-      if (!latestByAsin[row.asin] || row.endTime > latestByAsin[row.asin].endTime) {
-        latestByAsin[row.asin] = row;
-      }
+      if (!latestByAsin[row.asin] || row.endTime > latestByAsin[row.asin].endTime) latestByAsin[row.asin] = row;
     }
+    const invRows = Object.values(latestByAsin);
     const today = new Date().toISOString().slice(0, 10);
+    const BATCH = 500;
     let rtInvWritten = 0;
-    for (const row of Object.values(latestByAsin)) {
+    for (let i = 0; i < invRows.length; i += BATCH) {
+      const batch = invRows.slice(i, i + BATCH);
+      const vals = batch.map(() => '(?,?,?,?)').join(',');
+      const params = batch.flatMap(r => [clientId, r.asin, today, r.highlyAvailableInventory||0]);
       await query(`
         MERGE INTO CALBRIDGE_PROD.APP.vendor_inventory t
-        USING (SELECT ? AS client_id, ? AS asin, ?::DATE AS start_date) s
-          ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
-        WHEN MATCHED THEN UPDATE SET
-          sellable_on_hand_units=?, synced_at=CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT
-          (client_id,asin,start_date,sellable_on_hand_units,synced_at)
-          VALUES (?,?,?,?,CURRENT_TIMESTAMP())
-      `, [clientId,row.asin,today, row.highlyAvailableInventory||0,
-          clientId,row.asin,today, row.highlyAvailableInventory||0])
-        .catch(() => {});
-      rtInvWritten++;
+        USING (SELECT column1 AS client_id, column2 AS asin, column3::DATE AS start_date, column4 AS units
+               FROM VALUES ${vals}) s
+        ON t.client_id=s.client_id AND t.asin=s.asin AND t.start_date=s.start_date
+        WHEN MATCHED THEN UPDATE SET sellable_on_hand_units=s.units, synced_at=CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (client_id,asin,start_date,sellable_on_hand_units,synced_at)
+          VALUES (s.client_id,s.asin,s.start_date,s.units,CURRENT_TIMESTAMP())
+      `, params).catch(() => {});
+      rtInvWritten += batch.length;
     }
     results.vendorRealtimeInventory = rtInvWritten;
     totalWritten += rtInvWritten;
-    console.log(`[vendorIngestion] RT_INVENTORY: ${rtInvWritten} ASINs written (current snapshot)`);
+    console.log(`[vendorIngestion] RT_INVENTORY: ${rtInvWritten} ASINs written`);
   } catch (err) {
     console.warn('[vendorIngestion] RT_INVENTORY failed (non-fatal):', err.message.slice(0, 100));
     results.vendorRealtimeInventory = 0;
   }
 
+  console.log(`[vendorIngestion] RT done — ${totalWritten} rows written`, results);
+  return { recordsWritten: totalWritten, breakdown: results };
+}
+
+/**
+ * DAILY reports — runs once/day at 06:30 UTC.
+ * Sales (DAY), Inventory (DAY x2), Traffic, NetPPM
+ */
+async function ingestVendorDailyReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  return withTimeout(() => _ingestVendorDailyReports(clientId, marketplaceId), 15 * 60 * 1000, 'ingestVendorDailyReports');
+}
+
+async function _ingestVendorDailyReports(clientId, marketplaceId) {
+  const client = await spClient(clientId);
+  const results = {};
+  let totalWritten = 0;
+
+  // ── Sales (DAY grain, D-17→D-3) ──────────────────────────────────────────
+  try {
+    const data = await requestAndDownload(client, 'GET_VENDOR_SALES_REPORT', {
+      reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
+      dataStartTime: daysAgo(17), dataEndTime: daysAgo(3),
+    }, marketplaceId);
+    const rows = Array.isArray(data) ? data : (data?.reportData || data?.salesByAsin || []);
+    results.vendorSales = await writeVendorSales(clientId, rows);
+    totalWritten += results.vendorSales;
+    console.log(`[vendorIngestion] VENDOR_SALES: ${results.vendorSales} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_SALES failed:', err.message.slice(0, 100)); results.vendorSales = 0; }
+
   await sleep(2000);
 
-  // ── 3. Vendor Traffic (DAY grain, 30-day rolling window) ─────────────────────
+  // ── Inventory pass 1 (DAY grain, D-17→D-3) ───────────────────────────────
   try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_TRAFFIC_REPORT...');
-    // DAY grain, 30-day rolling window. Data lag ~72h.
-    const endDate   = daysAgo(3);
-    const startDate = daysAgo(32);
+    const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+      reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
+      dataStartTime: daysAgo(17), dataEndTime: daysAgo(3),
+    }, marketplaceId);
+    const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
+    results.vendorInventory = await writeVendorInventory(clientId, rows);
+    totalWritten += results.vendorInventory;
+    console.log(`[vendorIngestion] VENDOR_INVENTORY: ${results.vendorInventory} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_INVENTORY failed:', err.message.slice(0, 100)); results.vendorInventory = 0; }
+
+  await sleep(2000);
+
+  // ── Inventory pass 2 (DAY grain, D-32→D-18 — older window) ───────────────
+  try {
+    const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+      reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
+      dataStartTime: daysAgo(32), dataEndTime: daysAgo(18),
+    }, marketplaceId);
+    const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
+    results.vendorInventoryOlder = await writeVendorInventory(clientId, rows);
+    totalWritten += results.vendorInventoryOlder;
+    console.log(`[vendorIngestion] VENDOR_INVENTORY (older): ${results.vendorInventoryOlder} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_INVENTORY (older) failed:', err.message.slice(0, 100)); results.vendorInventoryOlder = 0; }
+
+  await sleep(2000);
+
+  // ── Traffic (DAY grain, D-32→D-3) ────────────────────────────────────────
+  try {
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
-      reportPeriod:     'DAY',
-      // NOTE: distributorView and sellingProgram are NOT supported for traffic/netPPM reports
-      dataStartTime:    startDate,
-      dataEndTime:      endDate,
+      reportPeriod: 'DAY', dataStartTime: daysAgo(32), dataEndTime: daysAgo(3),
     }, marketplaceId);
     const rows = Array.isArray(data) ? data : (data?.reportData || data?.trafficByAsin || []);
-    const written = await writeVendorTraffic(clientId, rows);
-    results.vendorTraffic = written;
-    totalWritten += written;
-    console.log(`[vendorIngestion] VENDOR_TRAFFIC: ${written} rows written`);
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_TRAFFIC failed:', err.message?.substring(0, 120));
-    results.vendorTraffic = 0;
-  }
+    results.vendorTraffic = await writeVendorTraffic(clientId, rows);
+    totalWritten += results.vendorTraffic;
+    console.log(`[vendorIngestion] VENDOR_TRAFFIC: ${results.vendorTraffic} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_TRAFFIC failed:', err.message.slice(0, 100)); results.vendorTraffic = 0; }
 
   await sleep(2000);
 
-  // ── 4. Vendor Net PPM (DAY grain, 30-day rolling window) ──────────────────────
+  // ── Net PPM (DAY grain, D-32→D-3) ────────────────────────────────────────
   try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT...');
-    // DAY grain, 30-day rolling window. Data lag ~72h.
-    const endDate   = daysAgo(3);
-    const startDate = daysAgo(32);
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
-      reportPeriod:     'DAY',
-      // NOTE: distributorView and sellingProgram are NOT supported for netPPM reports
-      dataStartTime:    startDate,
-      dataEndTime:      endDate,
+      reportPeriod: 'DAY', dataStartTime: daysAgo(32), dataEndTime: daysAgo(3),
     }, marketplaceId);
     const rows = Array.isArray(data) ? data : (data?.netPureProductMarginByAsin || data?.reportData || data?.netPpmByAsin || []);
-    const written = await writeVendorNetPpm(clientId, rows);
-    results.vendorNetPpm = written;
-    totalWritten += written;
-    console.log(`[vendorIngestion] VENDOR_NET_PPM: ${written} rows written`);
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_NET_PPM failed:', err.message?.substring(0, 120));
-    results.vendorNetPpm = 0;
-  }
+    results.vendorNetPpm = await writeVendorNetPpm(clientId, rows);
+    totalWritten += results.vendorNetPpm;
+    console.log(`[vendorIngestion] VENDOR_NET_PPM: ${results.vendorNetPpm} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_NET_PPM failed:', err.message.slice(0, 100)); results.vendorNetPpm = 0; }
 
-  await sleep(2000);
+  console.log(`[vendorIngestion] Daily done — ${totalWritten} rows written`, results);
+  return { recordsWritten: totalWritten, breakdown: results };
+}
 
-  // ── 4b. Vendor Inventory DAY grain (second pass — older 14-day window for sell-through/fill-rate fields) ──
-  // Fixed 2026-04-27: 30-day window causes FATAL — max confirmed window is 14 days.
-  // This pass covers the prior 14-day window (daysAgo(32)→daysAgo(18)) to overlap with the
-  // first pass (daysAgo(17)→daysAgo(3)) and provide a rolling 29-day view.
+/**
+ * WEEKLY reports — runs Monday 08:00 UTC (48h after Saturday Amazon SLA close).
+ * GET_VENDOR_FORECASTING_REPORT only.
+ */
+async function ingestVendorWeeklyReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  return withTimeout(() => _ingestVendorWeeklyReports(clientId, marketplaceId), 10 * 60 * 1000, 'ingestVendorWeeklyReports');
+}
+
+async function _ingestVendorWeeklyReports(clientId, marketplaceId) {
+  const client = await spClient(clientId);
   try {
-    const invEndDate   = daysAgo(18);
-    const invWeekStart = daysAgo(32);
-    console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT (DAY grain, older 14d)...');
-    const invWeekData = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
-      reportPeriod:     'DAY',
-      distributorView:  'SOURCING',
-      sellingProgram:   'RETAIL',
-      dataStartTime:    invWeekStart,
-      dataEndTime:      invEndDate,
-    }, marketplaceId);
-    const invWeekRows = Array.isArray(invWeekData) ? invWeekData : (invWeekData?.reportData || invWeekData?.inventoryByAsin || []);
-    const invWeekWritten = await writeVendorInventory(clientId, invWeekRows);
-    results.vendorInventoryWeek = invWeekWritten;
-    totalWritten += invWeekWritten;
-    console.log(`[vendorIngestion] VENDOR_INVENTORY (DAY 30d): ${invWeekWritten} rows written`);
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_INVENTORY (DAY 30d) failed:', err.message?.substring(0, 120));
-    results.vendorInventoryWeek = 0;
-  }
-
-  await sleep(2000);
-
-
-  // ── 5. Vendor Forecasts (most recent week only) ──────────────────────────────
-  try {
-    console.log('[vendorIngestion] Requesting GET_VENDOR_FORECASTING_REPORT...');
     const data = await requestAndDownload(client, 'GET_VENDOR_FORECASTING_REPORT', {
       sellingProgram: 'RETAIL',
     }, marketplaceId);
     const rows = Array.isArray(data) ? data : (data?.reportData || data?.forecastByAsin || []);
     const written = await writeVendorForecasts(clientId, rows);
-    results.vendorForecasts = written;
-    totalWritten += written;
-    console.log(`[vendorIngestion] VENDOR_FORECASTS: ${written} rows written`);
+    console.log(`[vendorIngestion] VENDOR_FORECASTS (weekly): ${written} rows written`);
+    return { recordsWritten: written, breakdown: { vendorForecasts: written } };
   } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_FORECASTS failed:', err.message?.substring(0, 120));
-    results.vendorForecasts = 0;
+    console.warn('[vendorIngestion] VENDOR_FORECASTS failed:', err.message.slice(0, 120));
+    return { recordsWritten: 0, breakdown: { vendorForecasts: 0 } };
   }
-
-  console.log(`[vendorIngestion] Done — ${totalWritten} total rows written`, results);
-  return { recordsWritten: totalWritten, breakdown: results };
 }
 
 /**
- * Backfill vendor reports for a given date range.
- *
- * DAY reports (sales, inventory): max 14-day windows per Amazon limit.
- * WEEK reports (traffic, netPPM): must align to Sunday start → Saturday end.
- *   No distributorView/sellingProgram options allowed.
- *
- * @param {string} clientId
- * @param {string} startDate  YYYY-MM-DD  (for DAY: any date; for WEEK: snapped to prev Sunday)
- * @param {string} endDate    YYYY-MM-DD  (for DAY: any date; for WEEK: snapped to prev Saturday)
- * @param {string} marketplaceId
+ * Legacy wrapper — kept for backfill and manual triggers.
+ * Runs all three tiers in sequence.
  */
+async function ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  return withTimeout(() => _ingestVendorReports(clientId, marketplaceId), 20 * 60 * 1000, 'ingestVendorReports');
+}
+
+async function _ingestVendorReports(clientId, marketplaceId) {
+  // Delegates to the three cadence-specific functions in sequence
+  const results = { recordsWritten: 0, breakdown: {} };
+  try {
+    const rt = await _ingestVendorRealtimeReports(clientId, marketplaceId);
+    results.recordsWritten += rt.recordsWritten || 0;
+    Object.assign(results.breakdown, rt.breakdown || {});
+  } catch (e) { console.warn('[vendorIngestion] RT phase failed:', e.message.slice(0, 80)); }
+
+  try {
+    const daily = await _ingestVendorDailyReports(clientId, marketplaceId);
+    results.recordsWritten += daily.recordsWritten || 0;
+    Object.assign(results.breakdown, daily.breakdown || {});
+  } catch (e) { console.warn('[vendorIngestion] Daily phase failed:', e.message.slice(0, 80)); }
+
+  try {
+    const weekly = await _ingestVendorWeeklyReports(clientId, marketplaceId);
+    results.recordsWritten += weekly.recordsWritten || 0;
+    Object.assign(results.breakdown, weekly.breakdown || {});
+  } catch (e) { console.warn('[vendorIngestion] Weekly phase failed:', e.message.slice(0, 80)); }
+
+  console.log(`[vendorIngestion] Done — ${results.recordsWritten} total rows written`, results.breakdown);
+  return results;
+}
+
 async function backfillVendorReports(clientId, startDate, endDate, marketplaceId = 'ATVPDKIKX0DER') {
   const results = { vendorSales: 0, vendorInventory: 0, vendorTraffic: 0, vendorNetPpm: 0, dayChunks: 0, weekChunks: 0 };
 
@@ -760,4 +727,11 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
   return results;
 }
 
-module.exports = { ingestVendorReports, backfillVendorReports, writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm };
+module.exports = {
+  ingestVendorReports,          // legacy full run (RT + daily + weekly)
+  ingestVendorRealtimeReports,  // every 6h
+  ingestVendorDailyReports,     // once/day
+  ingestVendorWeeklyReports,    // once/week (Monday)
+  backfillVendorReports,
+  writeVendorSales, writeVendorInventory, writeVendorTraffic, writeVendorNetPpm,
+};
