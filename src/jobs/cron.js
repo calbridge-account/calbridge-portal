@@ -457,7 +457,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'ingest_seller_reports',
-    expr:  '0 */6 * * *',   // every 6h at :00 — sales traffic + FBA inventory
+    expr:  '15 */6 * * *',  // every 6h at :15 — offset from vendor (:30) and top-of-hour jobs
   },
   {
     jobId: 'ingest_vendor_reports',

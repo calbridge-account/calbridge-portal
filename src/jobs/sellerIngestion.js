@@ -55,7 +55,41 @@ async function withRetry(fn, refreshFn, clientRef, retries = 3, baseDelayMs = 10
   }
 }
 
+// ─── SP-API Token Bucket ─────────────────────────────────────────────────────
+// GET_SALES_AND_TRAFFIC_REPORT createReport limit: burst=15, restore=1/60s.
+// All other seller report types share the same /reports endpoint bucket.
+// This bucket is process-global — prevents multi-client runs from exhausting quota.
+const SP_API_BUCKET = {
+  tokens: 15,
+  max: 15,
+  restoreRateMs: 60000, // 1 token per 60s
+  lastRestoreMs: Date.now(),
+};
+async function acquireSpApiToken(reportType) {
+  // Restore tokens since last call
+  const now = Date.now();
+  const elapsed = now - SP_API_BUCKET.lastRestoreMs;
+  const restored = Math.floor(elapsed / SP_API_BUCKET.restoreRateMs);
+  if (restored > 0) {
+    SP_API_BUCKET.tokens = Math.min(SP_API_BUCKET.max, SP_API_BUCKET.tokens + restored);
+    SP_API_BUCKET.lastRestoreMs += restored * SP_API_BUCKET.restoreRateMs;
+  }
+  // Wait if bucket is empty
+  if (SP_API_BUCKET.tokens <= 0) {
+    const waitMs = SP_API_BUCKET.restoreRateMs - (Date.now() - SP_API_BUCKET.lastRestoreMs);
+    if (waitMs > 0) {
+      console.log(`[sellerIngestion] SP-API token bucket empty for ${reportType} — waiting ${Math.ceil(waitMs/1000)}s`);
+      await new Promise(r => setTimeout(r, waitMs + 500));
+      // Restore after wait
+      SP_API_BUCKET.tokens = Math.min(SP_API_BUCKET.max, SP_API_BUCKET.tokens + 1);
+      SP_API_BUCKET.lastRestoreMs = Date.now();
+    }
+  }
+  SP_API_BUCKET.tokens--;
+}
+
 async function requestAndPoll(client, reportType, body = {}, maxWaitMs = 600000) {
+  await acquireSpApiToken(reportType);
   const res = await client.post('/reports/2021-06-30/reports', {
     reportType,
     marketplaceIds: ['ATVPDKIKX0DER'],
@@ -1125,8 +1159,12 @@ async function sellerBackfill(clientId) {
 async function ingestSellerAllClients({ triggeredBy = 'cron' } = {}) {
   const clients = await query(`SELECT client_id FROM clients WHERE status = 'active' AND linked_client_id IS NULL`);
   let ran = 0;
-  for (const row of (clients || [])) {
-    const clientId = row.CLIENT_ID || row.client_id;
+  for (let i = 0; i < (clients || []).length; i++) {
+    const clientId = clients[i].CLIENT_ID || clients[i].client_id;
+    // Wait between clients to avoid exhausting the SP-API token bucket.
+    // Each ingestSellerReports run uses ~6 tokens; bucket restores at 1/60s.
+    // 90s gap leaves ~1.5 tokens restored before next client starts.
+    if (i > 0) await new Promise(r => setTimeout(r, 90000));
     try {
       const result = await ingestSellerReports(clientId);
       if (!result.skipped) ran++;
