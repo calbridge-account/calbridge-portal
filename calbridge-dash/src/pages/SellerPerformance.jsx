@@ -7,7 +7,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
-import MarketplaceSwitcher from '../components/MarketplaceSwitcher';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -110,8 +109,6 @@ export default function SellerPerformance() {
       <PageHeader
         title="Seller Analytics"
         subtitle="Orders · Sessions · Buy Box · Conversion Rate"
-        actions={<MarketplaceSwitcher />
-        }
       />
 
       {isError && <ErrorState message={error?.message} />}

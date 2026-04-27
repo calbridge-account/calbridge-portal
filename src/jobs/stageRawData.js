@@ -648,6 +648,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             ad_type,
             campaign_id,
             campaign_name,
+            COALESCE(marketplace, 'US')                          AS marketplace,
             MAX(campaign_status)                                 AS campaign_status,
             MAX(campaign_budget_amount)                          AS daily_budget,
             SUM(COALESCE(impressions, 0))                        AS impressions,
@@ -665,10 +666,11 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             MAX(top_of_search_impression_share)                  AS top_of_search_impression_share
           FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-          GROUP BY client_id, date::DATE, ad_type, campaign_id, campaign_name
+          GROUP BY client_id, date::DATE, ad_type, campaign_id, campaign_name, COALESCE(marketplace, 'US')
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date
            AND tgt.ad_type=src.ad_type AND tgt.campaign_id=src.campaign_id
+           AND tgt.marketplace=src.marketplace
         WHEN MATCHED THEN UPDATE SET
           campaign_name=src.campaign_name, campaign_status=src.campaign_status,
           daily_budget=src.daily_budget, impressions=src.impressions, clicks=src.clicks,
@@ -678,15 +680,16 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
           detail_page_views=src.detail_page_views, add_to_cart=src.add_to_cart,
           viewable_impressions=src.viewable_impressions,
           top_of_search_impression_share=src.top_of_search_impression_share,
+          marketplace=src.marketplace,
           rebuilt_at=CURRENT_TIMESTAMP()
         WHEN NOT MATCHED THEN INSERT
-          (client_id,date,ad_type,campaign_id,campaign_name,campaign_status,daily_budget,
+          (client_id,date,ad_type,campaign_id,campaign_name,marketplace,campaign_status,daily_budget,
            impressions,clicks,spend,sales,orders,sales_7d,orders_7d,ntb_purchases,ntb_sales,
            detail_page_views,add_to_cart,viewable_impressions,top_of_search_impression_share,rebuilt_at)
         VALUES
-          (src.client_id,src.date,src.ad_type,src.campaign_id,src.campaign_name,src.campaign_status,
-           src.daily_budget,src.impressions,src.clicks,src.spend,src.sales,src.orders,
-           src.sales_7d,src.orders_7d,src.ntb_purchases,src.ntb_sales,src.detail_page_views,
+          (src.client_id,src.date,src.ad_type,src.campaign_id,src.campaign_name,src.marketplace,
+           src.campaign_status,src.daily_budget,src.impressions,src.clicks,src.spend,src.sales,
+           src.orders,src.sales_7d,src.orders_7d,src.ntb_purchases,src.ntb_sales,src.detail_page_views,
            src.add_to_cart,src.viewable_impressions,src.top_of_search_impression_share,CURRENT_TIMESTAMP())
       `);
       console.log('[rebuildMart] ✅ MARTS.CAMPAIGN_PERFORMANCE updated');

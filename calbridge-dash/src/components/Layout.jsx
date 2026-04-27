@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useMarketplace } from '../context/MarketplaceContext';
 import DateRangePicker from './DateRangePicker';
 import { useDateRange } from '../context/DateRangeContext';
 import WelcomeModal from './WelcomeModal';
@@ -158,6 +159,31 @@ function usePageTitle() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
+const MARKETPLACE_LABELS = { US: '🇺🇸 United States', CA: '🇨🇦 Canada', UK: '🇬🇧 United Kingdom', DE: '🇩🇪 Germany', FR: '🇫🇷 France', JP: '🇯🇵 Japan', AU: '🇦🇺 Australia' };
+
+function SidebarMarketplacePicker({ collapsed }) {
+  const ctx = useMarketplace();
+  if (!ctx || ctx.loading || !ctx.marketplaces || ctx.marketplaces.length <= 1) return null;
+  const { marketplaces, activeMarketplace, switchMarketplace } = ctx;
+  // Sort: US first, then alphabetical
+  const sorted = [...marketplaces].sort((a, b) => a === 'US' ? -1 : b === 'US' ? 1 : a.localeCompare(b));
+  if (collapsed) return null;
+  return (
+    <div className="px-3 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+      <label className="block text-xs text-gray-400 mb-1">Marketplace</label>
+      <select
+        value={activeMarketplace}
+        onChange={e => switchMarketplace(e.target.value)}
+        className="w-full text-sm text-gray-700 bg-white border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+      >
+        {sorted.map(mp => (
+          <option key={mp} value={mp}>{MARKETPLACE_LABELS[mp] ?? mp}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -230,6 +256,9 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
       )}
 
 
+
+      {/* ── Marketplace picker ── */}
+      <SidebarMarketplacePicker collapsed={collapsed} />
 
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-2">
