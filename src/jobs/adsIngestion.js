@@ -2932,8 +2932,9 @@ const DSP_REPORT_TYPES = [
     ],
   },
   {
+    // Fixed 2026-04-27: reportTypeId must be 'dspCampaign' (only valid DSP v3 reportTypeId)
     key:          'dspProduct',
-    reportTypeId: 'dspProduct',
+    reportTypeId: 'dspCampaign',
     groupBy:      ['product'],
     columns:      [
       'date', 'orderId', 'orderName', 'advertiserId', 'asin', 'productName',
@@ -2944,7 +2945,7 @@ const DSP_REPORT_TYPES = [
   },
   {
     key:          'dspAudience',
-    reportTypeId: 'dspAudience',
+    reportTypeId: 'dspCampaign',
     groupBy:      ['audience'],
     columns:      [
       'date', 'orderId', 'orderName', 'advertiserId',
@@ -2955,7 +2956,7 @@ const DSP_REPORT_TYPES = [
   },
   {
     key:          'dspGeo',
-    reportTypeId: 'dspGeo',
+    reportTypeId: 'dspCampaign',
     groupBy:      ['geography'],
     columns:      [
       'date', 'orderId', 'orderName', 'advertiserId', 'region',
