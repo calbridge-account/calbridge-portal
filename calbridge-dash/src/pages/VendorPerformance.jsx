@@ -7,6 +7,7 @@ import { useOverview, useVendorMetrics, useConnections } from '../hooks/useAnaly
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
+import MarketplaceSwitcher from '../components/MarketplaceSwitcher';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ export default function VendorPerformance() {
       <PageHeader
         title="Sales"
         subtitle="Revenue, margin, traffic, and demand signals"
+        actions={<MarketplaceSwitcher />}
       />
 
       {ovErr && <ErrorState message={ovErrObj?.message} />}

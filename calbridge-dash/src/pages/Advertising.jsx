@@ -8,6 +8,7 @@ import { useAdvertising, useAsinPerformance, useAdvertisingTrend, useSbVideo } f
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
+import MarketplaceSwitcher from '../components/MarketplaceSwitcher';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 import AdvertisingSubNav from './advertising/AdvertisingSubNav';
 
@@ -288,6 +289,7 @@ export default function Advertising() {
       <PageHeader
         title="Advertising"
         subtitle="Spend · Sales · ACoS · ROAS across your ad channels"
+        actions={<MarketplaceSwitcher />}
       />
 
       {isError && <ErrorState message={error?.message} />}
