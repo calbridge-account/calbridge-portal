@@ -1493,5 +1493,323 @@ agencyRouter.delete('/brands/:managerId', async (req, res) => {
   }
 });
 
+// ============================================================================
+// AGENCY REPORTING ROUTES — Phase 3F
+// ============================================================================
+
+// ─── Helper: Validate UUID ───────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(id) { return UUID_RE.test(id); }
+
+// ─── Helper: Build CSV string from rows ──────────────────────────────────────
+function buildCsv(columns, rows) {
+  const escape = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+  const lines = [columns.map(escape).join(',')];
+  for (const row of rows) {
+    lines.push(columns.map(col => escape(row[col])).join(','));
+  }
+  return lines.join('\n');
+}
+
+// ─── Helper: Run advertising report query ────────────────────────────────────
+async function runAdvertisingReport({ clientIds, startDate, endDate, reportType, marketplace }) {
+  if (!clientIds || clientIds.length === 0) {
+    return { rows: [], columns: [] };
+  }
+
+  const placeholders = clientIds.map(() => '?').join(', ');
+  const marketplaceFilter = (marketplace && marketplace !== 'all')
+    ? 'AND r.marketplace = ?'
+    : '';
+
+  let sql;
+  let binds;
+  let columns;
+
+  if (reportType === 'daily') {
+    // Use AD_PERFORMANCE_DAILY — no campaign_id/ntb columns
+    columns = ['client_id', 'client_name', 'date', 'spend', 'sales', 'orders',
+               'impressions', 'clicks', 'acos', 'roas', 'ctr', 'cvr'];
+
+    sql = `
+      SELECT
+        r.client_id,
+        COALESCE(c.company_name, c.name) AS client_name,
+        r.date,
+        SUM(r.spend)                                                           AS spend,
+        SUM(r.sales)                                                           AS sales,
+        SUM(r.orders)                                                          AS orders,
+        SUM(r.impressions)                                                     AS impressions,
+        SUM(r.clicks)                                                          AS clicks,
+        CASE WHEN SUM(r.sales) > 0
+             THEN SUM(r.spend)/SUM(r.sales)*100 END                           AS acos,
+        CASE WHEN SUM(r.spend) > 0
+             THEN SUM(r.sales)/SUM(r.spend) END                               AS roas,
+        CASE WHEN SUM(r.impressions) > 0
+             THEN SUM(r.clicks)::FLOAT/SUM(r.impressions)*100 END             AS ctr,
+        CASE WHEN SUM(r.clicks) > 0
+             THEN SUM(r.orders)::FLOAT/SUM(r.clicks)*100 END                  AS cvr
+      FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY r
+      JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = r.client_id
+      WHERE r.date BETWEEN ? AND ?
+        AND r.client_id IN (${placeholders})
+        ${marketplaceFilter}
+      GROUP BY r.client_id, c.company_name, c.name, r.date
+      ORDER BY r.client_id, r.date
+    `;
+
+    binds = [startDate, endDate, ...clientIds];
+    if (marketplace && marketplace !== 'all') binds.push(marketplace);
+
+  } else if (reportType === 'campaign') {
+    columns = ['client_id', 'client_name', 'campaign_id', 'campaign_name', 'ad_type',
+               'spend', 'sales', 'orders', 'impressions', 'clicks',
+               'ntb_orders', 'ntb_sales', 'acos', 'roas', 'ctr', 'cvr'];
+
+    sql = `
+      SELECT
+        r.client_id,
+        COALESCE(c.company_name, c.name) AS client_name,
+        r.campaign_id,
+        r.campaign_name,
+        r.ad_type,
+        SUM(r.spend)                                                           AS spend,
+        SUM(r.sales)                                                           AS sales,
+        SUM(r.orders)                                                          AS orders,
+        SUM(r.impressions)                                                     AS impressions,
+        SUM(r.clicks)                                                          AS clicks,
+        SUM(r.ntb_purchases)                                                   AS ntb_orders,
+        SUM(r.ntb_sales)                                                       AS ntb_sales,
+        CASE WHEN SUM(r.sales) > 0
+             THEN SUM(r.spend)/SUM(r.sales)*100 END                           AS acos,
+        CASE WHEN SUM(r.spend) > 0
+             THEN SUM(r.sales)/SUM(r.spend) END                               AS roas,
+        CASE WHEN SUM(r.impressions) > 0
+             THEN SUM(r.clicks)::FLOAT/SUM(r.impressions)*100 END             AS ctr,
+        CASE WHEN SUM(r.clicks) > 0
+             THEN SUM(r.orders)::FLOAT/SUM(r.clicks)*100 END                  AS cvr
+      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE r
+      JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = r.client_id
+      WHERE r.date BETWEEN ? AND ?
+        AND r.client_id IN (${placeholders})
+        ${marketplaceFilter}
+      GROUP BY r.client_id, c.company_name, c.name,
+               r.campaign_id, r.campaign_name, r.ad_type
+      ORDER BY spend DESC
+    `;
+
+    binds = [startDate, endDate, ...clientIds];
+    if (marketplace && marketplace !== 'all') binds.push(marketplace);
+
+  } else {
+    // summary (default) — one row per client
+    columns = ['client_id', 'client_name', 'spend', 'sales', 'orders',
+               'impressions', 'clicks', 'ntb_orders', 'ntb_sales',
+               'acos', 'roas', 'ctr', 'cvr'];
+
+    sql = `
+      SELECT
+        r.client_id,
+        COALESCE(c.company_name, c.name) AS client_name,
+        SUM(r.spend)                                                           AS spend,
+        SUM(r.sales)                                                           AS sales,
+        SUM(r.orders)                                                          AS orders,
+        SUM(r.impressions)                                                     AS impressions,
+        SUM(r.clicks)                                                          AS clicks,
+        SUM(r.ntb_purchases)                                                   AS ntb_orders,
+        SUM(r.ntb_sales)                                                       AS ntb_sales,
+        CASE WHEN SUM(r.sales) > 0
+             THEN SUM(r.spend)/SUM(r.sales)*100 END                           AS acos,
+        CASE WHEN SUM(r.spend) > 0
+             THEN SUM(r.sales)/SUM(r.spend) END                               AS roas,
+        CASE WHEN SUM(r.impressions) > 0
+             THEN SUM(r.clicks)::FLOAT/SUM(r.impressions)*100 END             AS ctr,
+        CASE WHEN SUM(r.clicks) > 0
+             THEN SUM(r.orders)::FLOAT/SUM(r.clicks)*100 END                  AS cvr
+      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE r
+      JOIN CALBRIDGE_PROD.APP.clients c ON c.client_id = r.client_id
+      WHERE r.date BETWEEN ? AND ?
+        AND r.client_id IN (${placeholders})
+        ${marketplaceFilter}
+      GROUP BY r.client_id, c.company_name, c.name
+      ORDER BY spend DESC
+    `;
+
+    binds = [startDate, endDate, ...clientIds];
+    if (marketplace && marketplace !== 'all') binds.push(marketplace);
+  }
+
+  const rawRows = await query(sql.trim(), binds);
+
+  // Normalise column names to lowercase (Snowflake returns uppercase keys)
+  const rows = rawRows.map(r => {
+    const out = {};
+    for (const col of columns) {
+      const val = r[col.toUpperCase()] !== undefined ? r[col.toUpperCase()] : r[col];
+      out[col] = val !== undefined ? val : null;
+    }
+    return out;
+  });
+
+  return { rows, columns };
+}
+
+// ─── Helper: Parse + validate report params ───────────────────────────────────
+function parseReportParams(params) {
+  const { clients, startDate, endDate, reportType = 'summary', marketplace = 'all' } = params;
+
+  if (!startDate || !endDate) {
+    return { error: 'startDate and endDate are required', status: 400 };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return { error: 'startDate and endDate must be YYYY-MM-DD', status: 400 };
+  }
+
+  const start = new Date(startDate);
+  const end   = new Date(endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return { error: 'Invalid date values', status: 400 };
+  }
+  if (end < start) {
+    return { error: 'endDate must be >= startDate', status: 400 };
+  }
+  const diffDays = Math.round((end - start) / 86400000);
+  if (diffDays > 90) {
+    return { error: 'Date range cannot exceed 90 days', status: 400 };
+  }
+
+  const validReportTypes = ['summary', 'campaign', 'daily'];
+  if (!validReportTypes.includes(reportType)) {
+    return { error: `reportType must be one of: ${validReportTypes.join(', ')}`, status: 400 };
+  }
+
+  // Parse + sanitize client_ids
+  let clientIds;
+  if (!clients || clients === 'all') {
+    clientIds = 'all';
+  } else {
+    const raw = String(clients).split(',').map(s => s.trim()).filter(Boolean);
+    const invalid = raw.filter(id => !isValidUUID(id));
+    if (invalid.length) {
+      return { error: `Invalid client_id(s): ${invalid.join(', ')}`, status: 400 };
+    }
+    clientIds = raw;
+    if (clientIds.length === 0) {
+      return { error: 'clients list is empty', status: 400 };
+    }
+  }
+
+  return { clientIds, startDate, endDate, reportType, marketplace };
+}
+
+// ─── GET /agency/reports/clients ────────────────────────────────────────────
+// Returns all active clients the agency can report on.
+
+agencyRouter.get('/reports/clients', async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT client_id, COALESCE(company_name, name) AS name
+       FROM CALBRIDGE_PROD.APP.clients
+       WHERE status = 'active'
+       ORDER BY name`
+    );
+
+    const result = rows.map(r => ({
+      clientId: r.CLIENT_ID || r.client_id,
+      name:     r.NAME      || r.name,
+    }));
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[GET /agency/reports/clients]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── GET /agency/reports/advertising ────────────────────────────────────────
+// Returns advertising performance data for one or more clients.
+// Query params: clients, startDate, endDate, reportType, marketplace
+
+agencyRouter.get('/reports/advertising', async (req, res) => {
+  try {
+    const parsed = parseReportParams(req.query);
+    if (parsed.error) return res.status(parsed.status).json({ error: parsed.error });
+
+    let { clientIds, startDate, endDate, reportType, marketplace } = parsed;
+
+    // Resolve 'all' → fetch all active client_ids
+    if (clientIds === 'all') {
+      const allRows = await query(
+        `SELECT client_id FROM CALBRIDGE_PROD.APP.clients WHERE status = 'active'`
+      );
+      clientIds = allRows.map(r => r.CLIENT_ID || r.client_id).filter(Boolean);
+    }
+
+    if (clientIds.length === 0) {
+      return res.json({
+        rows: [], columns: [], reportType,
+        dateRange: { startDate, endDate },
+      });
+    }
+
+    const { rows, columns } = await runAdvertisingReport({
+      clientIds, startDate, endDate, reportType, marketplace,
+    });
+
+    return res.json({ rows, columns, reportType, dateRange: { startDate, endDate } });
+  } catch (err) {
+    console.error('[GET /agency/reports/advertising]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── POST /agency/reports/export-csv ────────────────────────────────────────
+// Builds and downloads a CSV of the report query.
+// Body: same params as GET /agency/reports/advertising
+
+agencyRouter.post('/reports/export-csv', async (req, res) => {
+  try {
+    const parsed = parseReportParams(req.body);
+    if (parsed.error) return res.status(parsed.status).json({ error: parsed.error });
+
+    let { clientIds, startDate, endDate, reportType, marketplace } = parsed;
+
+    if (clientIds === 'all') {
+      const allRows = await query(
+        `SELECT client_id FROM CALBRIDGE_PROD.APP.clients WHERE status = 'active'`
+      );
+      clientIds = allRows.map(r => r.CLIENT_ID || r.client_id).filter(Boolean);
+    }
+
+    if (clientIds.length === 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="calbridge-agency-report-${today}.csv"`);
+      return res.send('');
+    }
+
+    const { rows, columns } = await runAdvertisingReport({
+      clientIds, startDate, endDate, reportType, marketplace,
+    });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const csv = buildCsv(columns, rows);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="calbridge-agency-report-${today}.csv"`);
+    return res.send(csv);
+  } catch (err) {
+    console.error('[POST /agency/reports/export-csv]', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
 module.exports.agencyRouter = agencyRouter;
