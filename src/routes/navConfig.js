@@ -8,7 +8,7 @@ const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
 const { getConnectionStatus } = require('../services/amazonAuthService');
 
-const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/advertising', '/pacing', '/reports', '/account'];
+const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/inventory', '/advertising', '/pacing', '/reports', '/account'];
 
 /**
  * GET /nav-config
@@ -60,20 +60,22 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       }
     } catch (_) { /* non-fatal, fall back to global */ }
 
-    // hasRetail = has either Seller or Vendor for current marketplace (drives overview visibility)
-    const hasRetail = hasVendor || hasSeller; // global — overview visible if any retail connected
+    // Simple consistent rule: connected for this marketplace = visible, otherwise grayed
+    // Same logic applies to US and every other marketplace
     const hasRetailForMarketplace = hasVendorForMarketplace || hasSellerForMarketplace;
 
+    const vis  = (connected) => connected ? 'visible' : 'grayed';
+    const gate = (connected) => connected ? 'visible' : 'locked'; // locked = need to connect at all
+
     const config = {
-      // Overview: grayed when no retail connected globally — ads-only clients land on /advertising
-      '/':            hasRetail ? 'visible' : 'grayed',
-      '/advertising': hasAds    ? 'visible' : 'locked',
-      '/pacing':      hasAds    ? 'visible' : 'locked',
-      // Retail tabs: grayed when no retail for active marketplace, locked if no connection at all
-      '/vendor':      hasVendorForMarketplace ? 'visible' : (hasVendor ? 'grayed' : 'locked'),
-      '/seller':      hasSellerForMarketplace ? 'visible' : (hasSeller ? 'grayed' : 'locked'),
-      '/forecasting': hasVendorForMarketplace ? 'visible' : (hasVendor ? 'grayed' : 'locked'),
-      '/cogs':        hasSellerForMarketplace ? 'visible' : (hasSeller ? 'grayed' : 'locked'),
+      '/':            vis(hasRetailForMarketplace),
+      '/advertising': gate(hasAds),
+      '/pacing':      gate(hasAds),
+      '/vendor':      vis(hasVendorForMarketplace),
+      '/seller':      vis(hasSellerForMarketplace),
+      '/forecasting': vis(hasVendorForMarketplace),
+      '/inventory':   vis(hasSellerForMarketplace || hasVendorForMarketplace),
+      '/cogs':        vis(hasSellerForMarketplace),
       '/reports':     isProPlus ? 'visible' : 'grayed',
       '/account':     'visible',
     };
@@ -91,21 +93,14 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
 
     // Reasons for locked paths — frontend can show as tooltips
     const reasons = {
-      '/':            hasRetail ? null : 'No retail connections yet — overview not available',
-      '/advertising': hasAds    ? null : 'Connect your Amazon Ads account to unlock advertising analytics',
-      '/pacing':      hasAds    ? null : 'Connect your Amazon Ads account to unlock budget pacing',
-      '/vendor':      hasVendorForMarketplace ? null
-                    : hasVendor ? `No Vendor Central connection for ${activeMarketplace} marketplace`
-                    : 'Connect your Vendor Central account to unlock vendor analytics',
-      '/seller':      hasSellerForMarketplace ? null
-                    : hasSeller ? `No Seller Central connection for ${activeMarketplace} marketplace`
-                    : 'Connect your Seller Central account to unlock seller analytics',
-      '/forecasting': hasVendorForMarketplace ? null
-                    : hasVendor ? `No Vendor Central connection for ${activeMarketplace} marketplace`
-                    : 'Connect your Vendor Central account to unlock demand forecasting',
-      '/cogs':        hasSellerForMarketplace ? null
-                    : hasSeller ? `No Seller Central connection for ${activeMarketplace} marketplace`
-                    : 'Connect your Seller Central account to unlock COGS analytics',
+      '/':            hasRetailForMarketplace ? null : `No retail connections for ${activeMarketplace}`,
+      '/advertising': hasAds ? null : 'Connect your Amazon Ads account to unlock advertising analytics',
+      '/pacing':      hasAds ? null : 'Connect your Amazon Ads account to unlock budget pacing',
+      '/vendor':      hasVendorForMarketplace ? null : `No Vendor Central connection for ${activeMarketplace}`,
+      '/seller':      hasSellerForMarketplace ? null : `No Seller Central connection for ${activeMarketplace}`,
+      '/forecasting': hasVendorForMarketplace ? null : `No Vendor Central connection for ${activeMarketplace}`,
+      '/inventory':   (hasSellerForMarketplace || hasVendorForMarketplace) ? null : `No retail connections for ${activeMarketplace}`,
+      '/cogs':        hasSellerForMarketplace ? null : `No Seller Central connection for ${activeMarketplace}`,
       '/reports':     isProPlus ? null : 'Report Builder requires Pro plan or above',
     };
 
@@ -116,7 +111,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       activeMarketplace,
       hasRetail,
       // landingPath: frontend uses this to redirect on login when overview is grayed
-      landingPath: hasRetail ? '/' : (hasAds ? '/advertising' : '/account'),
+      landingPath: hasRetailForMarketplace ? '/' : (hasAds ? '/advertising' : '/account'),
     });
   } catch (err) { next(err); }
 });
