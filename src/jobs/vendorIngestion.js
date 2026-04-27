@@ -551,13 +551,14 @@ async function _ingestVendorReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
 
   await sleep(2000);
 
-  // ── 4b. Vendor Inventory DAY grain (second pass for sell-through/fill-rate fields) ──
-  // Pull a second DAY-grain pass over the same 30-day window to supplement the first
-  // inventory request, picking up any additional fields Amazon returns for the same dates.
+  // ── 4b. Vendor Inventory DAY grain (second pass — older 14-day window for sell-through/fill-rate fields) ──
+  // Fixed 2026-04-27: 30-day window causes FATAL — max confirmed window is 14 days.
+  // This pass covers the prior 14-day window (daysAgo(32)→daysAgo(18)) to overlap with the
+  // first pass (daysAgo(17)→daysAgo(3)) and provide a rolling 29-day view.
   try {
-    const invEndDate   = daysAgo(3);
+    const invEndDate   = daysAgo(18);
     const invWeekStart = daysAgo(32);
-    console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT (DAY grain, 30d)...');
+    console.log('[vendorIngestion] Requesting GET_VENDOR_INVENTORY_REPORT (DAY grain, older 14d)...');
     const invWeekData = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
       reportPeriod:     'DAY',
       distributorView:  'SOURCING',
