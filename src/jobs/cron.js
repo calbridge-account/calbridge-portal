@@ -176,6 +176,10 @@ const JOB_HANDLERS = {
   // Score all campaigns for efficiency and write to CAMPAIGN_MARGINAL_ROAS.
   score_marginal_roas: () => require('../services/marginalRoasService').scoreAllClients(),
 
+  // ── Daily data freshness report ───────────────────────────────────────────
+  // Email abe@teamcalbridge.com a table showing MAX(ingested_at) per client per source.
+  data_freshness_report: () => require('../services/dataFreshnessReport').sendFreshnessReport(),
+
   // ── Data settlement — Amazon attribution windows ───────────────────────────
   // D-3→D-14: daily re-pull (attribution still closing)
   settle_recent_data:      () => require('./dataSettlement').settleRecentData({ triggeredBy: 'cron' }),
@@ -591,6 +595,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'ingest_vendor_weekly',
     expr:  '0 8 * * 1',     // weekly Monday 08:00 UTC — forecasts (48h after Amazon Sat SLA)
+  },
+  {
+    jobId: 'data_freshness_report',
+    expr:  '0 8 * * *',     // daily 08:00 UTC — data freshness email to abe@teamcalbridge.com
   },
   // ingest_vendor_reports kept disabled (legacy/manual trigger only)
 

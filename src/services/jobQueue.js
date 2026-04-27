@@ -69,6 +69,9 @@ const JOB_QUEUE_MAP = {
   refresh_queue_status:         'light',
   sync_job_metadata:            'light',
 
+  // Light: daily reporting emails — fast queries + email, no heavy Snowflake holding
+  data_freshness_report:        'light',
+
   // Heavy: ingestion, staging, model builds — hold Snowflake connections, must be serialized
   submit_amazon_reports:        'heavy',
   download_completed_reports:   'light',  // moved from heavy — must never be blocked by long vendor/DSP jobs
