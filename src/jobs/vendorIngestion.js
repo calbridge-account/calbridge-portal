@@ -2,12 +2,17 @@
  * Vendor Central (SP-API) retail data ingestion
  *
  * Pulls 6 report types on a rolling basis:
- *   - GET_VENDOR_SALES_REPORT          → VENDOR_SALES (DAY grain, 15-day window)
- *   - GET_VENDOR_INVENTORY_REPORT      → VENDOR_INVENTORY (DAY grain, 15-day window)
- *   - GET_VENDOR_TRAFFIC_REPORT        → VENDOR_TRAFFIC (DAY grain, 30-day rolling window)
- *   - GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT → VENDOR_NET_PPM (DAY grain, 30-day rolling window)
- *   - GET_VENDOR_FORECASTING_REPORT    → VENDOR_FORECASTS (most recent week only)
- *   - GET_VENDOR_REAL_TIME_INVENTORY_REPORT → VENDOR_INVENTORY (supplemental, 24h window)
+ *   REALTIME (every 6h):
+ *     - GET_VENDOR_REAL_TIME_SALES_REPORT      → VENDOR_SALES (hourly, last 24h)
+ *     - GET_VENDOR_REAL_TIME_INVENTORY_REPORT  → VENDOR_INVENTORY (snapshot, last 24h)
+ *   DAILY (06:30 UTC, ~2 API calls):
+ *     - GET_VENDOR_SALES_REPORT          → VENDOR_SALES (DAY grain, D-17→D-3)
+ *     - GET_VENDOR_INVENTORY_REPORT      → VENDOR_INVENTORY (DAY grain, D-17→D-3)
+ *   WEEKLY (Monday 08:00 UTC, ~5 API calls):
+ *     - GET_VENDOR_FORECASTING_REPORT    → VENDOR_FORECASTS (most recent week only)
+ *     - GET_VENDOR_TRAFFIC_REPORT        → VENDOR_TRAFFIC (DAY grain, D-32→D-3)
+ *     - GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT → VENDOR_NET_PPM (DAY grain, D-32→D-3)
+ *     - GET_VENDOR_INVENTORY_REPORT      → VENDOR_INVENTORY older window (DAY grain, D-32→D-18)
  *
  * Data lag: DAY reports available ~72h after close; WEEK available end-of-Monday.
  * All report parameters use date-only strings (YYYY-MM-DD), not ISO timestamps.
@@ -456,7 +461,8 @@ async function _ingestVendorRealtimeReports(clientId, marketplaceId) {
 
 /**
  * DAILY reports — runs once/day at 06:30 UTC.
- * Sales (DAY), Inventory (DAY x2), Traffic, NetPPM
+ * Only ~2 API calls: Sales (DAY, D-17→D-3) + Inventory pass 1 (DAY, D-17→D-3).
+ * Traffic, NetPPM, and older inventory pass moved to weekly to reduce daily load.
  */
 async function ingestVendorDailyReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
   return withTimeout(() => _ingestVendorDailyReports(clientId, marketplaceId), 15 * 60 * 1000, 'ingestVendorDailyReports');
@@ -493,19 +499,37 @@ async function _ingestVendorDailyReports(clientId, marketplaceId) {
     console.log(`[vendorIngestion] VENDOR_INVENTORY: ${results.vendorInventory} rows`);
   } catch (err) { console.warn('[vendorIngestion] VENDOR_INVENTORY failed:', err.message.slice(0, 100)); results.vendorInventory = 0; }
 
-  await sleep(2000);
+  console.log(`[vendorIngestion] Daily done — ${totalWritten} rows written (traffic/netPPM/older-inventory run weekly)`, results);
+  return { recordsWritten: totalWritten, breakdown: results };
+}
 
-  // ── Inventory pass 2 (DAY grain, D-32→D-18 — older window) ───────────────
+/**
+ * WEEKLY reports — runs Monday 08:00 UTC (48h after Saturday Amazon SLA close).
+ * ~5 API calls: Forecasts + Traffic (D-32→D-3) + NetPPM (D-32→D-3) + Inventory older window (D-32→D-18).
+ * Traffic, NetPPM, and older inventory pass moved here from daily to reduce daily load.
+ */
+async function ingestVendorWeeklyReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
+  return withTimeout(() => _ingestVendorWeeklyReports(clientId, marketplaceId), 20 * 60 * 1000, 'ingestVendorWeeklyReports');
+}
+
+async function _ingestVendorWeeklyReports(clientId, marketplaceId) {
+  const client = await spClient(clientId);
+  const results = {};
+  let totalWritten = 0;
+
+  // ── Forecasts (WEEK grain, most recent completed week) ────────────────────
   try {
-    const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
-      reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
-      dataStartTime: daysAgo(32), dataEndTime: daysAgo(18),
+    const data = await requestAndDownload(client, 'GET_VENDOR_FORECASTING_REPORT', {
+      sellingProgram: 'RETAIL',
     }, marketplaceId);
-    const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
-    results.vendorInventoryOlder = await writeVendorInventory(clientId, rows);
-    totalWritten += results.vendorInventoryOlder;
-    console.log(`[vendorIngestion] VENDOR_INVENTORY (older): ${results.vendorInventoryOlder} rows`);
-  } catch (err) { console.warn('[vendorIngestion] VENDOR_INVENTORY (older) failed:', err.message.slice(0, 100)); results.vendorInventoryOlder = 0; }
+    const rows = Array.isArray(data) ? data : (data?.reportData || data?.forecastByAsin || []);
+    results.vendorForecasts = await writeVendorForecasts(clientId, rows);
+    totalWritten += results.vendorForecasts;
+    console.log(`[vendorIngestion] VENDOR_FORECASTS (weekly): ${results.vendorForecasts} rows written`);
+  } catch (err) {
+    console.warn('[vendorIngestion] VENDOR_FORECASTS failed:', err.message.slice(0, 120));
+    results.vendorForecasts = 0;
+  }
 
   await sleep(2000);
 
@@ -517,7 +541,7 @@ async function _ingestVendorDailyReports(clientId, marketplaceId) {
     const rows = Array.isArray(data) ? data : (data?.reportData || data?.trafficByAsin || []);
     results.vendorTraffic = await writeVendorTraffic(clientId, rows);
     totalWritten += results.vendorTraffic;
-    console.log(`[vendorIngestion] VENDOR_TRAFFIC: ${results.vendorTraffic} rows`);
+    console.log(`[vendorIngestion] VENDOR_TRAFFIC (weekly): ${results.vendorTraffic} rows`);
   } catch (err) { console.warn('[vendorIngestion] VENDOR_TRAFFIC failed:', err.message.slice(0, 100)); results.vendorTraffic = 0; }
 
   await sleep(2000);
@@ -530,35 +554,25 @@ async function _ingestVendorDailyReports(clientId, marketplaceId) {
     const rows = Array.isArray(data) ? data : (data?.netPureProductMarginByAsin || data?.reportData || data?.netPpmByAsin || []);
     results.vendorNetPpm = await writeVendorNetPpm(clientId, rows);
     totalWritten += results.vendorNetPpm;
-    console.log(`[vendorIngestion] VENDOR_NET_PPM: ${results.vendorNetPpm} rows`);
+    console.log(`[vendorIngestion] VENDOR_NET_PPM (weekly): ${results.vendorNetPpm} rows`);
   } catch (err) { console.warn('[vendorIngestion] VENDOR_NET_PPM failed:', err.message.slice(0, 100)); results.vendorNetPpm = 0; }
 
-  console.log(`[vendorIngestion] Daily done — ${totalWritten} rows written`, results);
-  return { recordsWritten: totalWritten, breakdown: results };
-}
+  await sleep(2000);
 
-/**
- * WEEKLY reports — runs Monday 08:00 UTC (48h after Saturday Amazon SLA close).
- * GET_VENDOR_FORECASTING_REPORT only.
- */
-async function ingestVendorWeeklyReports(clientId, marketplaceId = 'ATVPDKIKX0DER') {
-  return withTimeout(() => _ingestVendorWeeklyReports(clientId, marketplaceId), 10 * 60 * 1000, 'ingestVendorWeeklyReports');
-}
-
-async function _ingestVendorWeeklyReports(clientId, marketplaceId) {
-  const client = await spClient(clientId);
+  // ── Inventory pass 2 (DAY grain, D-32→D-18 — older window) ───────────────
   try {
-    const data = await requestAndDownload(client, 'GET_VENDOR_FORECASTING_REPORT', {
-      sellingProgram: 'RETAIL',
+    const data = await requestAndDownload(client, 'GET_VENDOR_INVENTORY_REPORT', {
+      reportPeriod: 'DAY', distributorView: 'SOURCING', sellingProgram: 'RETAIL',
+      dataStartTime: daysAgo(32), dataEndTime: daysAgo(18),
     }, marketplaceId);
-    const rows = Array.isArray(data) ? data : (data?.reportData || data?.forecastByAsin || []);
-    const written = await writeVendorForecasts(clientId, rows);
-    console.log(`[vendorIngestion] VENDOR_FORECASTS (weekly): ${written} rows written`);
-    return { recordsWritten: written, breakdown: { vendorForecasts: written } };
-  } catch (err) {
-    console.warn('[vendorIngestion] VENDOR_FORECASTS failed:', err.message.slice(0, 120));
-    return { recordsWritten: 0, breakdown: { vendorForecasts: 0 } };
-  }
+    const rows = Array.isArray(data) ? data : (data?.reportData || data?.inventoryByAsin || []);
+    results.vendorInventoryOlder = await writeVendorInventory(clientId, rows);
+    totalWritten += results.vendorInventoryOlder;
+    console.log(`[vendorIngestion] VENDOR_INVENTORY older window (weekly): ${results.vendorInventoryOlder} rows`);
+  } catch (err) { console.warn('[vendorIngestion] VENDOR_INVENTORY (older) failed:', err.message.slice(0, 100)); results.vendorInventoryOlder = 0; }
+
+  console.log(`[vendorIngestion] Weekly done — ${totalWritten} rows written`, results);
+  return { recordsWritten: totalWritten, breakdown: results };
 }
 
 /**
