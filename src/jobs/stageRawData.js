@@ -665,7 +665,6 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             MAX(top_of_search_impression_share)                  AS top_of_search_impression_share
           FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
           WHERE date >= DATEADD('day', -95, CURRENT_DATE())
-            AND COALESCE(marketplace, 'US') != 'CA'
           GROUP BY client_id, date::DATE, ad_type, campaign_id, campaign_name
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date

@@ -849,7 +849,7 @@ router.get('/budget-pacing', requireAuth, planDataWindow, async (req, res, next)
         CASE WHEN c.budget IS NOT NULL AND c.budget > 0
           THEN (c.budget * ?) * (? / ?)
           ELSE NULL END                                  AS expected_mtd_spend
-      FROM CALBRIDGE_PROD.APP.ADJUSTED_CAMPAIGN_PERFORMANCE r
+      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE r
       LEFT JOIN ad_campaigns c
         ON  c.client_id    = r.client_id
         AND c.campaign_id  = r.campaign_id
