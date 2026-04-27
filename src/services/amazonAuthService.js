@@ -2,6 +2,7 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const authService = require('./authService');
 const { query } = require('./snowflakeService');
+const { encrypt, decrypt } = require('./tokenEncryption');
 
 const LWA_AUTH_URL    = 'https://www.amazon.com/ap/oa';
 const LWA_TOKEN_URL   = 'https://api.amazon.com/auth/o2/token';
@@ -178,8 +179,8 @@ async function getValidToken(clientId, type) {
   }
 
   if (credRow) {
-    const accessToken  = credRow.ACCESS_TOKEN;
-    const refreshToken = credRow.REFRESH_TOKEN;
+    const accessToken  = decrypt(credRow.ACCESS_TOKEN);
+    const refreshToken = decrypt(credRow.REFRESH_TOKEN);
     const credentialId = credRow.CREDENTIAL_ID;
     const expiresAt    = credRow.TOKEN_EXPIRES_AT ? new Date(credRow.TOKEN_EXPIRES_AT).getTime() : 0;
     const shouldRefresh = expiresAt - Date.now() < 30 * 60 * 1000;
@@ -189,7 +190,7 @@ async function getValidToken(clientId, type) {
       const newExpiresAt = new Date(refreshed.expiresAt).getTime();
       const newExpiresAtSf = refreshed.expiresAt.replace('T', ' ').replace('Z', '');
 
-      // Write back to amazon_connections
+      // Write back to amazon_connections (encrypt before storing)
       try {
         await query(`
           UPDATE CALBRIDGE_PROD.APP.amazon_connections
@@ -197,7 +198,7 @@ async function getValidToken(clientId, type) {
                  expires_at   = ?,
                  updated_at   = CURRENT_TIMESTAMP()
           WHERE  credential_id = ?
-        `, [refreshed.accessToken, newExpiresAtSf, credentialId]);
+        `, [encrypt(refreshed.accessToken), newExpiresAtSf, credentialId]);
       } catch (err) {
         console.warn(`[AmazonAuth] Failed to update amazon_connections on refresh: ${err.message}`);
       }
@@ -301,7 +302,7 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
     `, [clientId, type]);
 
     if (existing.length > 0) {
-      // UPDATE existing row
+      // UPDATE existing row (encrypt tokens before storing)
       await query(`
         UPDATE CALBRIDGE_PROD.APP.amazon_connections
         SET    account_id    = ?,
@@ -314,14 +315,14 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
         WHERE  credential_id = ?
       `, [
         accountId,
-        tokens.accessToken,
-        tokens.refreshToken,
+        encrypt(tokens.accessToken),
+        encrypt(tokens.refreshToken),
         tokenExpiresAtSf,
         connectedAtSf,
         existing[0].CREDENTIAL_ID,
       ]);
     } else {
-      // INSERT new row
+      // INSERT new row (encrypt tokens before storing)
       const credentialId = uuidv4();
       await query(`
         INSERT INTO CALBRIDGE_PROD.APP.amazon_connections
@@ -334,8 +335,8 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
         accountId,
         clientId,
         type,
-        tokens.accessToken,
-        tokens.refreshToken,
+        encrypt(tokens.accessToken),
+        encrypt(tokens.refreshToken),
         tokenExpiresAtSf,
         connectedAtSf,
       ]);
