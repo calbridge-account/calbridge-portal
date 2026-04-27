@@ -75,192 +75,19 @@ async function getActiveAccounts() {
  * Uses MERGE on (client_id, account_id, ad_type, campaign_id, date).
  * Only processes rows not yet in ANALYTICS (based on source_report_id freshness).
  */
+// stageSpCampaignsToAnalytics: retired 2026-04-27 — RAW.SP_CAMPAIGNS no longer exists.
+// Data flows directly to RAW.AD_CAMPAIGN via PIPELINE_DIRECT_RAW_WRITE path.
 async function stageSpCampaignsToAnalytics(clientId, accountId, pipelineRunId) {
-  const result = await query(`
-    MERGE INTO CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE tgt
-    USING (
-      SELECT
-        r.report_id                                         AS source_report_id,
-        ?                                                   AS transform_version,
-        r.client_id,
-        r.account_id,
-        'SP'                                               AS ad_type,
-        r.campaign_id,
-        r.date,
-        NULL                                               AS ad_group_id,
-        NULL                                               AS asin,
-        r.campaign_name,
-        r.campaign_status,
-        r.campaign_budget_amount,
-        r.campaign_budget_currency_code,
-        COALESCE(r.impressions, 0)                         AS impressions,
-        COALESCE(r.clicks, 0)                              AS clicks,
-        COALESCE(r.cost, 0)                                AS cost,
-        r.purchases_30_d                                   AS purchases_30d,
-        r.sales_30_d                                       AS sales_30d,
-        r.units_sold_clicks_30_d                           AS units_sold_30d,
-        NULL                                               AS new_to_brand_purchases,
-        NULL                                               AS new_to_brand_sales,
-        NULL                                               AS detail_page_views,
-        NULL                                               AS add_to_cart,
-        -- Derived metrics (compute at stage time)
-        CASE WHEN r.sales_30_d > 0 THEN r.cost / r.sales_30_d * 100 END AS acos,
-        CASE WHEN r.cost > 0       THEN r.sales_30_d / r.cost END        AS roas,
-        CASE WHEN r.impressions > 0 THEN r.clicks::FLOAT / r.impressions END AS ctr,
-        CASE WHEN r.clicks > 0      THEN r.cost / r.clicks END           AS cpc,
-        CASE WHEN r.clicks > 0      THEN r.purchases_30_d::FLOAT / r.clicks END AS cvr,
-        ?                                                   AS pipeline_run_id
-      FROM CALBRIDGE_PROD.RAW.SP_CAMPAIGNS r
-      WHERE r.client_id  = ?
-        AND r.account_id = ?
-        -- Only unprocessed rows (not yet in analytics or superseded by newer report)
-        AND NOT EXISTS (
-          SELECT 1 FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE a
-          WHERE a.client_id   = r.client_id
-            AND a.account_id  = r.account_id
-            AND a.ad_type     = 'SP'
-            AND a.campaign_id = r.campaign_id
-            AND a.date        = r.date
-            AND a.source_report_id = r.report_id
-        )
-    ) src
-    ON  tgt.client_id   = src.client_id
-    AND tgt.account_id  = src.account_id
-    AND tgt.ad_type     = src.ad_type
-    AND tgt.campaign_id = src.campaign_id
-    AND tgt.date        = src.date
-    WHEN MATCHED THEN UPDATE SET
-      source_report_id            = src.source_report_id,
-      transform_version           = src.transform_version,
-      updated_at                  = CURRENT_TIMESTAMP(),
-      campaign_name               = src.campaign_name,
-      campaign_status             = src.campaign_status,
-      campaign_budget_amount      = src.campaign_budget_amount,
-      campaign_budget_currency_code = src.campaign_budget_currency_code,
-      impressions                 = src.impressions,
-      clicks                      = src.clicks,
-      cost                        = src.cost,
-      purchases_30d               = src.purchases_30d,
-      sales_30d                   = src.sales_30d,
-      units_sold_30d              = src.units_sold_30d,
-      acos                        = src.acos,
-      roas                        = src.roas,
-      ctr                         = src.ctr,
-      cpc                         = src.cpc,
-      cvr                         = src.cvr,
-      pipeline_run_id             = src.pipeline_run_id
-    WHEN NOT MATCHED THEN INSERT (
-      source_report_id, transform_version, updated_at,
-      client_id, account_id, ad_type, campaign_id, date,
-      ad_group_id, asin,
-      campaign_name, campaign_status, campaign_budget_amount, campaign_budget_currency_code,
-      impressions, clicks, cost,
-      purchases_30d, sales_30d, units_sold_30d,
-      new_to_brand_purchases, new_to_brand_sales,
-      detail_page_views, add_to_cart,
-      acos, roas, ctr, cpc, cvr,
-      pipeline_run_id
-    ) VALUES (
-      src.source_report_id, src.transform_version, CURRENT_TIMESTAMP(),
-      src.client_id, src.account_id, src.ad_type, src.campaign_id, src.date,
-      src.ad_group_id, src.asin,
-      src.campaign_name, src.campaign_status, src.campaign_budget_amount, src.campaign_budget_currency_code,
-      src.impressions, src.clicks, src.cost,
-      src.purchases_30d, src.sales_30d, src.units_sold_30d,
-      src.new_to_brand_purchases, src.new_to_brand_sales,
-      src.detail_page_views, src.add_to_cart,
-      src.acos, src.roas, src.ctr, src.cpc, src.cvr,
-      src.pipeline_run_id
-    )
-  `, [TRANSFORM_VERSION, pipelineRunId, clientId, accountId]);
-
-  // Snowflake MERGE returns number of rows in result set — not rows affected directly
-  // Parse the result: [{number of rows inserted}, {number of rows updated}]
-  return Array.isArray(result) ? result.reduce((sum, r) => sum + Number(Object.values(r)[0] || 0), 0) : 0;
+  return 0;
 }
 
-/**
- * Transform RAW_SP_API.SALES_TRAFFIC → ANALYTICS.RETAIL_PERFORMANCE.
- */
+
+// stageSalesTrafficToAnalytics: retired 2026-04-27 — RAW.SALES_TRAFFIC no longer exists.
+// Data flows directly to RAW.RETAIL_SALES_TRAFFIC via sellerIngestion.
 async function stageSalesTrafficToAnalytics(clientId, accountId, pipelineRunId) {
-  const result = await query(`
-    MERGE INTO CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE tgt
-    USING (
-      SELECT
-        r.report_id                       AS source_report_id,
-        ?                                 AS transform_version,
-        r.client_id,
-        r.account_id,
-        r.asin,
-        r.date,
-        r.marketplace_id,
-        r.ordered_product_sales           AS ordered_revenue,
-        COALESCE(r.units_ordered, 0)      AS units_ordered,
-        r.total_order_items,
-        r.units_refunded,
-        r.units_received,
-        r.sessions,
-        r.page_views,
-        r.buy_box_percentage,
-        r.unit_session_percentage,
-        r.ordered_product_sales_b2b       AS ordered_revenue_b2b,
-        COALESCE(r.units_ordered_b2b, 0)  AS units_ordered_b2b,
-        r.sessions_b2b,
-        ?                                 AS pipeline_run_id
-      FROM CALBRIDGE_PROD.RAW.SALES_TRAFFIC r
-      WHERE r.client_id  = ?
-        AND r.account_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE a
-          WHERE a.client_id     = r.client_id
-            AND a.account_id    = r.account_id
-            AND a.asin          = r.asin
-            AND a.date          = r.date
-            AND a.marketplace_id = r.marketplace_id
-            AND a.source_report_id = r.report_id
-        )
-    ) src
-    ON  tgt.client_id     = src.client_id
-    AND tgt.account_id    = src.account_id
-    AND tgt.asin          = src.asin
-    AND tgt.date          = src.date
-    AND tgt.marketplace_id = src.marketplace_id
-    WHEN MATCHED THEN UPDATE SET
-      source_report_id    = src.source_report_id,
-      transform_version   = src.transform_version,
-      updated_at          = CURRENT_TIMESTAMP(),
-      ordered_revenue     = src.ordered_revenue,
-      units_ordered       = src.units_ordered,
-      total_order_items   = src.total_order_items,
-      units_refunded      = src.units_refunded,
-      units_received       = src.units_received,
-      sessions            = src.sessions,
-      page_views          = src.page_views,
-      buy_box_percentage  = src.buy_box_percentage,
-      unit_session_percentage = src.unit_session_percentage,
-      ordered_revenue_b2b = src.ordered_revenue_b2b,
-      units_ordered_b2b   = src.units_ordered_b2b,
-      sessions_b2b        = src.sessions_b2b,
-      pipeline_run_id     = src.pipeline_run_id
-    WHEN NOT MATCHED THEN INSERT (
-      source_report_id, transform_version, updated_at,
-      client_id, account_id, asin, date, marketplace_id,
-      ordered_revenue, units_ordered, total_order_items, units_refunded, units_received,
-      sessions, page_views, buy_box_percentage, unit_session_percentage,
-      ordered_revenue_b2b, units_ordered_b2b, sessions_b2b,
-      pipeline_run_id
-    ) VALUES (
-      src.source_report_id, src.transform_version, CURRENT_TIMESTAMP(),
-      src.client_id, src.account_id, src.asin, src.date, src.marketplace_id,
-      src.ordered_revenue, src.units_ordered, src.total_order_items, src.units_refunded, src.units_received,
-      src.sessions, src.page_views, src.buy_box_percentage, src.unit_session_percentage,
-      src.ordered_revenue_b2b, src.units_ordered_b2b, src.sessions_b2b,
-      src.pipeline_run_id
-    )
-  `, [TRANSFORM_VERSION, pipelineRunId, clientId, accountId]);
-
-  return Array.isArray(result) ? result.reduce((sum, r) => sum + Number(Object.values(r)[0] || 0), 0) : 0;
+  return 0;
 }
+
 
 /**
  * Transform RAW_SP_API.FBA_INVENTORY → ANALYTICS.INVENTORY_SNAPSHOT.
@@ -687,11 +514,26 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
   const startMs = Date.now();
   try {
     // ── MARTS.AD_PERFORMANCE_DAILY ──────────────────────────────────────────────
-    // Single source: adjusted_campaign_performance covers all ad types (SP/SB/SD/DSP)
-    // with spend adjustments already applied. No separate DSP MERGE needed.
+    // Primary source: adjusted_campaign_performance (SP/SB/SD/DSP via legacy APP tables).
+    // Supplemental source: RAW.AD_CAMPAIGN for SP/SB rows newer than legacy tables
+    // (PIPELINE_DIRECT_RAW_WRITE path — recent days land in RAW before APP tables catch up).
     const result = await query(`
       MERGE INTO CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY tgt
       USING (
+        -- Outer dedup: sum both sources together, preventing duplicate MERGE keys
+        SELECT
+          client_id, date, marketplace, ad_type,
+          SUM(active_campaigns) AS active_campaigns,
+          SUM(spend)       AS spend,
+          SUM(sales)       AS sales,
+          SUM(orders)      AS orders,
+          SUM(clicks)      AS clicks,
+          SUM(impressions) AS impressions,
+          CASE WHEN SUM(sales) > 0       THEN SUM(spend) / SUM(sales)       ELSE NULL END AS acos,
+          CASE WHEN SUM(spend) > 0       THEN SUM(sales) / SUM(spend)       ELSE NULL END AS roas,
+          CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
+        FROM (
+        -- Primary: adjusted_campaign_performance (all types, spend adjustments applied)
         SELECT
           client_id,
           date::DATE                                              AS date,
@@ -715,6 +557,55 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
         FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
         WHERE date >= '2026-01-01'
         GROUP BY client_id, date::DATE, COALESCE(marketplace, 'US'), ad_type
+
+        UNION ALL
+
+        -- Supplemental: RAW.AD_CAMPAIGN for SP/SB rows newer than legacy APP tables
+        -- Fills the gap when PIPELINE_DIRECT_RAW_WRITE lands data before the APP tables update
+        SELECT
+          r.client_id,
+          r.date::DATE                                           AS date,
+          'US'                                                   AS marketplace,
+          CASE r.ad_product
+            WHEN 'SPONSORED_PRODUCTS' THEN 'SP'
+            WHEN 'SPONSORED_BRANDS'   THEN 'SB'
+            WHEN 'SPONSORED_DISPLAY'  THEN 'SD'
+            ELSE r.ad_product END                               AS ad_type,
+          COUNT(DISTINCT r.campaign_id)                          AS active_campaigns,
+          SUM(COALESCE(r.cost, 0))                               AS spend,
+          SUM(COALESCE(r.sales_30d, 0))                          AS sales,
+          SUM(COALESCE(r.purchases_30d, 0))                      AS orders,
+          SUM(COALESCE(r.clicks, 0))                             AS clicks,
+          SUM(COALESCE(r.impressions, 0))                        AS impressions,
+          CASE WHEN SUM(COALESCE(r.sales_30d, 0)) > 0
+            THEN SUM(COALESCE(r.cost, 0)) / SUM(COALESCE(r.sales_30d, 0))
+            ELSE NULL END                                        AS acos,
+          CASE WHEN SUM(COALESCE(r.cost, 0)) > 0
+            THEN SUM(COALESCE(r.sales_30d, 0)) / SUM(COALESCE(r.cost, 0))
+            ELSE NULL END                                        AS roas,
+          CASE WHEN SUM(COALESCE(r.impressions, 0)) > 0
+            THEN SUM(COALESCE(r.clicks, 0))::FLOAT / SUM(COALESCE(r.impressions, 0))
+            ELSE NULL END                                        AS ctr
+        FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
+        WHERE r.ad_product IN ('SPONSORED_PRODUCTS','SPONSORED_BRANDS','SPONSORED_DISPLAY')
+          AND r.date >= '2026-01-01'
+          -- Only use RAW rows for dates NOT covered by the legacy tables for that client+ad_type
+          -- This prevents double-counting when both sources have the same (client, date, ad_type)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance acp
+            WHERE acp.client_id = r.client_id
+              AND acp.date::DATE = r.date::DATE
+              AND acp.ad_type = CASE r.ad_product
+                WHEN 'SPONSORED_PRODUCTS' THEN 'SP'
+                WHEN 'SPONSORED_BRANDS'   THEN 'SB'
+                WHEN 'SPONSORED_DISPLAY'  THEN 'SD'
+                ELSE r.ad_product END
+              AND acp.spend > 0
+          )
+        GROUP BY r.client_id, r.date::DATE, ad_type
+        ) combined
+        GROUP BY client_id, date, marketplace, ad_type
       ) src
       ON  tgt.client_id   = src.client_id
       AND tgt.date        = src.date
@@ -764,7 +655,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(adjusted_spend, 0))                     AS spend,
             SUM(COALESCE(sales, 0))                              AS sales,
             SUM(COALESCE(orders, 0))                             AS orders,
-            MAX(sales_7_d)                                       AS sales_7d,
+            MAX(sales_7d)                                        AS sales_7d,
             MAX(orders_7d)                                       AS orders_7d,
             SUM(COALESCE(new_to_brand_purchases, 0))::FLOAT      AS ntb_purchases,
             SUM(COALESCE(new_to_brand_sales, 0))                 AS ntb_sales,
