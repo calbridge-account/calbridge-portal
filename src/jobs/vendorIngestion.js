@@ -286,39 +286,55 @@ async function writeVendorNetPpm(clientId, rows) {
 
 async function writeVendorForecasts(clientId, rows) {
   if (!Array.isArray(rows) || !rows.length) return 0;
-  let written = 0;
+  // Fixed 2026-04-27: was doing one MERGE per row (16,320 individual queries/run = ~$1,400/mo).
+  // Now batches 500 rows per MERGE using VALUES list — same pattern as writeVendorTraffic/NetPpm.
   const genDate = new Date().toISOString().split('T')[0];
-  for (const row of rows) {
-    const asin      = row.asin || row.parentAsin;
-    const startDate = row.startDate;
-    const endDate   = row.endDate;
-    if (!asin || !startDate) continue;
+  const BATCH = 500;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH).filter(r => (r.asin || r.parentAsin) && r.startDate);
+    if (!batch.length) continue;
+    const vals = batch.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
+    const params = batch.flatMap(row => [
+      clientId,
+      'vendor',
+      row.asin || row.parentAsin,
+      genDate,
+      row.startDate,
+      row.endDate || row.startDate,
+      row.meanForecastUnits || row.p50ForecastUnits || 0,
+      row.p70ForecastUnits  || null,
+      row.p80ForecastUnits  || null,
+      row.p90ForecastUnits  || null,
+    ]);
     await query(`
       MERGE INTO CALBRIDGE_PROD.APP.VENDOR_FORECASTS t
-      USING (SELECT ? AS client_id, ? AS connection_type, ? AS asin, ? AS forecast_generation_date, ? AS start_date) s
-      ON t.client_id = s.client_id AND t.asin = s.asin
-        AND t.forecast_generation_date = s.forecast_generation_date AND t.start_date = s.start_date
+      USING (
+        SELECT column1 AS client_id, column2 AS connection_type, column3 AS asin,
+               column4 AS forecast_generation_date, column5 AS start_date, column6 AS end_date,
+               column7 AS mean_forecast_units, column8 AS p70_forecast_units,
+               column9 AS p80_forecast_units, column10 AS p90_forecast_units
+        FROM VALUES ${vals}
+      ) s
+      ON  t.client_id = s.client_id
+      AND t.asin = s.asin
+      AND t.forecast_generation_date = s.forecast_generation_date
+      AND t.start_date = s.start_date
       WHEN MATCHED THEN UPDATE SET
-        end_date = ?, mean_forecast_units = ?, p70_forecast_units = ?,
-        p80_forecast_units = ?, p90_forecast_units = ?, synced_at = CURRENT_TIMESTAMP()
+        end_date = s.end_date,
+        mean_forecast_units = s.mean_forecast_units,
+        p70_forecast_units  = s.p70_forecast_units,
+        p80_forecast_units  = s.p80_forecast_units,
+        p90_forecast_units  = s.p90_forecast_units,
+        synced_at = CURRENT_TIMESTAMP()
       WHEN NOT MATCHED THEN INSERT
         (client_id, connection_type, asin, forecast_generation_date, start_date, end_date,
          mean_forecast_units, p70_forecast_units, p80_forecast_units, p90_forecast_units, synced_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP())
-    `, [
-      clientId, 'vendor', asin, genDate, startDate,
-      endDate,
-      row.meanForecastUnits      || row.p50ForecastUnits || 0,
-      row.p70ForecastUnits       || null,
-      row.p80ForecastUnits       || null,
-      row.p90ForecastUnits       || null,
-      clientId, 'vendor', asin, genDate, startDate, endDate,
-      row.meanForecastUnits      || row.p50ForecastUnits || 0,
-      row.p70ForecastUnits       || null,
-      row.p80ForecastUnits       || null,
-      row.p90ForecastUnits       || null,
-    ]);
-    written++;
+        VALUES (s.client_id, s.connection_type, s.asin, s.forecast_generation_date, s.start_date,
+                s.end_date, s.mean_forecast_units, s.p70_forecast_units, s.p80_forecast_units,
+                s.p90_forecast_units, CURRENT_TIMESTAMP())
+    `, params);
+    written += batch.length;
   }
   return written;
 }
