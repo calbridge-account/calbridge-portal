@@ -1912,27 +1912,10 @@ async function writeDspCampaignReport(clientId, profileId, reportDate, rows) {
     new_to_brand_purchases_clicks: r.newToBrandPurchasesClicks || null,
     new_to_brand_product_sales:   r.newToBrandProductSales || null,
   }));
-  // Write to dsp_order_report — canonical single-source table for DSP order-level data.
-  // Keyed on (client_id, profile_id, order_id, date) — order_id is full 64-bit string
-  // from json-bigint (storeAsString:true), no JS Number truncation.
-  const result = await batchMerge({
-    table: 'dsp_order_report',
-    keyColumns: ['client_id', 'profile_id', 'order_id', 'date'],
-    dataColumns: [
-      'advertiser_id', 'order_name', 'advertiser_name', 'entity_id',
-      'order_budget', 'order_start_date', 'order_end_date', 'order_currency',
-      'impressions', 'clicks', 'total_cost',
-      'viewable_impressions', 'viewability_rate',
-      'detail_page_views', 'detail_page_view_clicks',
-      'add_to_cart', 'add_to_cart_clicks',
-      'purchases', 'purchases_clicks', 'total_purchases', 'total_purchases_clicks',
-      'sales', 'total_sales',
-      'new_to_brand_purchases', 'new_to_brand_purchases_clicks', 'new_to_brand_product_sales',
-    ],
-    dateColumns: ['date', 'order_start_date', 'order_end_date'],
-    rows: mapped,
-  });
-  return result;
+  // 2026-04-28: Redirected from APP.dsp_order_report to RAW.AD_CAMPAIGN
+  // All DSP data now flows through RAW same as SP/SB/SD — single source of truth.
+  // Pass through to writeDspCampaignToRaw which handles the RAW write correctly.
+  return writeDspCampaignToRaw(clientId, profileId, reportDate, rows);
 }
 
 // ── DSP Flight Report (line-item grain) ──────────────────────────────────────
@@ -2283,7 +2266,7 @@ const WRITE_FNS = {
   // DSP — reportTypeId is always 'dspCampaign'; key varies by groupBy
   // DSP — reportTypeId is always 'dspCampaign'; key distinguishes groupBy grain
   // Validated groupBys: campaign, flight, ad, creative (2026-04-10)
-  dspCampaign:  writeDspCampaignReport,    // groupBy: ['campaign'] — order-level hierarchy
+  dspCampaign:  writeDspCampaignToRaw,     // groupBy: ['campaign'] — writes to RAW.AD_CAMPAIGN (2026-04-28: consolidated, no more APP.dsp_order_report)
   dspFlight:    writeDspFlightReport,      // groupBy: ['flight']   — line-item grain
   dspAd:        writeDspAdReport,          // groupBy: ['ad']       — ad grain
   dspCreative:  writeDspCreativeReport,    // groupBy: ['creative'] — creative performance
