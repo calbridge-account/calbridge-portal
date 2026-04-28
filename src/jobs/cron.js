@@ -146,9 +146,18 @@ const JOB_HANDLERS = {
   // ── Daily cleanup — ads_report_queue TTL (keep 7 days, delete older completed) ─
   cleanup_report_queue:         () => {
     const { query: _q } = require('../services/snowflakeService');
-    return _q("DELETE FROM CALBRIDGE_PROD.APP.ads_report_queue WHERE status IN ('completed','skipped','failed') AND requested_at < DATEADD('day',-7,CURRENT_TIMESTAMP())")
-      .then(r => console.log('[cleanup] report_queue deleted:', r[0]?.['number of rows deleted'] ?? 0))
-      .catch(() => {});
+    return Promise.all([
+      // Prune old completed/failed queue entries
+      _q("DELETE FROM CALBRIDGE_PROD.APP.ads_report_queue WHERE status IN ('completed','skipped','failed') AND requested_at < DATEADD('day',-7,CURRENT_TIMESTAMP())"),
+      // Guard: remove any null-marketplace rows from MARTS (race condition protection)
+      _q("DELETE FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE WHERE marketplace IS NULL"),
+      _q("DELETE FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY WHERE marketplace IS NULL"),
+    ]).then(([q, cp, apd]) => {
+      console.log('[cleanup] report_queue deleted:', q[0]?.['number of rows deleted'] ?? 0);
+      const cpDel = cp[0]?.['number of rows deleted'] ?? 0;
+      const apdDel = apd[0]?.['number of rows deleted'] ?? 0;
+      if (cpDel > 0 || apdDel > 0) console.warn('[cleanup] Removed null-marketplace MARTS rows — CP:', cpDel, 'APD:', apdDel);
+    }).catch(() => {});
   },
 
   // ── Daily cleanup ──────────────────────────────────────────────────────────
