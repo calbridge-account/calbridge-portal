@@ -149,9 +149,21 @@ const JOB_HANDLERS = {
     return Promise.all([
       // Prune old completed/failed queue entries
       _q("DELETE FROM CALBRIDGE_PROD.APP.ads_report_queue WHERE status IN ('completed','skipped','failed') AND requested_at < DATEADD('day',-7,CURRENT_TIMESTAMP())"),
-      // Guard: remove any null-marketplace rows from MARTS (race condition protection)
-      _q("DELETE FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE WHERE marketplace IS NULL"),
-      _q("DELETE FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY WHERE marketplace IS NULL"),
+      // Guard: remove null-marketplace rows from MARTS ONLY if a non-null version exists
+      // (race condition protection — avoids deleting rows that have no non-null counterpart)
+      _q(`DELETE FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE t
+          WHERE t.marketplace IS NULL
+          AND EXISTS (
+            SELECT 1 FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE m
+            WHERE m.client_id=t.client_id AND m.campaign_id=t.campaign_id
+              AND m.date=t.date AND m.ad_type=t.ad_type AND m.marketplace IS NOT NULL
+          )`),
+      _q(`DELETE FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY t
+          WHERE t.marketplace IS NULL
+          AND EXISTS (
+            SELECT 1 FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY m
+            WHERE m.client_id=t.client_id AND m.date=t.date AND m.ad_type=t.ad_type AND m.marketplace IS NOT NULL
+          )`)
     ]).then(([q, cp, apd]) => {
       console.log('[cleanup] report_queue deleted:', q[0]?.['number of rows deleted'] ?? 0);
       const cpDel = cp[0]?.['number of rows deleted'] ?? 0;
