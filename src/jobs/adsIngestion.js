@@ -3485,6 +3485,7 @@ async function writeDspCampaignToRaw(clientId, profileId, reportDate, rows) {
       sales_7d:         null,
       sales_14d:        null,
       sales_30d:        g.totalSales      || null,
+      total_sales:      g.totalSales      || null, // view-through + click attribution
       ntb_orders_14d:   g.ntbPurchasesClicks || null,
       ntb_sales_14d:    g.ntbProductSales    || null,
       ntb_units_14d:    null,
@@ -3508,7 +3509,7 @@ async function writeDspCampaignToRaw(clientId, profileId, reportDate, rows) {
       'campaign_type', 'status', 'daily_budget',
       'impressions', 'clicks', 'cost',
       'purchases_1d', 'purchases_7d', 'purchases_14d', 'purchases_30d',
-      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d',
+      'sales_1d', 'sales_7d', 'sales_14d', 'sales_30d', 'total_sales',
       'ntb_orders_14d', 'ntb_sales_14d', 'ntb_units_14d',
       'impression_share', 'impression_share_lost_budget', 'impression_share_lost_rank',
       'video_views_25pct', 'video_views_50pct', 'video_views_75pct', 'video_views_100pct',
