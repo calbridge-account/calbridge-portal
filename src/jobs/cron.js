@@ -180,6 +180,7 @@ const JOB_HANDLERS = {
   ingest_seller_daily:       () => ingestSellerDailyAllClients({ triggeredBy: 'cron' }),
   ingest_seller_weekly:      () => ingestSellerWeeklyAllClients({ triggeredBy: 'cron' }),
   ingest_seller_reports:     () => sellerIngestion().ingestSellerAllClients({ triggeredBy: 'cron' }),  // legacy/manual
+  seller_backfill:           () => sellerIngestion().sellerBackfill('7d88ea17-002b-4a02-97fc-bcab1292d57e'),
 
   // ── Every 5 min — flush buffered JOB_RUNS to Snowflake ───────────────────────
   flush_job_runs:               () => require('../services/jobRunner').flushJobRunBuffer({ triggeredBy: 'cron' }),

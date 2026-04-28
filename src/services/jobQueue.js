@@ -88,7 +88,8 @@ const JOB_QUEUE_MAP = {
   ingest_vendor_daily:           'heavy',
   ingest_vendor_weekly:          'heavy',
   ingest_vendor_reports:         'heavy',  // legacy
-  ingest_seller_reports:         'heavy',  // legacy/manual — full cadence
+  ingest_seller_reports:         'heavy',
+  seller_backfill:              'heavy',  // legacy/manual — full cadence
   ingest_seller_realtime:        'heavy',
   ingest_seller_daily:           'heavy',
   ingest_seller_weekly:          'heavy',
