@@ -43,6 +43,7 @@ router.use(planDataWindow);
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/campaigns/available', async (req, res) => {
   const clientId = getClientId(req);
+  const marketplace = req.session.activeMarketplace || 'US';
   try {
     // Use ad_campaigns as the source for the picker — one row per campaign, fast.
     // Normalize campaign_type (Amazon raw: 'sponsoredProducts') to short code (SP/SB/SD/DSP)
@@ -50,7 +51,7 @@ router.get('/campaigns/available', async (req, res) => {
     // Source campaigns from adjusted_campaign_performance — these are the actual
     // campaign IDs that have real spend data. ad_campaigns uses IDs from the entity
     // API which can come from different profiles and won't match performance data.
-    // Exclude campaigns already assigned to ANY budget for this client
+    // Exclude campaigns already assigned to ANY budget for this client+marketplace
     const rows = await query(
       `SELECT
          MAX_BY(campaign_id, adjusted_spend)  AS campaign_id,
@@ -60,14 +61,15 @@ router.get('/campaigns/available', async (req, res) => {
          MAX(date)                            AS last_active
        FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE
        WHERE client_id = ?
+         AND COALESCE(marketplace, 'US') = ?
          AND campaign_id NOT IN (
            SELECT DISTINCT campaign_id
            FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP
-           WHERE client_id = ?
+           WHERE client_id = ? AND COALESCE(marketplace, 'US') = ?
          )
        GROUP BY campaign_name, ad_type
        ORDER BY total_spend DESC NULLS LAST`,
-      [clientId, clientId]
+      [clientId, marketplace, clientId, marketplace]
     );
     res.json(rows.map(r => ({
       campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
@@ -110,6 +112,7 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
           SELECT 1 FROM ${SCHEMA}.BUDGET_CAMPAIGN_MAP m
           WHERE m.budget_id = ?
             AND LOWER(TRIM(u.campaign_name)) = LOWER(TRIM(m.campaign_name))
+            AND COALESCE(m.marketplace, 'US') = COALESCE(u.marketplace, 'US')
         )
       `, [clientId, monthStart, budgetId, budgetId]);
 
@@ -136,14 +139,16 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
 router.get('/', async (req, res) => {
   const clientId = getClientId(req);
   try {
-    // Fetch all budgets for client
+    const marketplace = req.session.activeMarketplace || 'US';
+
+    // Fetch all budgets for client filtered by active marketplace
     const budgets = await query(
       `SELECT budget_id, client_id, name, total_amount, currency,
-              period_start, period_end, notes, created_at, updated_at
+              period_start, period_end, notes, marketplace, created_at, updated_at
        FROM ${SCHEMA}.CLIENT_BUDGETS
-       WHERE client_id = ?
+       WHERE client_id = ? AND COALESCE(marketplace, 'US') = ?
        ORDER BY created_at DESC`,
-      [clientId]
+      [clientId, marketplace]
     );
 
     if (!budgets.length) {
@@ -333,6 +338,7 @@ router.get('/', async (req, res) => {
         period_start:    b.PERIOD_START || b.period_start,
         period_end:      b.PERIOD_END   || b.period_end,
         notes:           b.NOTES        || b.notes || null,
+        marketplace:     b.MARKETPLACE  || b.marketplace || 'US',
         created_at:      b.CREATED_AT   || b.created_at,
         updated_at:      b.UPDATED_AT   || b.updated_at,
         campaign_count:  campaignIds.length,
@@ -515,29 +521,29 @@ router.get('/:budgetId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
-  const { name, total_amount, currency = 'USD', period_start, period_end, notes } = req.body;
+  const { name, total_amount, currency = 'USD', period_start, period_end, notes, marketplace: bodyMarketplace } = req.body;
+  const marketplace = bodyMarketplace || 'US';
 
   if (!name || total_amount == null || !period_start || !period_end) {
     return res.status(400).json({ error: 'name, total_amount, period_start, and period_end are required' });
   }
 
   try {
+    const newId = randomUUID();
     await query(
       `INSERT INTO ${SCHEMA}.CLIENT_BUDGETS
-         (budget_id, client_id, name, total_amount, currency, period_start, period_end, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), clientId, name, n(total_amount), currency, period_start, period_end, notes || null]
+         (budget_id, client_id, name, total_amount, currency, period_start, period_end, notes, marketplace)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, clientId, name, n(total_amount), currency, period_start, period_end, notes || null, marketplace]
     );
 
     // Return the newly created budget
     const rows = await query(
       `SELECT budget_id, client_id, name, total_amount, currency,
-              period_start, period_end, notes, created_at, updated_at
+              period_start, period_end, notes, marketplace, created_at, updated_at
        FROM ${SCHEMA}.CLIENT_BUDGETS
-       WHERE client_id = ?
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [clientId]
+       WHERE client_id = ? AND budget_id = ?`,
+      [clientId, newId]
     );
 
     const b = rows[0];
@@ -550,6 +556,7 @@ router.post('/', requirePlan('budgetAutomation'), async (req, res) => {
       period_start: b.PERIOD_START || b.period_start,
       period_end:   b.PERIOD_END   || b.period_end,
       notes:        b.NOTES        || b.notes || null,
+      marketplace:  b.MARKETPLACE  || b.marketplace || 'US',
       created_at:   b.CREATED_AT   || b.created_at,
       updated_at:   b.UPDATED_AT   || b.updated_at,
     });
@@ -566,6 +573,7 @@ router.put('/:budgetId/campaigns', requirePlan('budgetAutomation'), async (req, 
   const clientId = getClientId(req);
   const { budgetId } = req.params;
   const { campaigns = [] } = req.body;
+  const marketplace = req.session.activeMarketplace || 'US';
 
   try {
     // Verify budget belongs to client
@@ -589,13 +597,13 @@ router.put('/:budgetId/campaigns', requirePlan('budgetAutomation'), async (req, 
       const BATCH = 50;
       for (let i = 0; i < campaigns.length; i += BATCH) {
         const batch = campaigns.slice(i, i + BATCH);
-        const placeholders = batch.map(() => '(?,?,?,?,?)').join(',');
+        const placeholders = batch.map(() => '(?,?,?,?,?,?)').join(',');
         const binds = batch.flatMap(c => [
-          budgetId, clientId, c.campaign_id, c.campaign_name || null, c.ad_type || null
+          budgetId, clientId, c.campaign_id, c.campaign_name || null, c.ad_type || null, marketplace
         ]);
         await query(
           `INSERT INTO ${SCHEMA}.BUDGET_CAMPAIGN_MAP
-             (budget_id, client_id, campaign_id, campaign_name, ad_type)
+             (budget_id, client_id, campaign_id, campaign_name, ad_type, marketplace)
            VALUES ${placeholders}`,
           binds
         );
@@ -612,7 +620,7 @@ router.put('/:budgetId/campaigns', requirePlan('budgetAutomation'), async (req, 
 router.put('/:budgetId', requirePlan('budgetAutomation'), async (req, res) => {
   const clientId = getClientId(req);
   const { budgetId } = req.params;
-  const { name, total_amount, currency, period_start, period_end, notes } = req.body;
+  const { name, total_amount, currency, period_start, period_end, notes, marketplace: bodyMarketplace } = req.body;
 
   try {
     const existing = await query(
@@ -623,18 +631,29 @@ router.put('/:budgetId', requirePlan('budgetAutomation'), async (req, res) => {
       return res.status(404).json({ error: 'Budget not found' });
     }
 
+    // Build update dynamically to only set marketplace if provided
+    const setClauses = [
+      'name = ?', 'total_amount = ?', 'currency = ?',
+      'period_start = ?', 'period_end = ?', 'notes = ?',
+      'updated_at = CURRENT_TIMESTAMP()'
+    ];
+    const binds = [name, n(total_amount), currency || 'USD', period_start, period_end, notes || null];
+    if (bodyMarketplace) {
+      setClauses.splice(setClauses.length - 1, 0, 'marketplace = ?');
+      binds.push(bodyMarketplace);
+    }
+    binds.push(clientId, budgetId);
+
     await query(
       `UPDATE ${SCHEMA}.CLIENT_BUDGETS
-       SET name = ?, total_amount = ?, currency = ?,
-           period_start = ?, period_end = ?, notes = ?,
-           updated_at = CURRENT_TIMESTAMP()
+       SET ${setClauses.join(', ')}
        WHERE client_id = ? AND budget_id = ?`,
-      [name, n(total_amount), currency || 'USD', period_start, period_end, notes || null, clientId, budgetId]
+      binds
     );
 
     const rows = await query(
       `SELECT budget_id, client_id, name, total_amount, currency,
-              period_start, period_end, notes, created_at, updated_at
+              period_start, period_end, notes, marketplace, created_at, updated_at
        FROM ${SCHEMA}.CLIENT_BUDGETS
        WHERE client_id = ? AND budget_id = ?`,
       [clientId, budgetId]
@@ -649,6 +668,7 @@ router.put('/:budgetId', requirePlan('budgetAutomation'), async (req, res) => {
       period_start: b.PERIOD_START || b.period_start,
       period_end:   b.PERIOD_END   || b.period_end,
       notes:        b.NOTES        || b.notes || null,
+      marketplace:  b.MARKETPLACE  || b.marketplace || 'US',
       created_at:   b.CREATED_AT   || b.created_at,
       updated_at:   b.UPDATED_AT   || b.updated_at,
     });

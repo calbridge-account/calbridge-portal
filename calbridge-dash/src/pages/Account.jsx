@@ -116,6 +116,7 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
   const [name, setName]               = useState(budget?.name || '');
   const [totalAmount, setTotalAmount] = useState(budget?.total_amount || '');
   const [currency, setCurrency]       = useState(budget?.currency || 'USD');
+  const [marketplace, setMarketplace] = useState(budget?.marketplace || 'US');
   const [periodStart, setPeriodStart] = useState(budget?.period_start ? budget.period_start.split('T')[0] : '');
   const [periodEnd, setPeriodEnd]     = useState(budget?.period_end   ? budget.period_end.split('T')[0]   : '');
   const [notes, setNotes]             = useState(budget?.notes || '');
@@ -130,7 +131,7 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
     setSaving(true);
     setError(null);
     try {
-      const body = { name, total_amount: Number(totalAmount), currency, period_start: periodStart, period_end: periodEnd, notes: notes || null };
+      const body = { name, total_amount: Number(totalAmount), currency, marketplace, period_start: periodStart, period_end: periodEnd, notes: notes || null };
       if (isEdit) {
         await onUpdate(budget.budget_id, body);
       } else {
@@ -159,6 +160,15 @@ function BudgetModal({ budget, onClose, onCreate, onUpdate }) {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Budget Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} className={inputCls} placeholder="Q1 2026 Brand Budget" required />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Marketplace</label>
+            <select value={marketplace} onChange={e => setMarketplace(e.target.value)} className={inputCls}>
+              <option value="US">🇺🇸 United States</option>
+              <option value="CA">🇨🇦 Canada</option>
+              <option value="UK">🇬🇧 United Kingdom</option>
+              <option value="DE">🇩🇪 Germany</option>
+            </select>
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
@@ -419,6 +429,9 @@ function BudgetsTab({ showToast }) {
                   <div className="flex items-center gap-2">
                     <h4 className="text-sm font-semibold text-gray-900">{b.name}</h4>
                     <PaceBadge status={b.pace_status} />
+                    {b.marketplace && b.marketplace !== 'US' && (
+                      <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{b.marketplace}</span>
+                    )}
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {fmtDateShort(b.period_start)} – {fmtDateShort(b.period_end)}
