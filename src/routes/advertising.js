@@ -422,7 +422,7 @@ router.get('/campaigns', requireAuth, planDataWindow, async (req, res, next) => 
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         ${channelFilter(channel, adType)}
         GROUP BY campaign_id, campaign_name, ad_type
-        HAVING SUM(spend) > 0 OR SUM(impressions) > 0
+        HAVING SUM(impressions) > 0 OR SUM(orders) > 0
       )
       SELECT
         campaign_id,
