@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplace } from '../context/MarketplaceContext';
+import { useAdvertiser } from '../context/AdvertiserContext';
 
 export { useMarketplace };
 import {
@@ -73,9 +74,11 @@ export function useVendorAsins(range) {
 
 export function useAdvertising(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['advertising-v2', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertising(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 3,
     retryOnMount: true,
@@ -85,9 +88,11 @@ export function useAdvertising(range, channel) {
 
 export function useAdvertisingTrend(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['advertising-trend', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertisingTrend(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -221,9 +226,11 @@ export function usePoSummary() {
 
 export function useAsinPerformance(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['asin-performance', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAsinPerformance(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -231,9 +238,11 @@ export function useAsinPerformance(range, channel) {
 
 export function useAdvertisingCampaigns(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['advertising-campaigns', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getAdvertisingCampaigns(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -241,9 +250,11 @@ export function useAdvertisingCampaigns(range, channel) {
 
 export function useSbVideo(range) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['sb-video', rangeKey(range), activeMarketplace ?? 'US'],
     queryFn: () => getSbVideo(range, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -251,9 +262,11 @@ export function useSbVideo(range) {
 
 export function useKeywordTargeting(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['keyword-targeting', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getKeywordTargeting(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -261,9 +274,11 @@ export function useKeywordTargeting(range, channel) {
 
 export function useTargetingRollup(range, channel) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['targeting-rollup', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
     queryFn: () => getTargetingRollup(range, channel, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -271,9 +286,11 @@ export function useTargetingRollup(range, channel) {
 
 export function useDspSummary(range) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['dsp-summary', rangeKey(range), activeMarketplace ?? 'US'],
     queryFn: () => getDspSummary(range, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
@@ -281,9 +298,11 @@ export function useDspSummary(range) {
 
 export function useDspOrders(range) {
   const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
     queryKey: ['dsp-orders', rangeKey(range), activeMarketplace ?? 'US'],
     queryFn: () => getDspOrders(range, activeMarketplace),
+    enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,
   });
