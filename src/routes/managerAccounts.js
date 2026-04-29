@@ -125,6 +125,13 @@ router.get('/advertisers/list', async (req, res) => {
         const mp = requestedAdvertiserId.split('__')[1];
         if (mp) req.session.activeMarketplace = mp;
       }
+      // Explicitly save the session so the updated advertiserId is persisted before
+      // the client reloads the page. Without this, the reload can race ahead of the
+      // async session write (resave:false doesn't guarantee a flush on mutation).
+      await new Promise((resolve) => req.session.save((err) => {
+        if (err) console.warn('[advertisers/list] session save error:', err.message);
+        resolve();
+      }));
     }
 
     // Resolve agency/manager context from migration map
