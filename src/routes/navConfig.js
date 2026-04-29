@@ -109,7 +109,7 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       reasons,
       connections: { ads: hasAds, vendor: hasVendor, seller: hasSeller },
       activeMarketplace,
-      hasRetail,
+      hasRetail: hasVendor || hasSeller,
       // landingPath: frontend uses this to redirect on login when overview is grayed
       landingPath: hasRetailForMarketplace ? '/' : (hasAds ? '/advertising' : '/account'),
     });
