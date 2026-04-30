@@ -1539,36 +1539,41 @@ router.get('/realtime', requireAuth, requirePlan('vendorReports'), async (req, r
   try {
     const CLIENT_ID = await getClientId(req);
 
-    const [rtSalesRows, rtInvRows, yesterdayRows, syncRows] = await Promise.all([
-      // Today's RT sales totals (start_date = today, end_date = tomorrow = RT marker)
+    // Amazon vendor data is PST/PDT-based — use LA calendar date so "today" matches Amazon's day.
+    // Without this, at 4 AM UTC (8 PM PST) we'd query UTC-today which misses the whole PST day.
+    const laTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });   // YYYY-MM-DD
+    const laYestStr  = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
+    const [rtSalesRows, rtInvRows, yesterdayRows] = await Promise.all([
+      // Today's RT sales totals: start_date = LA-today, end_date != start_date marks RT rows
       query(`
         SELECT
-          SUM(ordered_units)  AS ordered_units,
+          SUM(ordered_units)   AS ordered_units,
           SUM(ordered_revenue) AS ordered_revenue,
           MAX(synced_at)       AS last_synced,
           COUNT(DISTINCT asin) AS asin_count
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ?
           AND start_date != end_date
-          AND start_date >= CURRENT_DATE - 1
-      `, [CLIENT_ID]),
+          AND start_date = ?
+      `, [CLIENT_ID, laTodayStr]),
 
-      // Latest RT inventory snapshot: sellable on-hand, open PO units
+      // Latest RT inventory snapshot (LA-today)
       query(`
         SELECT
-          SUM(sellable_on_hand_units)       AS sellable_on_hand_units,
-          SUM(open_purchase_order_units)    AS open_purchase_order_units,
+          SUM(sellable_on_hand_units)          AS sellable_on_hand_units,
+          SUM(open_purchase_order_units)       AS open_purchase_order_units,
           SUM(unfilled_customer_ordered_units) AS unfilled_units,
-          SUM(unhealthy_units)              AS unhealthy_units,
-          COUNT(DISTINCT asin)              AS asin_count,
-          MAX(synced_at)                    AS last_synced
+          SUM(unhealthy_units)                 AS unhealthy_units,
+          COUNT(DISTINCT asin)                 AS asin_count,
+          MAX(synced_at)                       AS last_synced
         FROM ${SCHEMA}.VENDOR_INVENTORY
         WHERE client_id = ?
           AND start_date != end_date
-          AND start_date >= CURRENT_DATE - 1
-      `, [CLIENT_ID]),
+          AND start_date = ?
+      `, [CLIENT_ID, laTodayStr]),
 
-      // Yesterday's final daily totals for comparison
+      // "Yesterday" in LA time — final daily totals for delta comparison
       query(`
         SELECT
           SUM(ordered_units)   AS ordered_units,
@@ -1578,15 +1583,8 @@ router.get('/realtime', requireAuth, requirePlan('vendorReports'), async (req, r
         FROM ${SCHEMA}.VENDOR_SALES
         WHERE client_id = ?
           AND start_date = end_date
-          AND start_date = CURRENT_DATE - 1
-      `, [CLIENT_ID]),
-
-      // Last sync time
-      query(`
-        SELECT MAX(synced_at) AS last_synced
-        FROM ${SCHEMA}.VENDOR_SALES
-        WHERE client_id = ? AND start_date != end_date
-      `, [CLIENT_ID]),
+          AND start_date = ?
+      `, [CLIENT_ID, laYestStr]),
     ]);
 
     const rt   = rtSalesRows[0]  || {};

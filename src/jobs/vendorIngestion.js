@@ -376,8 +376,12 @@ async function _ingestVendorRealtimeReports(clientId, marketplaceId) {
 
   // ── RT Sales (hourly ordered units/revenue, last 24h) ──────────────────────
   try {
-    const rtSalesEnd   = new Date().toISOString().slice(0, 10);
-    const rtSalesStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // Amazon vendor data is PST/PDT-based — use LA calendar date so "today" matches Amazon's day.
+    // At 4 AM UTC (8 PM PST) we want PST-today as start, not UTC-today which would miss the full PST day.
+    const laTodayStr   = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+    const laYestStr    = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const rtSalesEnd   = laTodayStr;
+    const rtSalesStart = laYestStr;  // 2-day window: yesterday + today (PST)
     const rtSalesData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_SALES_REPORT', {
       dataStartTime:  rtSalesStart,
       dataEndTime:    rtSalesEnd,
@@ -415,8 +419,9 @@ async function _ingestVendorRealtimeReports(clientId, marketplaceId) {
 
   // ── RT Inventory (hourly on-hand, last 24h — latest snapshot per ASIN) ─────
   try {
-    const rtInvEnd   = new Date().toISOString().slice(0, 10);
-    const rtInvStart = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // Same LA date shift as RT sales
+    const rtInvEnd   = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const rtInvStart = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const rtInvData  = await requestAndDownload(client, 'GET_VENDOR_REAL_TIME_INVENTORY_REPORT', {
       dataStartTime:  rtInvStart,
       dataEndTime:    rtInvEnd,
