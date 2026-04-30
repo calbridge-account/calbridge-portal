@@ -710,17 +710,17 @@ async function writeCampaigns(clientId, connectionType, profileId, campaigns) {
       ON t.client_id = s.client_id AND t.connection_type = s.connection_type AND t.campaign_id = s.campaign_id
       WHEN MATCHED THEN UPDATE SET
         campaign_name = ?, campaign_type = ?, status = ?,
-        budget = ?, budget_type = ?, synced_at = CURRENT_TIMESTAMP
+        budget = ?, budget_type = ?, profile_id = ?, synced_at = CURRENT_TIMESTAMP
       WHEN NOT MATCHED THEN INSERT
-        (client_id, connection_type, campaign_id, campaign_name, campaign_type, status, budget, budget_type, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        (client_id, connection_type, campaign_id, campaign_name, campaign_type, status, budget, budget_type, profile_id, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [
       clientId, connectionType, String(c.campaignId),
       c.name, c.campaignType, c.state,
-      c.dailyBudget || null, c.budgetType || null,
+      c.dailyBudget || null, c.budgetType || null, String(profileId),
       clientId, connectionType, String(c.campaignId),
       c.name, c.campaignType, c.state,
-      c.dailyBudget || null, c.budgetType || null
+      c.dailyBudget || null, c.budgetType || null, String(profileId),
     ]);
     written++;
   }

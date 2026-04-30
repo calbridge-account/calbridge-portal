@@ -5,7 +5,7 @@ const { requirePlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { v4: uuidv4 } = require('uuid');
 const { resolveClientId } = require('../services/advertiserResolver');
-const { adsClient } = require('../jobs/adsIngestion');
+const { adsClient, getAuthorizedProfiles } = require('../jobs/adsIngestion');
 
 /**
  * Ensure campaign_actions table exists.
@@ -47,7 +47,29 @@ async function logCampaignAction(clientId, campaignId, actionType, payload = nul
  */
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const days = Number(req.query.days) || 30;
+    const days     = Number(req.query.days) || 30;
+    const clientId = await resolveClientId(req);
+
+    // Resolve authorized profile IDs for this client so we never return
+    // campaigns that were contaminated from another brand's profile.
+    // Falls back gracefully to no profile filter if lookup fails.
+    let profileFilter = '';
+    let profileParams = [];
+    try {
+      const allProfiles = await require('../jobs/adsIngestion').fetchProfiles(clientId, 'ads').catch(() => []);
+      const authProfiles = await getAuthorizedProfiles(clientId, allProfiles);
+      if (authProfiles.length > 0) {
+        const ids = authProfiles.map(p => String(p.profileId));
+        const placeholders = ids.map(() => '?').join(',');
+        // Filter by profile_id when set; include rows where profile_id IS NULL for backward compat
+        profileFilter = `AND (c.profile_id IS NULL OR c.profile_id IN (${placeholders}))`;
+        profileParams = ids;
+      }
+    } catch (e) {
+      // Non-fatal — just skip profile filter, query still scoped by client_id
+      console.warn('[campaigns] profile filter failed:', e.message?.slice(0, 80));
+    }
+
     const rows = await query(`
       SELECT
         c.campaign_id,
@@ -67,17 +89,18 @@ router.get('/', requireAuth, async (req, res, next) => {
         CASE WHEN SUM(ap.clicks) > 0 THEN SUM(ap.spend) / SUM(ap.clicks) ELSE NULL END AS cpc
       FROM ad_campaigns c
       LEFT JOIN ad_performance ap
-        ON c.client_id    = ap.client_id
-        AND c.campaign_id  = ap.campaign_id
+        ON c.client_id       = ap.client_id
+        AND c.campaign_id    = ap.campaign_id
         AND c.connection_type = ap.connection_type
-        AND ap.report_date >= DATEADD(day, -?, CURRENT_DATE)
+        AND ap.report_date   >= DATEADD(day, -?, CURRENT_DATE)
       WHERE c.client_id = ?
+        ${profileFilter}
       GROUP BY
         c.campaign_id, c.campaign_name, c.campaign_type,
         c.connection_type, c.status, c.budget
       HAVING SUM(ap.spend) > 0 OR SUM(ap.impressions) > 0
       ORDER BY SUM(ap.spend) DESC NULLS LAST
-    `, [days, await resolveClientId(req)]);
+    `, [days, clientId, ...profileParams]);
 
     res.json(rows);
   } catch (err) { next(err); }

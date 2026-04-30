@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS ad_campaigns (
   PRIMARY KEY (client_id, connection_type, campaign_id)
 );
 
+-- Add profile_id to ad_campaigns (tracks which Amazon Ads profile each campaign belongs to)
+-- Prevents cross-brand contamination when multiple brands share a client_id
+ALTER TABLE CALBRIDGE_PROD.APP.ad_campaigns ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50);
+
 -- ============================================================
 -- CAMPAIGN PERFORMANCE (daily metrics)
 -- ============================================================
