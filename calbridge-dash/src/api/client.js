@@ -61,6 +61,7 @@ export const getVendorAsins       = (range, marketplace) => {
 };
 export const getInventoryDetail   = ()      => fetchJSON('/inventory-detail');
 export const getPoSummary         = ()      => fetchJSON('/po-summary');
+export const getRealtimeVendor    = ()      => fetchJSON('/realtime');
 // Advertising API uses /advertising base (not /vendor-analytics)
 async function fetchAdvertisingJSON(path) {
   const res = await fetch(path, { credentials: 'include' });

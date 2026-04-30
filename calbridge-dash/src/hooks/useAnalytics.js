@@ -7,6 +7,7 @@ import {
   getOverview,
   getVendorMetrics,
   getVendorAsins,
+  getRealtimeVendor,
   getInventoryDetail,
   getPoSummary,
   getAdvertising,
@@ -220,6 +221,18 @@ export function usePoSummary() {
     queryKey: ['po-summary'],
     queryFn: getPoSummary,
     staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+// Real-time vendor data (today's intraday ordered units/revenue + inventory on-hand).
+// Refreshes every 10 minutes so the UI stays current without manual reload.
+export function useRealtimeVendor() {
+  return useQuery({
+    queryKey: ['vendor-realtime'],
+    queryFn: getRealtimeVendor,
+    staleTime: 10 * 60 * 1000,   // 10 min
+    refetchInterval: 10 * 60 * 1000,
     retry: 2,
   });
 }

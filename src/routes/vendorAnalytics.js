@@ -13,6 +13,7 @@
  *   GET /vendor-analytics/annual-projection  — YTD actuals + projected remaining weeks = full-year revenue
  *   GET /vendor-analytics/inventory-detail   — ASIN-level inventory snapshot with weeks-of-cover
  *   GET /vendor-analytics/po-summary         — ASIN-level purchase order summary
+ *   GET /vendor-analytics/realtime            — today's intraday RT ordered units/revenue + inventory on-hand
  */
 
 const express = require('express');
@@ -1526,6 +1527,99 @@ router.get('/po-summary', requireAuth, requirePlan('vendorReports'), async (req,
     }));
 
     res.json(out);
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/realtime ─────────────────────────────────────────
+// Returns today's real-time (intraday) vendor data:
+//   - RT sales: today's running ordered units + revenue (from RT rows where start_date != end_date)
+//   - RT inventory: latest on-hand snapshot per ASIN (most recent RT inventory row)
+//   - Yesterday comparison: prior day final totals for delta badges
+router.get('/realtime', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
+  try {
+    const CLIENT_ID = await getClientId(req);
+
+    const [rtSalesRows, rtInvRows, yesterdayRows, syncRows] = await Promise.all([
+      // Today's RT sales totals (start_date = today, end_date = tomorrow = RT marker)
+      query(`
+        SELECT
+          SUM(ordered_units)  AS ordered_units,
+          SUM(ordered_revenue) AS ordered_revenue,
+          MAX(synced_at)       AS last_synced,
+          COUNT(DISTINCT asin) AS asin_count
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ?
+          AND start_date != end_date
+          AND start_date >= CURRENT_DATE - 1
+      `, [CLIENT_ID]),
+
+      // Latest RT inventory snapshot: sellable on-hand, open PO units
+      query(`
+        SELECT
+          SUM(sellable_on_hand_units)       AS sellable_on_hand_units,
+          SUM(open_purchase_order_units)    AS open_purchase_order_units,
+          SUM(unfilled_customer_ordered_units) AS unfilled_units,
+          SUM(unhealthy_units)              AS unhealthy_units,
+          COUNT(DISTINCT asin)              AS asin_count,
+          MAX(synced_at)                    AS last_synced
+        FROM ${SCHEMA}.VENDOR_INVENTORY
+        WHERE client_id = ?
+          AND start_date != end_date
+          AND start_date >= CURRENT_DATE - 1
+      `, [CLIENT_ID]),
+
+      // Yesterday's final daily totals for comparison
+      query(`
+        SELECT
+          SUM(ordered_units)   AS ordered_units,
+          SUM(ordered_revenue) AS ordered_revenue,
+          SUM(shipped_units)   AS shipped_units,
+          SUM(shipped_revenue) AS shipped_revenue
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ?
+          AND start_date = end_date
+          AND start_date = CURRENT_DATE - 1
+      `, [CLIENT_ID]),
+
+      // Last sync time
+      query(`
+        SELECT MAX(synced_at) AS last_synced
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ? AND start_date != end_date
+      `, [CLIENT_ID]),
+    ]);
+
+    const rt   = rtSalesRows[0]  || {};
+    const inv  = rtInvRows[0]    || {};
+    const yest = yesterdayRows[0] || {};
+
+    const todayUnits   = n(rt.ORDERED_UNITS)   || 0;
+    const todayRev     = n(rt.ORDERED_REVENUE) || 0;
+    const yesterdayUnits = n(yest.ORDERED_UNITS)   || 0;
+    const yesterdayRev   = n(yest.ORDERED_REVENUE) || 0;
+
+    res.json({
+      today: {
+        orderedUnits:   todayUnits,
+        orderedRevenue: todayRev,
+        asinCount:      n(rt.ASIN_COUNT) || 0,
+        lastSynced:     rt.LAST_SYNCED ? new Date(rt.LAST_SYNCED instanceof Date ? rt.LAST_SYNCED : rt.LAST_SYNCED?.value ?? rt.LAST_SYNCED).toISOString() : null,
+      },
+      yesterday: {
+        orderedUnits:   yesterdayUnits,
+        orderedRevenue: yesterdayRev,
+        shippedUnits:   n(yest.SHIPPED_UNITS)   || 0,
+        shippedRevenue: n(yest.SHIPPED_REVENUE) || 0,
+      },
+      inventory: {
+        sellableOnHand:     n(inv.SELLABLE_ON_HAND_UNITS)    || 0,
+        openPOUnits:        n(inv.OPEN_PURCHASE_ORDER_UNITS) || 0,
+        unfilledUnits:      n(inv.UNFILLED_UNITS)            || 0,
+        unhealthyUnits:     n(inv.UNHEALTHY_UNITS)           || 0,
+        asinCount:          n(inv.ASIN_COUNT)                || 0,
+        lastSynced:         inv.LAST_SYNCED ? new Date(inv.LAST_SYNCED instanceof Date ? inv.LAST_SYNCED : inv.LAST_SYNCED?.value ?? inv.LAST_SYNCED).toISOString() : null,
+      },
+    });
   } catch (err) { next(err); }
 });
 

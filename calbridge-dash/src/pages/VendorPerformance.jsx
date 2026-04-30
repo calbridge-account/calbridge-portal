@@ -3,7 +3,7 @@ import {
   ComposedChart, BarChart, Bar, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { useOverview, useVendorMetrics, useConnections } from '../hooks/useAnalytics';
+import { useOverview, useVendorMetrics, useConnections, useRealtimeVendor } from '../hooks/useAnalytics';
 import { useDateRange } from '../context/DateRangeContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
@@ -64,6 +64,113 @@ function MetricCard({ title, value, sub, badge, highlight, loading }) {
   );
 }
 
+// ─── Real-Time Pulse banner ───────────────────────────────────────────────────────────────
+function DeltaBadge({ current, compare, inverse = false }) {
+  if (current == null || compare == null || compare === 0) return null;
+  const pct = ((current - compare) / Math.abs(compare)) * 100;
+  const positive = inverse ? pct <= 0 : pct >= 0;
+  return (
+    <span className={`text-xs font-semibold ${ positive ? 'text-green-600' : 'text-red-500' }`}>
+      {pct >= 0 ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}% vs yesterday
+    </span>
+  );
+}
+
+function RTCard({ label, value, delta, sub, pulse }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 border-l-4 border-l-emerald-500 p-4 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        {pulse && <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>}
+        <span className="text-xs font-medium text-gray-500">{label}</span>
+      </div>
+      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      {delta}
+      {sub && <div className="text-xs text-gray-400">{sub}</div>}
+    </div>
+  );
+}
+
+function RealtimePulse({ data, loading, fmt$ }) {
+  if (loading) {
+    return (
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <span className="text-sm font-semibold text-gray-700">Today — Live</span>
+          <span className="text-xs text-gray-400">refreshes every 10 min</span>
+        </div>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const today = data.today || {};
+  const yest  = data.yesterday || {};
+  const inv   = data.inventory || {};
+
+  // Format last-synced as relative time
+  const lastSync = today.lastSynced
+    ? (() => {
+        const diffMin = Math.round((Date.now() - new Date(today.lastSynced).getTime()) / 60000);
+        if (diffMin < 1)  return 'just now';
+        if (diffMin < 60) return `${diffMin}m ago`;
+        return `${Math.round(diffMin / 60)}h ago`;
+      })()
+    : null;
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <span className="text-sm font-semibold text-gray-700">Today — Live</span>
+        {lastSync && <span className="text-xs text-gray-400">synced {lastSync} · refreshes every 10 min</span>}
+      </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <RTCard
+          label="Ordered Revenue (Today)"
+          value={fmt$(today.orderedRevenue)}
+          delta={<DeltaBadge current={today.orderedRevenue} compare={yest.orderedRevenue} />}
+          sub={`${today.orderedUnits?.toLocaleString() ?? '—'} units ordered`}
+          pulse
+        />
+        <RTCard
+          label="Ordered Units (Today)"
+          value={today.orderedUnits != null ? today.orderedUnits.toLocaleString() : '—'}
+          delta={<DeltaBadge current={today.orderedUnits} compare={yest.orderedUnits} />}
+          sub={`${today.asinCount ?? '—'} ASINs with activity`}
+        />
+        <RTCard
+          label="Sellable On-Hand"
+          value={inv.sellableOnHand != null ? inv.sellableOnHand.toLocaleString() : '—'}
+          sub={`${inv.openPOUnits?.toLocaleString() ?? '—'} units on open POs`}
+        />
+        <RTCard
+          label="Unfilled Orders"
+          value={inv.unfilledUnits != null ? inv.unfilledUnits.toLocaleString() : '—'}
+          delta={inv.unhealthyUnits > 0
+            ? <span className="text-xs text-amber-600">{inv.unhealthyUnits.toLocaleString()} unhealthy units</span>
+            : null}
+          sub="Customer orders not yet filled"
+          highlight={inv.unfilledUnits > 0 ? 'amber' : undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function VendorPerformance() {
   const { range }                       = useDateRange();
@@ -73,6 +180,7 @@ export default function VendorPerformance() {
   const { data: ov,  isLoading: ovLoading,  isError: ovErr,  error: ovErrObj  } = useOverview(range);
   const { data: vm,  isLoading: vmLoading                                      } = useVendorMetrics(range);
   const { data: connections, isLoading: connLoading } = useConnections();
+  const { data: rt,  isLoading: rtLoading                                      } = useRealtimeVendor();
 
   const isLoading = ovLoading || vmLoading;
 
@@ -130,6 +238,9 @@ export default function VendorPerformance() {
       />
 
       {ovErr && <ErrorState message={ovErrObj?.message} />}
+
+      {/* ── Real-Time Pulse: today's intraday data ───────────────────────── */}
+      <RealtimePulse data={rt} loading={rtLoading} fmt$={fmt$} />
 
       {/* ── KPI Row 1: Revenue ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
