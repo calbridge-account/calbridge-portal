@@ -39,11 +39,18 @@ const CONNECTIONS = {
 // State store — single-use, short-lived (in-memory for dev; move to Redis in prod)
 const stateStore = new Map();
 
-// Prune expired states every 10 minutes
+// Pending connection store — holds token + profile list while user picks a profile
+// Key: pendingId (uuid), Value: { clientId, type, tokens, profiles, createdAt }
+const pendingStore = new Map();
+
+// Prune expired states + pending entries every 10 minutes
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
   for (const [key, val] of stateStore.entries()) {
     if (val.createdAt < cutoff) stateStore.delete(key);
+  }
+  for (const [key, val] of pendingStore.entries()) {
+    if (val.createdAt < cutoff) pendingStore.delete(key);
   }
 }, 10 * 60 * 1000);
 
@@ -379,6 +386,138 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
 }
 
 /**
+ * Step 1 of the profile-picker flow (ads/dsp only).
+ * Exchanges the OAuth code, fetches the profile list, stores everything in
+ * pendingStore, and returns { pendingId, profiles } to the caller.
+ * No DB writes happen yet — those happen in confirmProfile().
+ */
+async function handleCallbackPending({ clientId, code, state, type }) {
+  const stateData = stateStore.get(state);
+  if (!stateData || stateData.clientId !== clientId || stateData.type !== type) {
+    throw Object.assign(new Error('Invalid or expired OAuth state'), { status: 400 });
+  }
+  stateStore.delete(state);
+
+  const tokens = await exchangeCode({ code, type });
+
+  // Fetch all profiles visible to this token
+  let profiles = [];
+  try {
+    const axios = require('axios');
+    const res = await axios.default.get('https://advertising-api.amazon.com/v2/profiles', {
+      headers: {
+        'Authorization':                   `Bearer ${tokens.accessToken}`,
+        'Amazon-Advertising-API-ClientId':  LWA_CLIENT_ID,
+      },
+      timeout: 10000,
+    });
+    profiles = (res.data || []).map(p => ({
+      profileId:   String(p.profileId),
+      name:        p.accountInfo?.name || '',
+      type:        p.accountInfo?.type || '',
+      countryCode: p.countryCode || 'US',
+      currency:    p.currencyCode || 'USD',
+      entityId:    p.accountInfo?.id || '',
+    }));
+  } catch (err) {
+    console.warn('[Amazon] handleCallbackPending: profile fetch failed:', err.response?.data || err.message);
+    // Still store the token — user won't be able to pick a profile but at least token is preserved
+  }
+
+  const pendingId = uuidv4();
+  pendingStore.set(pendingId, { clientId, type, tokens, profiles, createdAt: Date.now() });
+
+  return { pendingId, profiles };
+}
+
+/**
+ * Step 2 of the profile-picker flow.
+ * Called after the user selects their profile(s).
+ * Writes the token to amazon_connections and the selected profiles to client_accounts.
+ */
+async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
+  const pending = pendingStore.get(pendingId);
+  if (!pending || pending.clientId !== clientId) {
+    throw Object.assign(new Error('Invalid or expired pending connection'), { status: 400 });
+  }
+  pendingStore.delete(pendingId);
+
+  const { type, tokens, profiles } = pending;
+  const connectedAt    = new Date().toISOString();
+  const connectedAtSf  = connectedAt.replace('T', ' ').replace('Z', '');
+  const tokenExpiresAtSf = tokens.expiresAt ? tokens.expiresAt.replace('T', ' ').replace('Z', '') : null;
+  const channel        = TYPE_TO_CHANNEL[type];
+
+  // ── Write token to amazon_connections ──────────────────────────────────────
+  const existing = await query(`
+    SELECT credential_id FROM CALBRIDGE_PROD.APP.amazon_connections
+    WHERE client_id = ? AND connection_type = ? LIMIT 1
+  `, [clientId, type]);
+
+  if (existing.length > 0) {
+    await query(`
+      UPDATE CALBRIDGE_PROD.APP.amazon_connections
+      SET access_token = ?, refresh_token = ?, expires_at = ?,
+          connected_at = ?, is_active = TRUE, updated_at = CURRENT_TIMESTAMP()
+      WHERE credential_id = ?
+    `, [encrypt(tokens.accessToken), encrypt(tokens.refreshToken), tokenExpiresAtSf, connectedAtSf, existing[0].CREDENTIAL_ID]);
+  } else {
+    await query(`
+      INSERT INTO CALBRIDGE_PROD.APP.amazon_connections
+        (credential_id, client_id, connection_type, access_token, refresh_token,
+         expires_at, connected_at, is_active, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP())
+    `, [uuidv4(), clientId, type, encrypt(tokens.accessToken), encrypt(tokens.refreshToken), tokenExpiresAtSf, connectedAtSf]);
+  }
+  _tokenCache.delete(`${clientId}:${type}`);
+
+  // ── Write selected profiles to client_accounts ─────────────────────────────
+  if (channel && selectedProfileIds && selectedProfileIds.length > 0) {
+    // Deactivate existing entries for this channel so we start clean
+    await query(`
+      UPDATE CALBRIDGE_PROD.APP.client_accounts
+      SET is_active = FALSE
+      WHERE client_id = ? AND channel = ?
+    `, [clientId, channel]);
+
+    const selectedProfiles = profiles.filter(p => selectedProfileIds.includes(p.profileId));
+    for (const p of selectedProfiles) {
+      const existingRow = await query(`
+        SELECT account_id FROM CALBRIDGE_PROD.APP.client_accounts
+        WHERE client_id = ? AND channel = ? AND platform_profile_id = ? LIMIT 1
+      `, [clientId, channel, p.profileId]);
+
+      if (existingRow.length > 0) {
+        await query(`
+          UPDATE CALBRIDGE_PROD.APP.client_accounts
+          SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP()
+          WHERE client_id = ? AND channel = ? AND platform_profile_id = ?
+        `, [clientId, channel, p.profileId]);
+      } else {
+        await query(`
+          INSERT INTO CALBRIDGE_PROD.APP.client_accounts
+            (account_id, client_id, channel, platform_profile_id, is_active)
+          VALUES (?, ?, ?, ?, TRUE)
+        `, [uuidv4(), clientId, channel, p.profileId]);
+      }
+
+      // Also upsert brands table
+      await query(`
+        MERGE INTO CALBRIDGE_PROD.APP.brands tgt
+        USING (SELECT ? AS client_id, ? AS ads_profile_id) src
+        ON tgt.client_id = src.client_id AND tgt.ads_profile_id = src.ads_profile_id
+        WHEN MATCHED THEN UPDATE SET is_active = TRUE, name = ?
+        WHEN NOT MATCHED THEN INSERT (brand_id, client_id, ads_profile_id, name, is_active)
+          VALUES (?, ?, ?, ?, TRUE)
+      `, [clientId, p.profileId, p.name, uuidv4(), clientId, p.profileId, p.name]);
+    }
+  }
+
+  console.log(`[Amazon] ${CONNECTIONS[type]?.label} confirmed for client ${clientId} — profiles: ${selectedProfileIds?.join(', ')}`);
+  return { ok: true, type, selectedProfileIds };
+}
+
+/**
  * Get connection status for all 4 types for a client.
  *
  * Phase 2c dual-source: merges data from BOTH:
@@ -462,9 +601,41 @@ async function getConnectionStatus(clientId) {
   );
 }
 
+/**
+ * Returns pending connection data for the profile picker UI.
+ * Enriches profiles with currentlyActive flag from client_accounts.
+ */
+async function getPendingProfiles(pendingId, clientId) {
+  const pending = pendingStore.get(pendingId);
+  if (!pending || pending.clientId !== clientId) return null;
+
+  // Mark which profiles are already active for this client
+  let activeIds = new Set();
+  try {
+    const channel = TYPE_TO_CHANNEL[pending.type];
+    if (channel) {
+      const rows = await query(`
+        SELECT platform_profile_id FROM CALBRIDGE_PROD.APP.client_accounts
+        WHERE client_id = ? AND channel = ? AND is_active = TRUE
+      `, [clientId, channel]);
+      activeIds = new Set(rows.map(r => String(r.PLATFORM_PROFILE_ID || r.platform_profile_id)));
+    }
+  } catch (_) {}
+
+  const profiles = pending.profiles.map(p => ({
+    ...p,
+    currentlyActive: activeIds.has(p.profileId),
+  }));
+
+  return { profiles, type: pending.type };
+}
+
 module.exports = {
   getAuthUrl,
   handleCallback,
+  handleCallbackPending,
+  confirmProfile,
+  getPendingProfiles,
   getConnectionStatus,
   getValidToken,
   refreshAccessToken,

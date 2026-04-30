@@ -638,6 +638,116 @@ function BillingSection({ showToast }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
+// ─── Profile Picker Modal ────────────────────────────────────────────────────
+function ProfilePickerModal({ pendingId, type, onComplete }) {
+  const [profiles, setProfiles]     = useState([]);
+  const [selected, setSelected]     = useState(new Set());
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState(null);
+
+  useEffect(() => {
+    // Fetch profiles from the pending store via a lightweight endpoint
+    fetch(`/amazon/pending-profiles?pendingId=${encodeURIComponent(pendingId)}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(data => {
+        setProfiles(data.profiles || []);
+        // Pre-select any profiles already active for this client
+        const preSelected = new Set((data.profiles || []).filter(p => p.currentlyActive).map(p => p.profileId));
+        setSelected(preSelected);
+        setLoading(false);
+      })
+      .catch(e => { setError('Failed to load profiles: ' + e); setLoading(false); });
+  }, [pendingId]);
+
+  function toggle(profileId) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(profileId)) next.delete(profileId);
+      else next.add(profileId);
+      return next;
+    });
+  }
+
+  async function handleConfirm() {
+    if (selected.size === 0) { setError('Please select at least one profile.'); return; }
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/amazon/confirm-profile', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingId, selectedProfileIds: [...selected] }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
+      onComplete();
+    } catch (e) { setError(e.message); setSaving(false); }
+  }
+
+  const typeLabel = type === 'dsp' ? 'DSP' : 'Sponsored Ads';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6">
+        <h2 className="text-lg font-bold text-gray-900 mb-1">Select Amazon Ads Profile</h2>
+        <p className="text-sm text-gray-500 mb-5">
+          Choose the <strong>{typeLabel}</strong> profile to link to this brand account.
+          Your Amazon login has access to multiple profiles — select the right one.
+        </p>
+
+        {loading && <div className="h-32 flex items-center justify-center text-gray-400 text-sm">Loading profiles…</div>}
+
+        {!loading && profiles.length === 0 && (
+          <div className="text-sm text-red-500 mb-4">No profiles found for this token. Please try reconnecting.</div>
+        )}
+
+        {!loading && profiles.length > 0 && (
+          <div className="space-y-2 max-h-80 overflow-y-auto mb-5">
+            {profiles.map(p => {
+              const isSelected = selected.has(p.profileId);
+              return (
+                <button
+                  key={p.profileId}
+                  onClick={() => toggle(p.profileId)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-colors ${
+                    isSelected ? 'border-green-600 bg-green-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border-2 ${
+                    isSelected ? 'bg-green-600 border-green-600' : 'border-gray-300'
+                  }`}>
+                    {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-800 text-sm">{p.name}</div>
+                    <div className="text-xs text-gray-400">{p.type} · {p.countryCode} · {p.currency}</div>
+                  </div>
+                  {p.currentlyActive && (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex-shrink-0">Current</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+
+        <div className="flex gap-3 justify-end">
+          <a href="/account" className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
+          <button
+            onClick={handleConfirm}
+            disabled={saving || loading || selected.size === 0}
+            className="px-5 py-2 text-sm font-semibold bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Connecting…' : 'Connect Profile'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Account() {
   const [activeTab, setActiveTab]     = useState('profile');
   const [profile, setProfile]         = useState(null);
@@ -648,6 +758,12 @@ export default function Account() {
   const { isAgencyView } = useAdvertiser() || {};
   const isAgency = user?.accountType === 'agency' || user?.account_type === 'agency';
   const canManage = hasRole('manager');
+
+  // Profile picker — shown when redirected back from OAuth with ?selectProfile=1
+  const urlParams = new URLSearchParams(window.location.search);
+  const [pickerPendingId]  = useState(urlParams.get('pendingId'));
+  const [pickerType]       = useState(urlParams.get('type'));
+  const [showPicker, setShowPicker] = useState(!!urlParams.get('selectProfile') && !!urlParams.get('pendingId'));
 
   // Profile form state
   const [companyName, setCompanyName] = useState('');
@@ -826,6 +942,23 @@ export default function Account() {
 
   return (
     <div className="max-w-2xl">
+      {/* Profile picker modal — shown after OAuth redirect */}
+      {showPicker && pickerPendingId && (
+        <ProfilePickerModal
+          pendingId={pickerPendingId}
+          type={pickerType}
+          onComplete={() => {
+            // Strip picker params from URL and reload connections
+            window.history.replaceState({}, '', '/account?connected=' + pickerType);
+            setShowPicker(false);
+            // Refresh connection status
+            fetch('/amazon/status', { credentials: 'include' })
+              .then(r => r.ok ? r.json() : null)
+              .then(conn => { if (conn) setConnStatus(conn); });
+          }}
+        />
+      )}
+
       {/* Agency view — completely different layout */}
       {isAgency && isAgencyView ? (
         <AgencyAccountView
