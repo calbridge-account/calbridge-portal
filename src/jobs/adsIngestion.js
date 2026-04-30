@@ -564,16 +564,16 @@ async function getAuthorizedProfiles(clientId, allProfiles) {
       [clientId]
     );
     if (!brandRows.length) {
-      console.log(`[Ads] Client ${clientId}: no brands configured — using all ${allProfiles.length} profiles`);
-      return allProfiles;
+      console.warn(`[Ads] Client ${clientId}: no brands configured AND no client_accounts match — returning NO profiles to prevent cross-client contamination`);
+      return [];
     }
     const authorizedIds = new Set(brandRows.map(r => String(r.ADS_PROFILE_ID || r.ads_profile_id)));
     const filtered = allProfiles.filter(p => authorizedIds.has(String(p.profileId)));
     console.log(`[Ads] Client ${clientId}: ${filtered.length}/${allProfiles.length} profiles authorized via brands`);
     return filtered;
   } catch (err) {
-    console.warn(`[Ads] getAuthorizedProfiles error — using all profiles: ${err.message}`);
-    return allProfiles;
+    console.warn(`[Ads] getAuthorizedProfiles error — returning NO profiles to prevent cross-client contamination: ${err.message}`);
+    return [];
   }
 }
 
