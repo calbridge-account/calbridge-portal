@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'accounts')           loadAccounts();
       if (tab.dataset.tab === 'agencies')           initAgenciesRoster();
       if (tab.dataset.tab === 'brands')             initBrandsRoster();
+      if (tab.dataset.tab === 'competitors')        initCompetitors();
     });
   });
 
@@ -948,3 +949,216 @@ function showResult(el, msg, type) {
   el.classList.remove('hidden');
   if (type === 'success') setTimeout(() => el.classList.add('hidden'), 4000);
 }
+
+// ── Competitors ───────────────────────────────────────────────────────────────
+let allCompetitors = [];
+let compInitialized = false;
+
+async function initCompetitors() {
+  if (!compInitialized) {
+    compInitialized = true;
+
+    document.getElementById('comp-add-btn').addEventListener('click', () => showCompForm());
+    document.getElementById('comp-save-btn').addEventListener('click', saveCompetitor);
+    document.getElementById('comp-cancel-btn').addEventListener('click', hideCompForm);
+
+    document.getElementById('comp-subcategory-suggest').addEventListener('change', function () {
+      if (this.value) {
+        document.getElementById('comp-subcategory').value = this.value;
+        this.value = '';
+      }
+    });
+
+    await loadCompBrands();
+    loadCompSubcategories();
+  }
+  await loadCompetitors();
+}
+
+async function loadCompBrands() {
+  try {
+    const res = await adminFetch('/brands');
+    if (!res.ok) return;
+    const brands = await res.json();
+    const sel = document.getElementById('comp-brand');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All brands (global)</option>';
+    brands.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.brandId;
+      opt.textContent = b.name || b.brandId;
+      sel.appendChild(opt);
+    });
+  } catch {}
+}
+
+async function loadCompSubcategories() {
+  try {
+    const res = await fetch('/competitors/subcategories', { credentials: 'include' });
+    if (!res.ok) return;
+    const subcats = await res.json();
+    const sel = document.getElementById('comp-subcategory-suggest');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Suggestions\u2026</option>';
+    subcats.forEach(sc => {
+      const opt = document.createElement('option');
+      opt.value = sc;
+      opt.textContent = sc;
+      sel.appendChild(opt);
+    });
+  } catch {}
+}
+
+async function loadCompetitors() {
+  const tbody = document.getElementById('comp-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="loading-cell">Loading\u2026</td></tr>';
+  try {
+    const res = await fetch('/competitors', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to load competitors');
+    allCompetitors = await res.json();
+    renderCompetitorsTable();
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-cell">Error: ' + err.message + '</td></tr>';
+  }
+}
+
+function renderCompetitorsTable() {
+  const tbody = document.getElementById('comp-table-body');
+  if (!tbody) return;
+
+  const brandSel = document.getElementById('comp-brand');
+  const brandMap = {};
+  if (brandSel) {
+    Array.from(brandSel.options).forEach(opt => {
+      if (opt.value) brandMap[opt.value] = opt.textContent;
+    });
+  }
+
+  if (!allCompetitors.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-cell">No competitors defined yet. Click \u2795 Add Competitor to get started.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = allCompetitors.map(c => {
+    const brandLabel = c.brandId ? (brandMap[c.brandId] || c.brandId) : '<span style="color:var(--gray-300);font-size:12px">All brands</span>';
+    const subcatLabel = c.subcategory || '<span style="color:var(--gray-300);font-size:12px">\u2014</span>';
+    const termsHtml = c.matchTerms.map(t =>
+      '<span style="display:inline-block;background:var(--brand-light);color:var(--brand);font-size:11px;padding:1px 8px;border-radius:20px;margin:1px 2px;font-weight:600">' + t + '</span>'
+    ).join('');
+    const safeName = c.competitorName.replace(/'/g, "\\'");
+    return '<tr>' +
+      '<td><strong>' + c.competitorName + '</strong></td>' +
+      '<td style="font-size:13px">' + brandLabel + '</td>' +
+      '<td style="font-size:13px">' + subcatLabel + '</td>' +
+      '<td style="max-width:300px;line-height:1.8">' + (termsHtml || '<span style="color:var(--gray-300);font-size:12px">\u2014</span>') + '</td>' +
+      '<td>' +
+        '<button class="action-btn btn-approve" onclick="editCompetitor(\'' + c.id + '\')">Edit</button>' +
+        '<button class="action-btn btn-suspend" onclick="deleteCompetitor(\'' + c.id + '\',\'' + safeName + '\')">Delete</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function showCompForm(comp) {
+  const wrap   = document.getElementById('comp-form-wrap');
+  const title  = document.getElementById('comp-form-title');
+  const editId = document.getElementById('comp-edit-id');
+  const result = document.getElementById('comp-form-result');
+
+  result.textContent = '';
+  editId.value = comp ? comp.id : '';
+  title.textContent = comp ? '\u270F\uFE0F Edit Competitor' : '\u2795 Add Competitor';
+
+  document.getElementById('comp-name').value        = comp ? comp.competitorName : '';
+  document.getElementById('comp-subcategory').value = comp ? (comp.subcategory || '') : '';
+  document.getElementById('comp-match-terms').value = comp ? comp.matchTerms.join(', ') : '';
+  document.getElementById('comp-brand').value       = comp ? (comp.brandId || '') : '';
+
+  wrap.style.display = 'block';
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideCompForm() {
+  document.getElementById('comp-form-wrap').style.display = 'none';
+  document.getElementById('comp-edit-id').value = '';
+}
+
+async function saveCompetitor() {
+  const result        = document.getElementById('comp-form-result');
+  const editId        = document.getElementById('comp-edit-id').value;
+  const name          = document.getElementById('comp-name').value.trim();
+  const subcategory   = document.getElementById('comp-subcategory').value.trim();
+  const matchTermsRaw = document.getElementById('comp-match-terms').value;
+  const brandId       = document.getElementById('comp-brand').value;
+
+  result.textContent = '';
+
+  if (!name) {
+    result.textContent = '\u274C Competitor Name is required.';
+    result.style.color = 'var(--danger)';
+    return;
+  }
+
+  const matchTerms = matchTermsRaw.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  if (!matchTerms.length) {
+    result.textContent = '\u274C At least one match term is required.';
+    result.style.color = 'var(--danger)';
+    return;
+  }
+
+  const btn = document.getElementById('comp-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving\u2026';
+
+  try {
+    const body = {
+      competitorName: name,
+      matchTerms,
+      subcategory: subcategory || null,
+      brandId: brandId || null,
+    };
+
+    const url    = editId ? '/competitors/' + editId : '/competitors';
+    const method = editId ? 'PUT' : 'POST';
+    const res    = await fetch(url, {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      result.textContent = '\u274C ' + (data.error || 'Save failed.');
+      result.style.color = 'var(--danger)';
+      return;
+    }
+
+    result.textContent = '\u2705 Saved!';
+    result.style.color = 'var(--success)';
+    setTimeout(hideCompForm, 1200);
+    await loadCompetitors();
+  } catch {
+    result.textContent = '\u274C Request failed.';
+    result.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
+
+window.editCompetitor = function(id) {
+  const comp = allCompetitors.find(c => c.id === id);
+  if (!comp) return;
+  showCompForm(comp);
+};
+
+window.deleteCompetitor = async function(id, name) {
+  if (!confirm('Delete competitor "' + name + '"?\n\nThis cannot be undone.')) return;
+  try {
+    const res = await fetch('/competitors/' + id, { method: 'DELETE', credentials: 'include' });
+    if (!res.ok) { const d = await res.json(); alert(d.error || 'Delete failed'); return; }
+    await loadCompetitors();
+  } catch { alert('Request failed.'); }
+};

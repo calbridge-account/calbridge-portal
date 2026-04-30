@@ -35,6 +35,7 @@ const { agencyRouter }     = require('./routes/managerAccounts');
 const marginalRoasRoutes   = require('./routes/marginalRoas');
 const reportsRoutes        = require('./routes/reports');
 const reportBuilderRoutes  = require('./routes/reportBuilder');
+const competitorsRoutes    = require('./routes/competitors');
 
 const app = express();
 
@@ -201,6 +202,7 @@ app.use('/api/marginal-roas', marginalRoasRoutes);
 app.use('/upload', require('./routes/upload'));
 app.use('/reports', reportsRoutes);
 app.use('/api/report-builder', reportBuilderRoutes);
+app.use('/competitors', competitorsRoutes);
 app.get('/reports-preview/:reportId', (req, res) => {
   res.sendFile('reports-preview.html', { root: path.join(__dirname, '../public') });
 });

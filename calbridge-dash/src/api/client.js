@@ -230,6 +230,10 @@ export const createCampaign = (payload) =>
 export const getCampaignProfile = () =>
   campaignsJSON('/create/profile');
 
+// Competitor signals — flat array of match_terms for keyword classification
+export const getCompetitorSignals = () =>
+  fetch('/competitors/signals', { credentials: 'include' }).then(r => r.ok ? r.json() : []);
+
 // Upload a SB creative image (logo or main image). Returns { url, filename }.
 export async function uploadSbCreative(file) {
   const fd = new FormData();

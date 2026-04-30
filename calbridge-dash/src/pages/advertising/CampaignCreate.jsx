@@ -10,6 +10,7 @@ import {
   createCampaign,
   getCampaignProfile,
   uploadSbCreative,
+  getCompetitorSignals,
 } from '../../api/client';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -265,10 +266,10 @@ const COMPETITOR_SIGNALS = [
   'hp ', ' hp', 'dell', 'lenovo', 'asus', 'corsair', 'razer', 'logitech',
 ];
 
-function classifyKeyword(term, brandTerms) {
+function classifyKeyword(term, brandTerms, competitorSignals = COMPETITOR_SIGNALS) {
   const lower = term.toLowerCase();
   if (brandTerms.some(b => lower.includes(b.toLowerCase()))) return 'brand';
-  if (COMPETITOR_SIGNALS.some(c => lower.includes(c))) return 'competitive';
+  if (competitorSignals.some(c => lower.includes(c))) return 'competitive';
   return 'non-brand';
 }
 
@@ -296,7 +297,7 @@ function BucketBadge({ bucket }) {
 }
 
 // ─── Step 3: Keywords ─────────────────────────────────────────────────────────
-function StepKeywords({ form, setForm, brandName }) {
+function StepKeywords({ form, setForm, brandName, competitorSignals = COMPETITOR_SIGNALS }) {
   const [activeBucket, setActiveBucket] = useState('all');
   const [kwSearch, setKwSearch]         = useState('');
   const [customKw, setCustomKw]         = useState('');
@@ -311,8 +312,8 @@ function StepKeywords({ form, setForm, brandName }) {
   });
 
   const classified = useMemo(() =>
-    suggestions.map(s => ({ ...s, bucket: classifyKeyword(s.term, brandTerms) })),
-    [suggestions, brandTerms]
+    suggestions.map(s => ({ ...s, bucket: classifyKeyword(s.term, brandTerms, competitorSignals) })),
+    [suggestions, brandTerms, competitorSignals]
   );
 
   const filteredSuggestions = useMemo(() => classified.filter(s => {
@@ -376,7 +377,7 @@ function StepKeywords({ form, setForm, brandName }) {
         term:      trimmed,
         matchType: 'BROAD',
         bid:       String(form.defaultBid || '0.75'),
-        bucket:    classifyKeyword(trimmed, brandTerms),
+        bucket:    classifyKeyword(trimmed, brandTerms, competitorSignals),
       }],
     }));
     setCustomKw('');
@@ -385,11 +386,11 @@ function StepKeywords({ form, setForm, brandName }) {
   const selectedByBucket = useMemo(() => {
     const groups = { brand: [], competitive: [], 'non-brand': [] };
     form.keywords.forEach(k => {
-      const b = k.bucket || classifyKeyword(k.term, brandTerms);
+      const b = k.bucket || classifyKeyword(k.term, brandTerms, competitorSignals);
       (groups[b] || groups['non-brand']).push(k);
     });
     return groups;
-  }, [form.keywords, brandTerms]);
+  }, [form.keywords, brandTerms, competitorSignals]);
 
   return (
     <div>
@@ -1010,6 +1011,18 @@ export default function CampaignCreate() {
   const profileId = profileData?.profileId || null;
   const brandName = profileData?.brandName || '';
 
+  // Fetch dynamic competitor signals (merged with hardcoded fallback)
+  const { data: dynamicSignals = [] } = useQuery({
+    queryKey: ['competitor-signals'],
+    queryFn: getCompetitorSignals,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const mergedCompetitorSignals = useMemo(
+    () => [...new Set([...COMPETITOR_SIGNALS, ...dynamicSignals])],
+    [dynamicSignals]
+  );
+
   const defaultName = useCallback(() => {
     const d = today();
     return `Brand ${form?.adType || 'SP'} ${d}`;
@@ -1115,9 +1128,9 @@ export default function CampaignCreate() {
             {step === 0 && <StepType      form={form} setForm={setForm} />}
             {step === 1 && <StepSettings  form={form} setForm={setForm} />}
             {step === 2 && form.adType === 'SB' && <StepCreative form={form} setForm={setForm} />}
-            {step === 2 && form.adType === 'SP' && showKeywordsStep && <StepKeywords form={form} setForm={setForm} brandName={brandName} />}
+            {step === 2 && form.adType === 'SP' && showKeywordsStep && <StepKeywords form={form} setForm={setForm} brandName={brandName} competitorSignals={mergedCompetitorSignals} />}
             {step === 2 && form.adType === 'SP' && !showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
-            {step === 3 && form.adType === 'SB' && <StepKeywords form={form} setForm={setForm} brandName={brandName} />}
+            {step === 3 && form.adType === 'SB' && <StepKeywords form={form} setForm={setForm} brandName={brandName} competitorSignals={mergedCompetitorSignals} />}
             {step === 3 && form.adType === 'SP' && showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
             {step === 4 && form.adType === 'SB' && <StepAsins form={form} setForm={setForm} />}
             {(step === 3 && form.adType === 'SP' && !showKeywordsStep) ||
