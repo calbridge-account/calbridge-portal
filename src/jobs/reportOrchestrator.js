@@ -87,9 +87,11 @@ async function getAccountId(clientId) {
  * Returns [{startIso, endIso, rangeKey}], oldest window first.
  */
 function buildDateWindows(daysBack) {
-  // Use today as the end date — Amazon has same-day data available (with a few hours lag)
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  // Use today in PST/PDT as the end date — Amazon's ad day closes at midnight Pacific,
+  // so "today" should match the Pacific calendar date, not UTC.
+  // e.g. at 3 AM UTC (8 PM PST the prior day) we want yesterday's PST date, not UTC today.
+  const pstDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+  const today = new Date(pstDateStr + 'T00:00:00Z'); // treat as UTC midnight for arithmetic
 
   const windows = [];
   let windowEnd = new Date(today);

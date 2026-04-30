@@ -516,7 +516,8 @@ const CRON_SCHEDULE = [
   // ── Every 15 min ───────────────────────────────────────────────────────────
   {
     jobId: 'submit_amazon_reports',
-    expr:  '0 */6 * * *',   // every 6h — dedup prevents redundant requests within a cycle
+    expr:  '0 3,11,19 * * *',  // 3am, 11am, 7pm PST/PDT — auto-handles DST via America/Los_Angeles
+    tz:    'America/Los_Angeles',
   },
   {
     jobId: 'download_completed_reports',
@@ -714,12 +715,13 @@ function startCron({ runImmediately = false } = {}) {
       continue;
     }
 
+    const tz = entry.tz || 'UTC';
     cron.schedule(expr, () => withLock(jobId, handler), {
-      timezone: 'UTC',
+      timezone: tz,
     });
 
     registered++;
-    console.log(`[cron] ✅ Registered ${jobId} — ${expr}`);
+    console.log(`[cron] ✅ Registered ${jobId} — ${expr} (${tz})`);
   }
 
   console.log(`[cron] ${registered} jobs registered`);
