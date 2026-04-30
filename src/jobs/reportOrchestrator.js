@@ -591,6 +591,21 @@ async function downloadCompletedReports({ triggeredBy = 'cron' } = {}) {
 
     await completeJob(runId, { rowsRead: ready.length, rowsWritten: totalRows });
     console.log(`[downloadReports] ✅ ${downloaded}/${ready.length} downloaded, ${totalRows} total rows written`);
+
+    // Signal stage + rebuild to run — only when new data actually landed
+    if (totalRows > 0) {
+      try {
+        const { getRedisClient } = require('../services/redisSessionStore');
+        const redis = getRedisClient();
+        if (redis && redis.status === 'ready') {
+          await redis.set('pending_stage', '1', 'EX', 3600); // expire after 1h as safety net
+          console.log('[downloadReports] 🚩 pending_stage flag set');
+        }
+      } catch (flagErr) {
+        console.warn('[downloadReports] Could not set pending_stage flag (non-fatal):', flagErr.message?.slice(0, 60));
+      }
+    }
+
     return { downloaded, rowsWritten: totalRows };
   } catch (err) {
     await failJob(runId, err.message);

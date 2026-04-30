@@ -105,7 +105,21 @@ const JOB_HANDLERS = {
 
   // ── Every 15 min ─────────────────────────────────────────────────────────
   submit_amazon_reports:     () => reportOrchestrator().submitAmazonReports({ triggeredBy: 'cron' }),
-  download_completed_reports:() => reportOrchestrator().downloadCompletedReports({ triggeredBy: 'cron' }),
+  download_completed_reports: async () => {
+    const result = await reportOrchestrator().downloadCompletedReports({ triggeredBy: 'cron' });
+    // Event-driven trigger: if new rows landed, immediately enqueue stage + rebuild
+    // rather than waiting for the 8h fallback schedule
+    if (result?.rowsWritten > 0) {
+      console.log('[cron] New data downloaded — triggering stage_raw_data + rebuild_mart immediately');
+      await withLock('stage_raw_data', JOB_HANDLERS.stage_raw_data).catch(e =>
+        console.warn('[cron] Event-triggered stage_raw_data failed:', e.message)
+      );
+      await withLock('rebuild_mart', JOB_HANDLERS.rebuild_mart).catch(e =>
+        console.warn('[cron] Event-triggered rebuild_mart failed:', e.message)
+      );
+    }
+    return result;
+  },
   refresh_queue_status:      () => refreshQueueStatus(),
   sync_job_metadata:         () => syncJobMetadata(),
 
@@ -488,7 +502,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'poll_report_status',
-    expr:  SCHEDULE_CRONS['every5min'],
+    expr:  '*/30 * * * *',  // every 30 min — reports take 10-60+ min to generate anyway
   },
   {
     jobId: 'retry_transient_failures',
@@ -506,7 +520,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'download_completed_reports',
-    expr:  SCHEDULE_CRONS['every15min'],
+    expr:  '*/30 * * * *',  // every 30 min — sets pending_stage flag when new rows land
   },
   {
     jobId: 'refresh_queue_status',
@@ -520,11 +534,11 @@ const CRON_SCHEDULE = [
   // ── Hourly ─────────────────────────────────────────────────────────────────
   {
     jobId: 'stage_raw_data',
-    expr:  SCHEDULE_CRONS['every15min'], // was hourly — tightened to match download cadence
+    expr:  '0 */8 * * *',  // 8h fallback — event-triggered via pending_stage flag when new data lands
   },
   {
     jobId: 'rebuild_mart',
-    expr:  '*/15 * * * *', // every 15 min — runs right after stage_raw_data
+    expr:  '30 */8 * * *', // 8h fallback — 30 min after stage_raw_data, also event-triggered
   },
   {
     jobId: 'run_quality_checks',

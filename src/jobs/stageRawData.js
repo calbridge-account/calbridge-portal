@@ -176,7 +176,26 @@ async function stageFbaInventoryToAnalytics(clientId, accountId, pipelineRunId) 
  * Main stage_raw_data job.
  * Runs all three transforms for all active accounts.
  */
-async function stageRawData({ triggeredBy = 'cron' } = {}) {
+async function stageRawData({ triggeredBy = 'cron', force = false } = {}) {
+  // Skip if no new data has landed since last run (unless forced or scheduled fallback)
+  if (!force && triggeredBy === 'cron') {
+    try {
+      const { getRedisClient } = require('../services/redisSessionStore');
+      const redis = getRedisClient();
+      if (redis && redis.status === 'ready') {
+        const pending = await redis.get('pending_stage');
+        if (!pending) {
+          console.log('[stageRawData] No pending_stage flag — skipping (no new data)');
+          return { totalRows: 0, skipped: true };
+        }
+        // Clear the flag — we are processing now
+        await redis.del('pending_stage');
+      }
+    } catch (flagErr) {
+      console.warn('[stageRawData] Could not check pending_stage flag — proceeding anyway:', flagErr.message?.slice(0, 60));
+    }
+  }
+
   const accounts = await getActiveAccounts();
   if (!accounts.length) {
     console.log('[stageRawData] No active accounts');
@@ -555,7 +574,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             THEN SUM(COALESCE(clicks, 0))::FLOAT / SUM(COALESCE(impressions, 0))
             ELSE NULL END                                        AS ctr
         FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
-        WHERE date >= '2026-01-01'
+        WHERE date >= DATEADD('day', -60, CURRENT_DATE())
         GROUP BY client_id, date::DATE, COALESCE(marketplace, 'US'), ad_type
 
         UNION ALL
@@ -588,7 +607,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             ELSE NULL END                                        AS ctr
         FROM CALBRIDGE_PROD.RAW.AD_CAMPAIGN r
         WHERE r.ad_product IN ('SPONSORED_PRODUCTS','SPONSORED_BRANDS','SPONSORED_DISPLAY')
-          AND r.date >= '2026-01-01'
+          AND r.date >= DATEADD('day', -60, CURRENT_DATE())
           -- Only use RAW rows for dates NOT covered by the legacy tables for that client+ad_type
           -- This prevents double-counting when both sources have the same (client, date, ad_type)
           AND NOT EXISTS (
@@ -666,7 +685,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(viewable_impressions, 0))               AS viewable_impressions,
             MAX(top_of_search_impression_share)                  AS top_of_search_impression_share
           FROM CALBRIDGE_PROD.APP.adjusted_campaign_performance
-          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          WHERE date >= DATEADD('day', -60, CURRENT_DATE())
           GROUP BY client_id, date::DATE, ad_type, campaign_id, campaign_name, COALESCE(marketplace, 'US')
         ) src
         ON tgt.client_id=src.client_id AND tgt.date=src.date
@@ -726,7 +745,7 @@ async function rebuildMart({ triggeredBy = 'cron' } = {}) {
             SUM(COALESCE(detail_page_views, 0)) AS detail_page_views,
             SUM(COALESCE(add_to_cart, 0)) AS add_to_cart
           FROM CALBRIDGE_PROD.APP.dsp_flight_report
-          WHERE date >= DATEADD('day', -95, CURRENT_DATE())
+          WHERE date >= DATEADD('day', -60, CURRENT_DATE())
             AND order_name IS NOT NULL AND order_name != ''
           GROUP BY client_id, date::DATE, order_name
         ) src
