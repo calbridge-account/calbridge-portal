@@ -256,8 +256,11 @@ function StepSettings({ form, setForm, brandName }) {
 // ─── Keyword bucket classifier ─────────────────────────────────────────────
 // Brand: contains a known brand term. Competitive: other brand names. Non-Brand: generic.
 // These three buckets are MECE (mutually exclusive + collectively exhaustive).
+// Generic competitor signals — deliberately excludes client-specific brands (Acer, CyberPower)
+// since they are in different categories and not competitors of each other.
+// Per-brand competitor lists will be configurable in the admin panel.
 const COMPETITOR_SIGNALS = [
-  'apc', 'eaton', 'tripp lite', 'tripplite', 'belkin', 'anker', 'acer', 'cyberpower',
+  'apc', 'eaton', 'tripp lite', 'tripplite', 'belkin', 'anker',
   'samsung', 'apple', 'google', 'microsoft', 'sony', 'lg ', ' lg', 'panasonic', 'toshiba',
   'hp ', ' hp', 'dell', 'lenovo', 'asus', 'corsair', 'razer', 'logitech',
 ];
