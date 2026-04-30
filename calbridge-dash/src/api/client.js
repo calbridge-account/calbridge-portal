@@ -229,3 +229,20 @@ export const createCampaign = (payload) =>
 
 export const getCampaignProfile = () =>
   campaignsJSON('/create/profile');
+
+// Upload a SB creative image (logo or main image). Returns { url, filename }.
+export async function uploadSbCreative(file) {
+  const fd = new FormData();
+  fd.append('image', file);
+  const res = await fetch('/upload/sb-creative', {
+    method: 'POST',
+    credentials: 'include',
+    body: fd,
+    // Note: do NOT set Content-Type header — browser sets it with boundary automatically
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import PageHeader from '../../components/PageHeader';
@@ -9,6 +9,7 @@ import {
   getCampaignAsins,
   createCampaign,
   getCampaignProfile,
+  uploadSbCreative,
 } from '../../api/client';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -252,10 +253,52 @@ function StepSettings({ form, setForm, brandName }) {
   );
 }
 
+// ─── Keyword bucket classifier ─────────────────────────────────────────────
+// Brand: contains a known brand term. Competitive: other brand names. Non-Brand: generic.
+// These three buckets are MECE (mutually exclusive + collectively exhaustive).
+const COMPETITOR_SIGNALS = [
+  'apc', 'eaton', 'tripp lite', 'tripplite', 'belkin', 'anker', 'acer', 'cyberpower',
+  'samsung', 'apple', 'google', 'microsoft', 'sony', 'lg ', ' lg', 'panasonic', 'toshiba',
+  'hp ', ' hp', 'dell', 'lenovo', 'asus', 'corsair', 'razer', 'logitech',
+];
+
+function classifyKeyword(term, brandTerms) {
+  const lower = term.toLowerCase();
+  if (brandTerms.some(b => lower.includes(b.toLowerCase()))) return 'brand';
+  if (COMPETITOR_SIGNALS.some(c => lower.includes(c))) return 'competitive';
+  return 'non-brand';
+}
+
+function extractBrandTerms(brandName) {
+  if (!brandName) return [];
+  const clean = brandName.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+  return [clean, clean.toLowerCase(), clean.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()].filter(Boolean);
+}
+
+const BUCKETS = [
+  { key: 'brand',       label: 'Brand',       colorClass: 'text-blue-700 bg-blue-50 border-blue-200',   dot: 'bg-blue-500',   tip: 'Searches containing your brand name — highest CVR, lowest ACoS.' },
+  { key: 'competitive', label: 'Competitive',  colorClass: 'text-amber-700 bg-amber-50 border-amber-200', dot: 'bg-amber-500',  tip: 'Competitor brand terms — conquest traffic, higher CPC.' },
+  { key: 'non-brand',   label: 'Non-Brand',    colorClass: 'text-gray-700 bg-gray-50 border-gray-200',   dot: 'bg-gray-400',   tip: 'Generic category terms — broadest reach, highest volume.' },
+];
+
+function BucketBadge({ bucket }) {
+  const b = BUCKETS.find(x => x.key === bucket);
+  if (!b) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full border ${b.colorClass}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${b.dot}`} />
+      {b.label}
+    </span>
+  );
+}
+
 // ─── Step 3: Keywords ─────────────────────────────────────────────────────────
-function StepKeywords({ form, setForm }) {
-  const [kwSearch, setKwSearch] = useState('');
-  const [customKw, setCustomKw] = useState('');
+function StepKeywords({ form, setForm, brandName }) {
+  const [activeBucket, setActiveBucket] = useState('all');
+  const [kwSearch, setKwSearch]         = useState('');
+  const [customKw, setCustomKw]         = useState('');
+
+  const brandTerms = useMemo(() => extractBrandTerms(brandName), [brandName]);
 
   const { data: suggestions = [], isLoading } = useQuery({
     queryKey: ['campaign-suggestions', form.adType],
@@ -264,9 +307,23 @@ function StepKeywords({ form, setForm }) {
     retry: 1,
   });
 
-  const filteredSuggestions = suggestions.filter(s =>
-    !kwSearch || s.term.toLowerCase().includes(kwSearch.toLowerCase())
+  const classified = useMemo(() =>
+    suggestions.map(s => ({ ...s, bucket: classifyKeyword(s.term, brandTerms) })),
+    [suggestions, brandTerms]
   );
+
+  const filteredSuggestions = useMemo(() => classified.filter(s => {
+    if (kwSearch && !s.term.toLowerCase().includes(kwSearch.toLowerCase())) return false;
+    if (activeBucket !== 'all' && s.bucket !== activeBucket) return false;
+    return true;
+  }), [classified, kwSearch, activeBucket]);
+
+  const bucketCounts = useMemo(() => ({
+    all:         classified.length,
+    brand:       classified.filter(s => s.bucket === 'brand').length,
+    competitive: classified.filter(s => s.bucket === 'competitive').length,
+    'non-brand': classified.filter(s => s.bucket === 'non-brand').length,
+  }), [classified]);
 
   const selectedTerms = new Set(form.keywords.map(k => k.term));
 
@@ -279,8 +336,21 @@ function StepKeywords({ form, setForm }) {
         term:      kw.term,
         matchType: kw.matchType || 'BROAD',
         bid:       String(bid),
+        bucket:    kw.bucket || 'non-brand',
       }],
     }));
+  }
+
+  function addAllInBucket(bucket) {
+    const toAdd = classified
+      .filter(s => s.bucket === bucket && !selectedTerms.has(s.term))
+      .map(s => ({
+        term:      s.term,
+        matchType: s.matchType || 'BROAD',
+        bid:       String(suggestedBid(s.spend, s.clicks)),
+        bucket:    s.bucket,
+      }));
+    setForm(f => ({ ...f, keywords: [...f.keywords, ...toAdd] }));
   }
 
   function removeKeyword(term) {
@@ -303,23 +373,67 @@ function StepKeywords({ form, setForm }) {
         term:      trimmed,
         matchType: 'BROAD',
         bid:       String(form.defaultBid || '0.75'),
+        bucket:    classifyKeyword(trimmed, brandTerms),
       }],
     }));
     setCustomKw('');
   }
 
+  const selectedByBucket = useMemo(() => {
+    const groups = { brand: [], competitive: [], 'non-brand': [] };
+    form.keywords.forEach(k => {
+      const b = k.bucket || classifyKeyword(k.term, brandTerms);
+      (groups[b] || groups['non-brand']).push(k);
+    });
+    return groups;
+  }, [form.keywords, brandTerms]);
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-gray-900 mb-1">Keywords</h2>
-      <p className="text-sm text-gray-500 mb-5">Add keywords based on your historical search term data.</p>
+      <p className="text-sm text-gray-500 mb-4">Organize keywords into three MECE buckets for cleaner campaign structure and bidding control.</p>
+
+      {/* Bucket legend */}
+      <div className="flex flex-wrap gap-2 mb-5">
+        {BUCKETS.map(b => (
+          <div key={b.key} className="flex items-center gap-1.5 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5" title={b.tip}>
+            <span className={`w-2 h-2 rounded-full ${b.dot}`} />
+            <span className="font-medium">{b.label}</span>
+            <span className="text-gray-400 hidden lg:inline"> — {b.tip}</span>
+          </div>
+        ))}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* LEFT: Suggestions */}
+        {/* LEFT: Suggestions with bucket tabs */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Suggested Keywords</span>
-            <span className="text-xs text-gray-400">{suggestions.length} suggestions</span>
+          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+            <div className="flex gap-1 flex-wrap">
+              {[{ key: 'all', label: 'All' }, ...BUCKETS].map(b => (
+                <button
+                  key={b.key}
+                  onClick={() => setActiveBucket(b.key)}
+                  className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                    activeBucket === b.key
+                      ? 'bg-green-700 text-white'
+                      : 'text-gray-600 bg-white border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  {b.label} <span className="opacity-70">({bucketCounts[b.key] ?? 0})</span>
+                </button>
+              ))}
+            </div>
           </div>
+          {activeBucket !== 'all' && bucketCounts[activeBucket] > 0 && (
+            <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex justify-end">
+              <button
+                onClick={() => addAllInBucket(activeBucket)}
+                className="text-xs text-green-700 hover:text-green-800 font-medium"
+              >
+                + Add all {BUCKETS.find(b => b.key === activeBucket)?.label} keywords
+              </button>
+            </div>
+          )}
           <div className="p-3 border-b border-gray-100">
             <input
               type="text"
@@ -329,7 +443,7 @@ function StepKeywords({ form, setForm }) {
               className="w-full text-sm border border-gray-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-600"
             />
           </div>
-          <div className="overflow-y-auto" style={{ maxHeight: '360px' }}>
+          <div className="overflow-y-auto" style={{ maxHeight: '320px' }}>
             {isLoading ? (
               <div className="p-4"><SkeletonTable /></div>
             ) : filteredSuggestions.length === 0 ? (
@@ -340,11 +454,11 @@ function StepKeywords({ form, setForm }) {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-white border-b border-gray-100">
                   <tr>
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 w-6"></th>
+                    <th className="w-6" />
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Keyword</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Clicks</th>
+                    <th className="text-left py-2 px-2 text-xs font-semibold text-gray-500">Type</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Orders</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Sugg. Bid</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Bid</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -356,19 +470,14 @@ function StepKeywords({ form, setForm }) {
                         className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${isAdded ? 'opacity-40' : ''}`}
                         onClick={() => addKeyword(kw)}
                       >
-                        <td className="py-2 px-3">
-                          <input
-                            type="checkbox"
-                            checked={isAdded}
-                            onChange={() => addKeyword(kw)}
-                            onClick={e => e.stopPropagation()}
-                            className="rounded accent-green-700"
-                          />
+                        <td className="py-2 pl-3">
+                          <input type="checkbox" checked={isAdded} onChange={() => addKeyword(kw)}
+                            onClick={e => e.stopPropagation()} className="rounded accent-green-700" />
                         </td>
-                        <td className="py-2 px-3 text-gray-800 font-medium max-w-[160px]">
+                        <td className="py-2 px-3 text-gray-800 font-medium max-w-[130px]">
                           <span className="block truncate" title={kw.term}>{kw.term}</span>
                         </td>
-                        <td className="py-2 px-3 text-right text-gray-500">{kw.clicks?.toLocaleString() || 0}</td>
+                        <td className="py-2 px-2"><BucketBadge bucket={kw.bucket} /></td>
                         <td className="py-2 px-3 text-right text-gray-500">{kw.orders?.toLocaleString() || 0}</td>
                         <td className="py-2 px-3 text-right text-green-700 font-medium">{fmt$(suggestedBid(kw.spend, kw.clicks))}</td>
                       </tr>
@@ -380,7 +489,7 @@ function StepKeywords({ form, setForm }) {
           </div>
         </div>
 
-        {/* RIGHT: Selected */}
+        {/* RIGHT: Selected — grouped by bucket */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">Selected Keywords</span>
@@ -388,57 +497,190 @@ function StepKeywords({ form, setForm }) {
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: '360px' }}>
             {form.keywords.length === 0 ? (
-              <div className="text-gray-400 text-sm text-center py-8">
-                Click suggestions to add keywords
-              </div>
+              <div className="text-gray-400 text-sm text-center py-8">Click suggestions to add keywords</div>
             ) : (
-              <div className="divide-y divide-gray-50">
-                {form.keywords.map(kw => (
-                  <div key={kw.term} className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex-1 text-sm text-gray-800 font-medium truncate min-w-0" title={kw.term}>{kw.term}</span>
-                    <select
-                      value={kw.matchType}
-                      onChange={e => updateKeyword(kw.term, 'matchType', e.target.value)}
-                      className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-green-600"
-                    >
-                      <option value="BROAD">Broad</option>
-                      <option value="PHRASE">Phrase</option>
-                      <option value="EXACT">Exact</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="0.02"
-                      step="0.01"
-                      value={kw.bid}
-                      onChange={e => updateKeyword(kw.term, 'bid', e.target.value)}
-                      className="w-16 text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-green-600"
-                    />
-                    <button
-                      onClick={() => removeKeyword(kw.term)}
-                      className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
-                      title="Remove"
-                    >✕</button>
-                  </div>
-                ))}
+              <div>
+                {BUCKETS.map(b => {
+                  const bkws = selectedByBucket[b.key] || [];
+                  if (bkws.length === 0) return null;
+                  return (
+                    <div key={b.key}>
+                      <div className={`px-3 py-1.5 text-xs font-semibold border-b border-gray-100 flex items-center gap-1.5 ${b.colorClass}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${b.dot}`} />
+                        {b.label} <span className="opacity-60">({bkws.length})</span>
+                      </div>
+                      {bkws.map(kw => (
+                        <div key={kw.term} className="flex items-center gap-2 px-3 py-2 border-b border-gray-50">
+                          <span className="flex-1 text-sm text-gray-800 font-medium truncate min-w-0" title={kw.term}>{kw.term}</span>
+                          <select
+                            value={kw.matchType}
+                            onChange={e => updateKeyword(kw.term, 'matchType', e.target.value)}
+                            className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-green-600"
+                          >
+                            <option value="BROAD">Broad</option>
+                            <option value="PHRASE">Phrase</option>
+                            <option value="EXACT">Exact</option>
+                          </select>
+                          <input type="number" min="0.02" step="0.01" value={kw.bid}
+                            onChange={e => updateKeyword(kw.term, 'bid', e.target.value)}
+                            className="w-16 text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-green-600"
+                          />
+                          <button onClick={() => removeKeyword(kw.term)}
+                            className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
           {/* Add custom */}
           <div className="p-3 border-t border-gray-100 bg-gray-50 flex gap-2">
             <input
-              type="text"
-              placeholder="Add custom keyword…"
-              value={customKw}
+              type="text" placeholder="Add custom keyword…" value={customKw}
               onChange={e => setCustomKw(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addCustomKeyword()}
               className="flex-1 text-sm border border-gray-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-600"
             />
-            <button
-              onClick={addCustomKeyword}
+            <button onClick={addCustomKeyword}
               className="px-3 py-1.5 bg-green-700 text-white text-sm rounded hover:bg-green-800 transition-colors font-medium"
             >Add</button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 3b: SB Creatives ──────────────────────────────────────────────────
+// Amazon SB creative requirements:
+//   Headline:  1–200 characters
+//   Brand logo: JPG/PNG, 400×400 recommended, max 1MB
+//   Main image: JPG/PNG, 1200×628 recommended (1.91:1 ratio), max 5MB
+const HEADLINE_MAX = 200;
+
+function ImageUploadField({ label, spec, hint, value, onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError]         = useState(null);
+
+  async function handleFile(file) {
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const result = await uploadSbCreative(file);
+      onChange(result.url);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <p className="text-xs text-gray-400 mb-2">{spec}</p>
+      <div
+        className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-colors ${
+          value ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-green-400'
+        }`}
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+      >
+        {value ? (
+          <div className="flex items-center gap-3">
+            <img src={value} alt={label} className="w-16 h-16 object-contain rounded border border-gray-200 bg-white" />
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-sm font-medium text-green-700">✓ Uploaded</p>
+              <p className="text-xs text-gray-400 truncate">{value.split('/').pop()}</p>
+            </div>
+            <button onClick={() => onChange('')} className="text-xs text-red-400 hover:text-red-600 flex-shrink-0">Remove</button>
+          </div>
+        ) : (
+          <>
+            <div className="text-2xl mb-1">{uploading ? '📤' : '🖼️'}</div>
+            <p className="text-sm text-gray-500">
+              {uploading ? 'Uploading…' : 'Click to browse or drag & drop'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{hint}</p>
+          </>
+        )}
+        {!value && !uploading && (
+          <input
+            type="file"
+            accept="image/jpeg,image/png"
+            onChange={e => handleFile(e.target.files[0])}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+          />
+        )}
+      </div>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function StepCreative({ form, setForm }) {
+  const headline   = form.sbHeadline   || '';
+  const logoUrl    = form.sbLogoUrl    || '';
+  const mainImgUrl = form.sbMainImgUrl || '';
+  const charCount  = headline.length;
+
+  function set(field, value) { setForm(f => ({ ...f, [field]: value })); }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">SB Creatives</h2>
+      <p className="text-sm text-gray-500 mb-6">Sponsored Brands ads require a headline, brand logo, and main image. Assets are stored and reusable across campaigns.</p>
+
+      {/* Headline */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Headline <span className="text-red-500">*</span>
+        </label>
+        <p className="text-xs text-gray-400 mb-2">Appears above your ad. Max {HEADLINE_MAX} characters.</p>
+        <div className="relative">
+          <input
+            type="text"
+            value={headline}
+            onChange={e => set('sbHeadline', e.target.value)}
+            maxLength={HEADLINE_MAX}
+            placeholder="e.g. Shop CyberPower UPS — Free Shipping on Orders $49+"
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 pr-20 ${
+              charCount > 0 && charCount > HEADLINE_MAX
+                ? 'border-red-300 focus:ring-red-300'
+                : 'border-gray-200 focus:ring-green-600'
+            }`}
+          />
+          <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono pointer-events-none ${
+            charCount >= HEADLINE_MAX * 0.9 ? 'text-amber-500' : 'text-gray-400'
+          }`}>
+            {charCount}/{HEADLINE_MAX}
+          </span>
+        </div>
+      </div>
+
+      {/* Images */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <ImageUploadField
+          label="Brand Logo"
+          spec="JPG or PNG · Recommended 400×400px · Max 1 MB"
+          hint="Square format, transparent background preferred"
+          value={logoUrl}
+          onChange={v => set('sbLogoUrl', v)}
+        />
+        <ImageUploadField
+          label="Main Image"
+          spec="JPG or PNG · Recommended 1200×628px (1.91:1) · Max 5 MB"
+          hint="Product lifestyle or brand image, no text overlay"
+          value={mainImgUrl}
+          onChange={v => set('sbMainImgUrl', v)}
+        />
+      </div>
+
+      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+        <strong>Tip:</strong> Amazon requires approved creatives before SB ads run. Upload now — they'll be submitted with the campaign and stored for future use.
       </div>
     </div>
   );
@@ -748,7 +990,7 @@ function ReviewSummary({ form, profileId, strategyLabels }) {
 }
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
-const STEPS = ['Type', 'Settings', 'Keywords', 'Products', 'Review'];
+const STEPS = ['Type', 'Settings', 'Creatives', 'Keywords', 'Products', 'Review'];
 
 export default function CampaignCreate() {
   const navigate = useNavigate();
@@ -763,6 +1005,7 @@ export default function CampaignCreate() {
     retry: 1,
   });
   const profileId = profileData?.profileId || null;
+  const brandName = profileData?.brandName || '';
 
   const defaultName = useCallback(() => {
     const d = today();
@@ -781,6 +1024,9 @@ export default function CampaignCreate() {
     adGroupName:   '',
     keywords:      [],
     asins:         [],
+    sbHeadline:    '',
+    sbLogoUrl:     '',
+    sbMainImgUrl:  '',
   }));
 
   // Auto-update campaign name when adType changes
@@ -803,25 +1049,22 @@ export default function CampaignCreate() {
   function canProceed() {
     if (step === 0) return !!form.adType;
     if (step === 1) return !!(form.campaignName && form.budget && Number(form.budget) >= 1 && form.startDate && form.targetingType);
-    if (step === 2) return true; // keywords optional for auto targeting
-    if (step === 3) return true; // ASINs optional (can add later)
+    if (step === 2 && form.adType === 'SB') return !!(form.sbHeadline && form.sbHeadline.trim().length >= 1); // headline required for SB
     return true;
   }
 
-  // Skip keywords step for auto-targeting SP
-  function getNextStep() {
-    if (step === 1 && form.adType === 'SP' && form.targetingType === 'auto') {
-      return 3; // skip keywords
-    }
-    return step + 1;
+  // Step flow:
+  //   SP manual:  0 Type → 1 Settings → 2 Keywords → 3 Products → 4 Review  (total 5 steps, indices 0-4)
+  //   SP auto:    0 Type → 1 Settings → 2 Products  → 3 Review               (total 4 steps, indices 0-3)
+  //   SB:         0 Type → 1 Settings → 2 Creatives → 3 Keywords → 4 Products → 5 Review (total 6 steps, 0-5)
+  function maxStep() {
+    if (form.adType === 'SB') return 5;
+    if (form.targetingType === 'auto') return 3;
+    return 4;
   }
 
-  function getPrevStep() {
-    if (step === 3 && form.adType === 'SP' && form.targetingType === 'auto') {
-      return 1; // skip keywords going back
-    }
-    return step - 1;
-  }
+  function getNextStep() { return Math.min(step + 1, maxStep()); }
+  function getPrevStep()  { return Math.max(step - 1, 0); }
 
   function handleLaunch() {
     setLaunchResult(null);
@@ -845,17 +1088,15 @@ export default function CampaignCreate() {
     });
   }
 
-  // Determine visible steps (skip keywords for auto-SP)
   const showKeywordsStep = form.adType === 'SB' || form.targetingType === 'manual';
-  const visibleStepNames = showKeywordsStep
-    ? ['Type', 'Settings', 'Keywords', 'Products', 'Review']
-    : ['Type', 'Settings', 'Products', 'Review'];
 
-  // Map real step index to visible step index
-  const visibleStep = (() => {
-    if (!showKeywordsStep && step >= 3) return step - 1;
-    return step;
-  })();
+  const visibleStepNames = form.adType === 'SB'
+    ? ['Type', 'Settings', 'Creatives', 'Keywords', 'Products', 'Review']
+    : form.targetingType === 'auto'
+    ? ['Type', 'Settings', 'Products', 'Review']
+    : ['Type', 'Settings', 'Keywords', 'Products', 'Review'];
+
+  const visibleStep = step; // steps are already 1:1 for each flow
 
   return (
     <div>
@@ -866,13 +1107,19 @@ export default function CampaignCreate() {
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <StepIndicator steps={visibleStepNames} current={visibleStep} />
 
-          {/* Step Content */}
+          {/* Step Content — step indices are logical steps in the flow */}
           <div className="min-h-64">
             {step === 0 && <StepType      form={form} setForm={setForm} />}
             {step === 1 && <StepSettings  form={form} setForm={setForm} />}
-            {step === 2 && showKeywordsStep && <StepKeywords form={form} setForm={setForm} />}
-            {step === 3 && <StepAsins     form={form} setForm={setForm} />}
-            {step === 4 && (
+            {step === 2 && form.adType === 'SB' && <StepCreative form={form} setForm={setForm} />}
+            {step === 2 && form.adType === 'SP' && showKeywordsStep && <StepKeywords form={form} setForm={setForm} brandName={brandName} />}
+            {step === 2 && form.adType === 'SP' && !showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
+            {step === 3 && form.adType === 'SB' && <StepKeywords form={form} setForm={setForm} brandName={brandName} />}
+            {step === 3 && form.adType === 'SP' && showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
+            {step === 4 && form.adType === 'SB' && <StepAsins form={form} setForm={setForm} />}
+            {(step === 3 && form.adType === 'SP' && !showKeywordsStep) ||
+             (step === 4 && form.adType === 'SP') ||
+             (step === 5 && form.adType === 'SB') ? (
               <StepReview
                 form={form}
                 profileId={profileId}
@@ -880,11 +1127,11 @@ export default function CampaignCreate() {
                 launching={mutation.isPending}
                 result={launchResult}
               />
-            )}
+            ) : null}
           </div>
 
           {/* Navigation */}
-          {!(step === 4 && launchResult?.success) && (
+          {!(launchResult?.success) && (
             <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
               <button
                 onClick={() => step > 0 ? setStep(getPrevStep()) : navigate('/advertising/campaigns')}
@@ -893,13 +1140,13 @@ export default function CampaignCreate() {
                 {step === 0 ? '← Back to Campaigns' : '← Previous'}
               </button>
 
-              {step < 4 && (
+              {step < maxStep() && (
                 <button
                   onClick={() => setStep(getNextStep())}
                   disabled={!canProceed()}
                   className="px-5 py-2 text-sm bg-green-700 text-white rounded-lg hover:bg-green-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {step === 3 ? 'Review →' : 'Next →'}
+                  {step === maxStep() - 1 ? 'Review →' : 'Next →'}
                 </button>
               )}
             </div>

@@ -4,6 +4,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { requireAuth } = require('../middleware/requireAuth');
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -118,6 +119,40 @@ router.post('/', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file received or invalid file type' });
   console.log('[upload] File received:', req.file.filename, req.file.size, 'bytes');
   res.json({ success: true, filename: req.file.originalname, saved_as: req.file.filename, path: req.file.path });
+});
+
+// ── SB Creative image upload ────────────────────────────────────────────────
+// POST /upload/sb-creative  — accepts jpg/png/gif up to 5MB
+// Returns { url, filename, width?, height? }
+const SB_UPLOAD_DIR = path.join(__dirname, '../../public/uploads/sb-creatives');
+if (!fs.existsSync(SB_UPLOAD_DIR)) fs.mkdirSync(SB_UPLOAD_DIR, { recursive: true });
+
+const sbStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, SB_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext  = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${Date.now()}_${base}${ext}`);
+  },
+});
+
+const sbUpload = multer({
+  storage: sbStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('Only JPG, PNG, or GIF images are allowed'));
+  },
+});
+
+router.post('/sb-creative', requireAuth, sbUpload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No image received or invalid file type' });
+  // Public URL — served as static from /public
+  const url = `/uploads/sb-creatives/${req.file.filename}`;
+  console.log('[upload] SB creative saved:', req.file.filename, req.file.size, 'bytes');
+  res.json({ success: true, url, filename: req.file.filename, originalName: req.file.originalname, size: req.file.size });
 });
 
 module.exports = router;

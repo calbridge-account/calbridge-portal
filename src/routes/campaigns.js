@@ -385,6 +385,7 @@ router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, n
         startDate:    startDate.replace(/-/g, ''),
         ...(endDate ? { endDate: endDate.replace(/-/g, '') } : {}),
         bidding: { bidOptimization: true },
+        ...(sbHeadline ? { headline: sbHeadline } : {}),
       };
 
       let sbCampRes;
@@ -433,7 +434,12 @@ router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, n
     }
 
     // Log success
-    await logCampaignCreateAction(clientId, campaignId, 'create', 'completed', req.body, null);
+    const successPayload = {
+      ...req.body,
+      ...(sbLogoUrl    ? { sbLogoUrl }    : {}),
+      ...(sbMainImgUrl ? { sbMainImgUrl } : {}),
+    };
+    await logCampaignCreateAction(clientId, campaignId, 'create', 'completed', successPayload, null);
     console.log(`[CampaignCreate] ${adType} campaign created — client=${clientId} campaign=${campaignId} adGroup=${adGroupId}`);
 
     res.json({ success: true, campaignId, adGroupId });
