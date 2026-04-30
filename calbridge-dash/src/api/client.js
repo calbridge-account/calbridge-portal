@@ -203,3 +203,29 @@ export const getDspOrders = (range, marketplace) => {
 // Connection status — which Amazon accounts are connected
 export const getConnections = () =>
   fetch('/amazon/status', { credentials: 'include' }).then(r => r.ok ? r.json() : {});
+
+// Campaign Creation Wizard
+async function campaignsJSON(path, options = {}) {
+  const res = await fetch(`/campaigns${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export const getCampaignSuggestions = (adType) =>
+  campaignsJSON(`/create/suggestions?adType=${adType || 'SP'}`);
+
+export const getCampaignAsins = () =>
+  campaignsJSON('/create/asins');
+
+export const createCampaign = (payload) =>
+  campaignsJSON('/create', { method: 'POST', body: JSON.stringify(payload) });
+
+export const getCampaignProfile = () =>
+  campaignsJSON('/create/profile');

@@ -5,6 +5,7 @@ const { requirePlan } = require('../middleware/requirePlan');
 const { query } = require('../services/snowflakeService');
 const { v4: uuidv4 } = require('uuid');
 const { resolveClientId } = require('../services/advertiserResolver');
+const { adsClient } = require('../jobs/adsIngestion');
 
 /**
  * Ensure campaign_actions table exists.
@@ -257,6 +258,362 @@ router.patch('/:id/bids', requireAuth, requirePlan('decisions'), async (req, res
     });
   } catch (err) { next(err); }
 });
+
+// ─── Campaign Creation Wizard Endpoints ─────────────────────────────────────
+
+/**
+ * GET /campaigns/create/profile
+ * Returns the Amazon Ads profile ID for this client (from client_accounts).
+ */
+router.get('/create/profile', requireAuth, async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const rows = await query(`
+      SELECT platform_profile_id, account_id, marketplace
+      FROM CALBRIDGE_PROD.APP.client_accounts
+      WHERE client_id = ?
+        AND channel   = 'sponsored_ads'
+        AND is_active  = TRUE
+      LIMIT 1
+    `, [clientId]);
+
+    if (!rows || rows.length === 0) {
+      return res.json({ profileId: null, accountId: null });
+    }
+    const r = rows[0];
+    res.json({
+      profileId:  r.PLATFORM_PROFILE_ID || r.platform_profile_id || null,
+      accountId:  r.ACCOUNT_ID          || r.account_id          || null,
+      marketplace: r.MARKETPLACE        || r.marketplace         || 'US',
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /campaigns/create/suggestions?adType=SP|SB
+ * Returns keyword suggestions from historical search term data (last 60 days).
+ * Must be registered BEFORE /:id to avoid route conflict.
+ */
+router.get('/create/suggestions', requireAuth, async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const rows = await query(`
+      SELECT
+        SEARCH_TERM                                        AS term,
+        SUM(CLICKS)                                        AS clicks,
+        SUM(SPEND)                                         AS spend,
+        SUM(PURCHASES_14D)                                 AS orders,
+        SUM(SALES_14D)                                     AS sales,
+        MODE(MATCH_TYPE)                                   AS match_type
+      FROM CALBRIDGE_PROD.RAW.AD_SEARCH_TERM
+      WHERE CLIENT_ID   = ?
+        AND DATE       >= DATEADD(day, -60, CURRENT_DATE)
+      GROUP BY SEARCH_TERM
+      HAVING SUM(CLICKS) >= 5
+      ORDER BY SUM(PURCHASES_14D) DESC NULLS LAST, SUM(CLICKS) DESC
+      LIMIT 100
+    `, [clientId]);
+
+    const results = rows.map(r => ({
+      term:      r.TERM      || r.term      || '',
+      clicks:    Number(r.CLICKS  || r.clicks  || 0),
+      spend:     Number(r.SPEND   || r.spend   || 0),
+      orders:    Number(r.ORDERS  || r.orders  || 0),
+      sales:     Number(r.SALES   || r.sales   || 0),
+      matchType: r.MATCH_TYPE || r.match_type || 'BROAD',
+    }));
+
+    res.json(results);
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /campaigns/create/asins
+ * Returns ASINs with performance data for ad targeting (last 60 days).
+ */
+router.get('/create/asins', requireAuth, async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+
+    let rows = [];
+    try {
+      rows = await query(`
+        SELECT
+          ADVERTISED_ASIN                AS asin,
+          COALESCE(MAX(TITLE), '')       AS title,
+          SUM(CLICKS)                   AS clicks,
+          SUM(SPEND)                    AS spend,
+          SUM(PURCHASES_14D)            AS orders,
+          SUM(SALES_14D)                AS sales
+        FROM CALBRIDGE_PROD.RAW.AD_ADVERTISED_PRODUCT
+        WHERE CLIENT_ID  = ?
+          AND DATE      >= DATEADD(day, -60, CURRENT_DATE)
+        GROUP BY ADVERTISED_ASIN
+        ORDER BY SUM(PURCHASES_14D) DESC NULLS LAST, SUM(CLICKS) DESC
+        LIMIT 50
+      `, [clientId]);
+    } catch (e) {
+      console.warn('[campaigns/create/asins] AD_ADVERTISED_PRODUCT query failed, falling back to PRODUCTS:', e.message);
+    }
+
+    // Fallback: query APP.PRODUCTS if no ad data
+    if (!rows || rows.length === 0) {
+      try {
+        rows = await query(`
+          SELECT
+            ASIN   AS asin,
+            TITLE  AS title,
+            0      AS clicks,
+            0      AS spend,
+            0      AS orders,
+            0      AS sales
+          FROM CALBRIDGE_PROD.APP.PRODUCTS
+          WHERE CLIENT_ID = ?
+          ORDER BY ASIN
+          LIMIT 50
+        `, [clientId]);
+      } catch (e2) {
+        console.warn('[campaigns/create/asins] PRODUCTS fallback also failed:', e2.message);
+      }
+    }
+
+    const results = (rows || []).map(r => ({
+      asin:   r.ASIN   || r.asin   || '',
+      title:  r.TITLE  || r.title  || '',
+      clicks: Number(r.CLICKS || r.clicks || 0),
+      spend:  Number(r.SPEND  || r.spend  || 0),
+      orders: Number(r.ORDERS || r.orders || 0),
+      sales:  Number(r.SALES  || r.sales  || 0),
+    }));
+
+    res.json(results);
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /campaigns/create
+ * Creates a full SP or SB campaign via the Amazon Ads API.
+ * Body: { adType, campaignName, budget, startDate, targetingType, bidStrategy,
+ *         defaultBid, keywords: [{term, matchType, bid}], asins: [string],
+ *         adGroupName, profileId }
+ */
+router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const {
+      adType,
+      campaignName,
+      budget,
+      startDate,
+      endDate,
+      targetingType,
+      bidStrategy,
+      defaultBid,
+      keywords = [],
+      asins = [],
+      adGroupName,
+      profileId,
+    } = req.body;
+
+    // Validate required fields
+    const missing = [];
+    if (!adType)        missing.push('adType');
+    if (!campaignName)  missing.push('campaignName');
+    if (!budget)        missing.push('budget');
+    if (!startDate)     missing.push('startDate');
+    if (!targetingType) missing.push('targetingType');
+    if (!profileId)     missing.push('profileId');
+    if (missing.length) {
+      return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
+    }
+
+    // Build ads API client
+    const client = await adsClient(clientId, 'ads');
+    const scope  = { headers: { 'Amazon-Advertising-API-Scope': String(profileId) } };
+
+    let campaignId, adGroupId;
+
+    if (adType === 'SP') {
+      // ── 1. Create SP Campaign ──────────────────────────────────────────────
+      const campaignPayload = [{
+        name:          campaignName,
+        campaignType:  'sponsoredProducts',
+        targetingType: targetingType.toLowerCase(),  // 'manual' | 'auto'
+        state:         'enabled',
+        dailyBudget:   Number(budget),
+        startDate:     startDate.replace(/-/g, ''),  // YYYYMMDD
+        ...(endDate ? { endDate: endDate.replace(/-/g, '') } : {}),
+        bidding: {
+          strategy: bidStrategy || 'legacyForSales',
+          adjustments: [],
+        },
+      }];
+
+      let spCampRes;
+      try {
+        spCampRes = await client.post('/v2/sp/campaigns', campaignPayload, scope);
+      } catch (apiErr) {
+        const msg = apiErr.response?.data ? JSON.stringify(apiErr.response.data) : apiErr.message;
+        await logCampaignCreateAction(clientId, 'unknown', 'create', 'failed', req.body, msg);
+        return res.status(502).json({ success: false, error: `Amazon API error (SP campaign): ${msg}` });
+      }
+
+      const campResult = Array.isArray(spCampRes.data) ? spCampRes.data[0] : spCampRes.data;
+      if (campResult?.code && campResult.code !== 'SUCCESS') {
+        const msg = campResult.description || campResult.details || JSON.stringify(campResult);
+        await logCampaignCreateAction(clientId, 'unknown', 'create', 'failed', req.body, msg);
+        return res.status(400).json({ success: false, error: `Campaign creation failed: ${msg}` });
+      }
+      campaignId = String(campResult.campaignId || campResult.campaign_id);
+
+      // ── 2. Create SP Ad Group ──────────────────────────────────────────────
+      const adGroupPayload = [{
+        name:       adGroupName || `${campaignName} - Ad Group 1`,
+        campaignId: Number(campaignId),
+        defaultBid: Number(defaultBid || 0.75),
+        state:      'enabled',
+      }];
+
+      let spAGRes;
+      try {
+        spAGRes = await client.post('/v2/sp/adGroups', adGroupPayload, scope);
+      } catch (apiErr) {
+        const msg = apiErr.response?.data ? JSON.stringify(apiErr.response.data) : apiErr.message;
+        await logCampaignCreateAction(clientId, campaignId, 'create', 'failed', req.body, msg);
+        return res.status(502).json({ success: false, error: `Amazon API error (SP ad group): ${msg}` });
+      }
+
+      const agResult = Array.isArray(spAGRes.data) ? spAGRes.data[0] : spAGRes.data;
+      adGroupId = String(agResult.adGroupId || agResult.ad_group_id);
+
+      // ── 3. Create Product Ads (one per ASIN) ─────────────────────────────
+      if (asins.length > 0) {
+        const productAdsPayload = asins.map(asin => ({
+          campaignId: Number(campaignId),
+          adGroupId:  Number(adGroupId),
+          asin,
+          state: 'enabled',
+        }));
+        try {
+          await client.post('/v2/sp/productAds', productAdsPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SP productAds error (non-fatal):', apiErr.message);
+        }
+      }
+
+      // ── 4. Create Keywords (manual) or Auto Targets (auto) ────────────────
+      if (targetingType.toLowerCase() === 'manual' && keywords.length > 0) {
+        const kwPayload = keywords.map(kw => ({
+          campaignId: Number(campaignId),
+          adGroupId:  Number(adGroupId),
+          keywordText: kw.term,
+          matchType:   (kw.matchType || 'broad').toLowerCase(),
+          state:       'enabled',
+          bid:         Number(kw.bid || defaultBid || 0.75),
+        }));
+        try {
+          await client.post('/v2/sp/keywords', kwPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SP keywords error (non-fatal):', apiErr.message);
+        }
+      } else if (targetingType.toLowerCase() === 'auto') {
+        const autoTargetPayload = [{
+          campaignId: Number(campaignId),
+          adGroupId:  Number(adGroupId),
+          state:      'enabled',
+          expression: [{ type: 'asinCategorySameAs', value: 'close-match' }],
+          expressionType: 'auto',
+          bid: Number(defaultBid || 0.75),
+        }];
+        try {
+          await client.post('/v2/sp/targets', autoTargetPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SP auto targets error (non-fatal):', apiErr.message);
+        }
+      }
+
+    } else if (adType === 'SB') {
+      // ── 1. Create SB Campaign ──────────────────────────────────────────────
+      const sbCampaignPayload = {
+        name:         campaignName,
+        state:        'enabled',
+        budget:       Number(budget),
+        budgetType:   'daily',
+        startDate:    startDate.replace(/-/g, ''),
+        ...(endDate ? { endDate: endDate.replace(/-/g, '') } : {}),
+        bidding: { bidOptimization: true },
+      };
+
+      let sbCampRes;
+      try {
+        sbCampRes = await client.post('/v2/sb/campaigns', sbCampaignPayload, scope);
+      } catch (apiErr) {
+        const msg = apiErr.response?.data ? JSON.stringify(apiErr.response.data) : apiErr.message;
+        await logCampaignCreateAction(clientId, 'unknown', 'create', 'failed', req.body, msg);
+        return res.status(502).json({ success: false, error: `Amazon API error (SB campaign): ${msg}` });
+      }
+
+      campaignId = String(sbCampRes.data?.campaignId || sbCampRes.data?.campaign_id);
+
+      // ── 2. Create SB Ad Group ─────────────────────────────────────────────
+      const sbAGPayload = {
+        campaignId: Number(campaignId),
+        name:       adGroupName || `${campaignName} - Ad Group 1`,
+      };
+      let sbAGRes;
+      try {
+        sbAGRes = await client.post('/v2/sb/adGroups', sbAGPayload, scope);
+      } catch (apiErr) {
+        console.warn('[CampaignCreate] SB adGroup error (non-fatal):', apiErr.message);
+      }
+      adGroupId = String(sbAGRes?.data?.adGroupId || sbAGRes?.data?.ad_group_id || '');
+
+      // ── 3. Create SB Keywords (manual) ───────────────────────────────────
+      if (keywords.length > 0) {
+        const sbKwPayload = keywords.map(kw => ({
+          campaignId:  Number(campaignId),
+          adGroupId:   adGroupId ? Number(adGroupId) : undefined,
+          keywordText: kw.term,
+          matchType:   (kw.matchType || 'broad').toLowerCase(),
+          state:       'enabled',
+          bid:         Number(kw.bid || defaultBid || 0.75),
+        }));
+        try {
+          await client.post('/v2/sb/keywords', sbKwPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SB keywords error (non-fatal):', apiErr.message);
+        }
+      }
+
+    } else {
+      return res.status(400).json({ success: false, error: `Unknown adType: ${adType}. Use SP or SB.` });
+    }
+
+    // Log success
+    await logCampaignCreateAction(clientId, campaignId, 'create', 'completed', req.body, null);
+    console.log(`[CampaignCreate] ${adType} campaign created — client=${clientId} campaign=${campaignId} adGroup=${adGroupId}`);
+
+    res.json({ success: true, campaignId, adGroupId });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Helper: log campaign create actions to campaign_actions table.
+ */
+async function logCampaignCreateAction(clientId, campaignId, actionType, status, payload, errorMsg) {
+  try {
+    const actionId = uuidv4();
+    const fullPayload = errorMsg ? { ...payload, error: errorMsg } : payload;
+    await query(
+      `INSERT INTO campaign_actions (action_id, client_id, campaign_id, action_type, payload, status, executed_at)
+       SELECT ?, ?, ?, ?, PARSE_JSON(?), ?, CURRENT_TIMESTAMP`,
+      [actionId, clientId, String(campaignId || 'unknown'), actionType,
+       JSON.stringify(fullPayload || {}), status]
+    );
+  } catch (e) {
+    console.warn('[CampaignCreate] Could not log action:', e.message);
+  }
+}
 
 module.exports = router;
 module.exports.ensureCampaignActionsTable = ensureCampaignActionsTable;
