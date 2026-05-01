@@ -126,13 +126,13 @@ router.get('/subcategories', requireAuth, async (req, res, next) => {
     let titles = [];
     try {
       const rows = await query(`
-        SELECT DISTINCT product_title
+        SELECT DISTINCT title
         FROM CALBRIDGE_PROD.APP.PRODUCTS
         WHERE client_id = ?
-          AND product_title IS NOT NULL
+          AND title IS NOT NULL
         LIMIT 500
       `, [clientId]);
-      titles = rows.map(r => r.PRODUCT_TITLE || r.product_title || '').filter(Boolean);
+      titles = rows.map(r => r.TITLE || r.title || '').filter(Boolean);
     } catch (err) {
       // PRODUCTS table may not exist for all clients — return empty gracefully
       console.warn('[competitors/subcategories] Could not query PRODUCTS:', err.message);

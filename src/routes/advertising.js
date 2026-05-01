@@ -91,13 +91,26 @@ function parseRange(req) {
   today.setUTCHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
 
+  // Amazon ads data always has a minimum D-1 lag — querying today returns nothing.
+  // Cap the endDate at yesterday for time-relative ranges (MTD/YTD) so the range
+  // always includes the most recent available data.
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
   if (range === 'mtd') {
     const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    return { startDate: start.toISOString().split('T')[0], endDate: todayStr, days: 30 };
+    const startStr = start.toISOString().split('T')[0];
+    // If MTD start is today (day 1 of month), the window would be start > end — impossible BETWEEN.
+    // Fall back to showing yesterday as a 1-day window so the first of month isn't blank.
+    if (startStr >= yesterdayStr) {
+      return { startDate: yesterdayStr, endDate: yesterdayStr, days: 30 };
+    }
+    return { startDate: startStr, endDate: yesterdayStr, days: 30 };
   }
   if (range === 'ytd') {
     const start = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
-    return { startDate: start.toISOString().split('T')[0], endDate: todayStr, days: 365 };
+    return { startDate: start.toISOString().split('T')[0], endDate: yesterdayStr, days: 365 };
   }
   if (range === 'custom') {
     const isoRe = /^\d{4}-\d{2}-\d{2}$/;
