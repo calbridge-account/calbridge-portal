@@ -434,6 +434,7 @@ async function handleCallbackPending({ clientId, code, state, type }) {
       dspAdvertisersByProfile = {};
       for (const p of profiles) {
         try {
+          // Use responseType:'text' + JSON.parse to avoid float truncation of large advertiser IDs
           const advRes = await axios.default.get('https://advertising-api.amazon.com/dsp/advertisers', {
             headers: {
               'Authorization':                   `Bearer ${tokens.accessToken}`,
@@ -441,13 +442,19 @@ async function handleCallbackPending({ clientId, code, state, type }) {
               'Amazon-Advertising-API-Scope':     p.profileId,
             },
             params: { pageSize: 100 },
-            timeout: 10000,
+            timeout: 15000,
+            responseType: 'text',
+            transformResponse: [d => d], // prevent axios auto-parse
           });
-          const advData = advRes.data?.response || advRes.data?.advertisers || advRes.data || [];
-          dspAdvertisersByProfile[p.profileId] = (Array.isArray(advData) ? advData : []).map(a => ({
+          let parsed;
+          try { parsed = JSON.parse(advRes.data); } catch { parsed = {}; }
+          const advData = parsed?.response || parsed?.advertisers || parsed || [];
+          const advList = (Array.isArray(advData) ? advData : []).map(a => ({
             advertiserId: String(a.advertiserId || a.id || ''),
-            name:         a.name || a.advertiserName || String(a.advertiserId || a.id || ''),
+            name:         a.name || a.advertiserName || `Advertiser ${a.advertiserId || a.id || ''}`,
           })).filter(a => a.advertiserId);
+          console.log(`[Amazon] DSP profile ${p.profileId} (${p.name}): ${advList.length} advertisers`);
+          dspAdvertisersByProfile[p.profileId] = advList;
         } catch (advErr) {
           console.warn(`[Amazon] DSP advertiser fetch failed for profile ${p.profileId}:`, advErr.response?.data || advErr.message);
           dspAdvertisersByProfile[p.profileId] = [];
@@ -524,7 +531,7 @@ async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
         const agencyProfile = profiles.find(p => p.profileId === agencyProfileId);
         const advertiserList = dspAdvertisersByProfile[agencyProfileId] || [];
         const advertiser = advertiserList.find(a => a.advertiserId === advertiserId);
-        const accountName = advertiser?.name || agencyProfile?.name || 'DSP Advertiser';
+        const accountName = (advertiser?.name || agencyProfile?.name || `DSP ${advertiserId}`).substring(0, 200);
 
         const existingRow = await query(`
           SELECT account_id FROM CALBRIDGE_PROD.APP.client_accounts
