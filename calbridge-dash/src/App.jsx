@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Component } from 'react';
 
 class ErrorBoundary extends Component {
@@ -24,7 +24,15 @@ class ErrorBoundary extends Component {
 }
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateRangeProvider } from './context/DateRangeContext';
-import { UserProvider } from './context/UserContext';
+import { UserProvider, useUser } from './context/UserContext';
+
+// Guard: redirect viewers away from manager-only routes
+function RequireManager({ children }) {
+  const { hasRole, ready } = useUser() || { hasRole: () => true, ready: true };
+  if (!ready) return null;
+  if (!hasRole('manager')) return <Navigate to="/advertising/campaigns" replace />;
+  return children;
+}
 import { AdvertiserProvider } from './context/AdvertiserContext';
 import { MarketplaceProvider } from './context/MarketplaceContext';
 import Layout from './components/Layout';
@@ -76,7 +84,7 @@ export default function App() {
             <Route path="/inventory"   element={<Inventory />} />
             <Route path="/advertising" element={<Advertising />} />
             <Route path="/advertising/campaigns" element={<AdvertisingCampaigns />} />
-            <Route path="/advertising/campaigns/create" element={<CampaignCreate />} />
+            <Route path="/advertising/campaigns/create" element={<RequireManager><CampaignCreate /></RequireManager>} />
             <Route path="/advertising/keywords"  element={<AdvertisingKeywords />} />
             <Route path="/advertising/products"  element={<AdvertisingProducts />} />
             <Route path="/advertising/targeting" element={<AdvertisingTargeting />} />

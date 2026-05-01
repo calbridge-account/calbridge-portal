@@ -1,4 +1,5 @@
 import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useUser } from '../../context/UserContext';
 
 const SUB_TABS = [
   { path: '/advertising',                label: 'Overview',         exact: true  },
@@ -12,6 +13,7 @@ const SUB_TABS = [
 export default function AdvertisingSubNav() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { hasRole } = useUser() || { hasRole: () => false };
 
   function isActive(tab) {
     if (tab.exact) return pathname === '/advertising' || pathname === '/advertising/';
@@ -35,19 +37,21 @@ export default function AdvertisingSubNav() {
           {tab.label}
         </Link>
       ))}
-      {/* Create Campaign button — right side */}
-      <div className="ml-auto pb-0.5 flex-shrink-0">
-        <button
-          onClick={() => navigate('/advertising/campaigns/create')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-            isCreatePage
-              ? 'bg-green-700 text-white border-green-700'
-              : 'bg-white text-green-700 border-green-600 hover:bg-green-50'
-          }`}
-        >
-          + Create Campaign
-        </button>
-      </div>
+      {/* Create Campaign button — managers and above only */}
+      {hasRole('manager') && (
+        <div className="ml-auto pb-0.5 flex-shrink-0">
+          <button
+            onClick={() => navigate('/advertising/campaigns/create')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+              isCreatePage
+                ? 'bg-green-700 text-white border-green-700'
+                : 'bg-white text-green-700 border-green-600 hover:bg-green-50'
+            }`}
+          >
+            + Create Campaign
+          </button>
+        </div>
+      )}
     </div>
   );
 }
