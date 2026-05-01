@@ -649,7 +649,11 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
   useEffect(() => {
     // Fetch profiles from the pending store via a lightweight endpoint
     fetch(`/amazon/pending-profiles?pendingId=${encodeURIComponent(pendingId)}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(r => {
+        if (r.status === 404) throw Object.assign(new Error('expired'), { expired: true });
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      })
       .then(data => {
         setProfiles(data.profiles || []);
         // Pre-select any profiles already active for this client
@@ -657,7 +661,7 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
         setSelected(preSelected);
         setLoading(false);
       })
-      .catch(e => { setError('Failed to load profiles: ' + e); setLoading(false); });
+      .catch(e => { setError(e.expired ? 'expired' : 'Failed to load profiles: ' + e.message); setLoading(false); });
   }, [pendingId]);
 
   function toggle(profileId) {
@@ -697,7 +701,20 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
 
         {loading && <div className="h-32 flex items-center justify-center text-gray-400 text-sm">Loading profiles…</div>}
 
-        {!loading && profiles.length === 0 && (
+        {!loading && error === 'expired' && (
+          <div className="text-center py-6">
+            <p className="text-sm font-medium text-gray-700 mb-1">Session expired</p>
+            <p className="text-xs text-gray-400 mb-4">The authorization session timed out. Please reconnect to try again.</p>
+            <a
+              href={`/amazon/connect/${type}`}
+              className="inline-flex items-center px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors"
+            >
+              Reconnect {type === 'dsp' ? 'DSP' : 'Sponsored Ads'}
+            </a>
+          </div>
+        )}
+
+        {!loading && error !== 'expired' && profiles.length === 0 && (
           <div className="text-sm text-red-500 mb-4">No profiles found for this token. Please try reconnecting.</div>
         )}
 
@@ -731,7 +748,7 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
           </div>
         )}
 
-        {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+        {error && error !== 'expired' && <p className="text-sm text-red-500 mb-3">{error}</p>}
 
         <div className="flex gap-3 justify-end">
           <a href="/account" className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>

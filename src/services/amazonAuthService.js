@@ -43,14 +43,15 @@ const stateStore = new Map();
 // Key: pendingId (uuid), Value: { clientId, type, tokens, profiles, createdAt }
 const pendingStore = new Map();
 
-// Prune expired states + pending entries every 10 minutes
+// Prune expired states (10 min) + pending entries (30 min) every 10 minutes
 setInterval(() => {
-  const cutoff = Date.now() - 10 * 60 * 1000;
+  const stateCutoff   = Date.now() - 10 * 60 * 1000;
+  const pendingCutoff = Date.now() - 30 * 60 * 1000;
   for (const [key, val] of stateStore.entries()) {
-    if (val.createdAt < cutoff) stateStore.delete(key);
+    if (val.createdAt < stateCutoff) stateStore.delete(key);
   }
   for (const [key, val] of pendingStore.entries()) {
-    if (val.createdAt < cutoff) pendingStore.delete(key);
+    if (val.createdAt < pendingCutoff) pendingStore.delete(key);
   }
 }, 10 * 60 * 1000);
 
