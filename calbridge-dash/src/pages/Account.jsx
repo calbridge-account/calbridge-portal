@@ -969,7 +969,7 @@ export default function Account() {
           <p className="text-xs text-red-500">{decodeURIComponent(oauthError)}</p>
           <button
             className="mt-3 text-xs text-red-600 underline"
-            onClick={() => window.history.replaceState({}, '', '/account')}
+            onClick={() => window.history.replaceState({}, '', '/analytics/account')}
           >Dismiss</button>
         </div>
       )}
@@ -981,7 +981,7 @@ export default function Account() {
           type={pickerType}
           onComplete={() => {
             // Strip picker params from URL and reload connections
-            window.history.replaceState({}, '', '/account?connected=' + pickerType);
+            window.history.replaceState({}, '', '/analytics/account?connected=' + pickerType);
             setShowPicker(false);
             // Refresh connection status
             fetch('/amazon/status', { credentials: 'include' })

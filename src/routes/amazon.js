@@ -44,7 +44,7 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
     if (req.query.error) {
       const desc = req.query.error_description || req.query.error;
       console.error(`[Amazon] OAuth error for ${type}: ${req.query.error} — ${desc}`);
-      return res.redirect(`/account?oauth_error=${encodeURIComponent(desc)}&type=${type}`);
+      return res.redirect(`/analytics/account?oauth_error=${encodeURIComponent(desc)}&type=${type}`);
     }
 
     if (!code) {
@@ -63,8 +63,8 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
         state,
         type,
       });
-      // Redirect to React profile picker page
-      return res.redirect(`/account?selectProfile=1&pendingId=${encodeURIComponent(pendingId)}&type=${type}`);
+      // Redirect to React SPA profile picker page (lives at /analytics/account)
+      return res.redirect(`/analytics/account?selectProfile=1&pendingId=${encodeURIComponent(pendingId)}&type=${type}`);
     }
 
     // SP-API (seller/vendor): complete immediately as before
@@ -76,7 +76,7 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
       extra
     });
 
-    res.redirect(`/account?connected=${type}`);
+    res.redirect(`/analytics/account?connected=${type}`);
   } catch (err) {
     next(err);
   }
