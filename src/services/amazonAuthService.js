@@ -425,8 +425,41 @@ async function handleCallbackPending({ clientId, code, state, type }) {
     // Still store the token — user won't be able to pick a profile but at least token is preserved
   }
 
+  // For DSP: also fetch advertisers under each agency profile so the
+  // UI can show a two-level picker (agency profile → DSP advertiser).
+  let dspAdvertisersByProfile = null;
+  if (type === 'dsp' && profiles.length > 0) {
+    try {
+      const axios = require('axios');
+      dspAdvertisersByProfile = {};
+      for (const p of profiles) {
+        try {
+          const advRes = await axios.default.get('https://advertising-api.amazon.com/dsp/advertisers', {
+            headers: {
+              'Authorization':                   `Bearer ${tokens.accessToken}`,
+              'Amazon-Advertising-API-ClientId':  LWA_CLIENT_ID,
+              'Amazon-Advertising-API-Scope':     p.profileId,
+            },
+            params: { pageSize: 100 },
+            timeout: 10000,
+          });
+          const advData = advRes.data?.response || advRes.data?.advertisers || advRes.data || [];
+          dspAdvertisersByProfile[p.profileId] = (Array.isArray(advData) ? advData : []).map(a => ({
+            advertiserId: String(a.advertiserId || a.id || ''),
+            name:         a.name || a.advertiserName || String(a.advertiserId || a.id || ''),
+          })).filter(a => a.advertiserId);
+        } catch (advErr) {
+          console.warn(`[Amazon] DSP advertiser fetch failed for profile ${p.profileId}:`, advErr.response?.data || advErr.message);
+          dspAdvertisersByProfile[p.profileId] = [];
+        }
+      }
+    } catch (err) {
+      console.warn('[Amazon] DSP advertiser fetch outer error:', err.message);
+    }
+  }
+
   const pendingId = uuidv4();
-  pendingStore.set(pendingId, { clientId, type, tokens, profiles, createdAt: Date.now() });
+  pendingStore.set(pendingId, { clientId, type, tokens, profiles, dspAdvertisersByProfile, createdAt: Date.now() });
 
   return { pendingId, profiles };
 }
@@ -443,7 +476,7 @@ async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
   }
   pendingStore.delete(pendingId);
 
-  const { type, tokens, profiles } = pending;
+  const { type, tokens, profiles, dspAdvertisersByProfile } = pending;
   const connectedAt    = new Date().toISOString();
   const connectedAtSf  = connectedAt.replace('T', ' ').replace('Z', '');
   const tokenExpiresAtSf = tokens.expiresAt ? tokens.expiresAt.replace('T', ' ').replace('Z', '') : null;
@@ -481,36 +514,70 @@ async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
       WHERE client_id = ? AND channel = ?
     `, [clientId, channel]);
 
-    const selectedProfiles = profiles.filter(p => selectedProfileIds.includes(p.profileId));
-    for (const p of selectedProfiles) {
-      const existingRow = await query(`
-        SELECT account_id FROM CALBRIDGE_PROD.APP.client_accounts
-        WHERE client_id = ? AND channel = ? AND platform_profile_id = ? LIMIT 1
-      `, [clientId, channel, p.profileId]);
+    if (type === 'dsp' && dspAdvertisersByProfile) {
+      // DSP two-level flow: selectedProfileIds contains "agencyProfileId|advertiserId" pairs.
+      // Write one row per advertiser with agency_profile_id + platform_profile_id (advertiser).
+      for (const combo of selectedProfileIds) {
+        const [agencyProfileId, advertiserId] = combo.split('|');
+        if (!agencyProfileId || !advertiserId) continue;
 
-      if (existingRow.length > 0) {
-        await query(`
-          UPDATE CALBRIDGE_PROD.APP.client_accounts
-          SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP()
-          WHERE client_id = ? AND channel = ? AND platform_profile_id = ?
-        `, [clientId, channel, p.profileId]);
-      } else {
-        await query(`
-          INSERT INTO CALBRIDGE_PROD.APP.client_accounts
-            (account_id, client_id, channel, platform_profile_id, is_active)
-          VALUES (?, ?, ?, ?, TRUE)
-        `, [uuidv4(), clientId, channel, p.profileId]);
+        const agencyProfile = profiles.find(p => p.profileId === agencyProfileId);
+        const advertiserList = dspAdvertisersByProfile[agencyProfileId] || [];
+        const advertiser = advertiserList.find(a => a.advertiserId === advertiserId);
+        const accountName = advertiser?.name || agencyProfile?.name || 'DSP Advertiser';
+
+        const existingRow = await query(`
+          SELECT account_id FROM CALBRIDGE_PROD.APP.client_accounts
+          WHERE client_id = ? AND channel = ? AND platform_profile_id = ? LIMIT 1
+        `, [clientId, channel, advertiserId]);
+
+        if (existingRow.length > 0) {
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.client_accounts
+            SET is_active = TRUE, agency_profile_id = ?, account_name = ?, updated_at = CURRENT_TIMESTAMP()
+            WHERE client_id = ? AND channel = ? AND platform_profile_id = ?
+          `, [agencyProfileId, accountName, clientId, channel, advertiserId]);
+        } else {
+          await query(`
+            INSERT INTO CALBRIDGE_PROD.APP.client_accounts
+              (account_id, client_id, channel, platform_profile_id, agency_profile_id, account_name, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, TRUE)
+          `, [uuidv4(), clientId, channel, advertiserId, agencyProfileId, accountName]);
+        }
       }
+    } else {
+      // Ads (SP/SB/SD): single-level — selectedProfileIds contains plain profileIds
+      const selectedProfiles = profiles.filter(p => selectedProfileIds.includes(p.profileId));
+      for (const p of selectedProfiles) {
+        const existingRow = await query(`
+          SELECT account_id FROM CALBRIDGE_PROD.APP.client_accounts
+          WHERE client_id = ? AND channel = ? AND platform_profile_id = ? LIMIT 1
+        `, [clientId, channel, p.profileId]);
 
-      // Also upsert brands table
-      await query(`
-        MERGE INTO CALBRIDGE_PROD.APP.brands tgt
-        USING (SELECT ? AS client_id, ? AS ads_profile_id) src
-        ON tgt.client_id = src.client_id AND tgt.ads_profile_id = src.ads_profile_id
-        WHEN MATCHED THEN UPDATE SET is_active = TRUE, name = ?
-        WHEN NOT MATCHED THEN INSERT (brand_id, client_id, ads_profile_id, name, is_active)
-          VALUES (?, ?, ?, ?, TRUE)
-      `, [clientId, p.profileId, p.name, uuidv4(), clientId, p.profileId, p.name]);
+        if (existingRow.length > 0) {
+          await query(`
+            UPDATE CALBRIDGE_PROD.APP.client_accounts
+            SET is_active = TRUE, account_name = COALESCE(account_name, ?), updated_at = CURRENT_TIMESTAMP()
+            WHERE client_id = ? AND channel = ? AND platform_profile_id = ?
+          `, [p.name || 'Sponsored Ads', clientId, channel, p.profileId]);
+        } else {
+          await query(`
+            INSERT INTO CALBRIDGE_PROD.APP.client_accounts
+              (account_id, client_id, channel, platform_profile_id, account_name, is_active)
+            VALUES (?, ?, ?, ?, ?, TRUE)
+          `, [uuidv4(), clientId, channel, p.profileId, p.name || 'Sponsored Ads']);
+        }
+
+        // Also upsert brands table for SP/SB/SD
+        await query(`
+          MERGE INTO CALBRIDGE_PROD.APP.brands tgt
+          USING (SELECT ? AS client_id, ? AS ads_profile_id) src
+          ON tgt.client_id = src.client_id AND tgt.ads_profile_id = src.ads_profile_id
+          WHEN MATCHED THEN UPDATE SET is_active = TRUE, name = ?
+          WHEN NOT MATCHED THEN INSERT (brand_id, client_id, ads_profile_id, name, is_active)
+            VALUES (?, ?, ?, ?, TRUE)
+        `, [clientId, p.profileId, p.name, uuidv4(), clientId, p.profileId, p.name]);
+      }
     }
   }
 
@@ -628,7 +695,7 @@ async function getPendingProfiles(pendingId, clientId) {
     currentlyActive: activeIds.has(p.profileId),
   }));
 
-  return { profiles, type: pending.type };
+  return { profiles, type: pending.type, dspAdvertisersByProfile: pending.dspAdvertisersByProfile || null };
 }
 
 module.exports = {
