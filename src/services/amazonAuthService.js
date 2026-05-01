@@ -425,15 +425,20 @@ async function handleCallbackPending({ clientId, code, state, type }) {
     // Still store the token — user won't be able to pick a profile but at least token is preserved
   }
 
-  // For DSP: also fetch advertisers under each agency profile so the
-  // UI can show a two-level picker (agency profile → DSP advertiser).
+  // For DSP: fetch advertisers only for agency-type profiles.
+  // /dsp/advertisers only works with agency profiles — non-agency profiles
+  // return INVALID_HEADER_FIELD_PROFILE. Fetch sequentially with a small
+  // delay to avoid rate limiting across many profiles.
   let dspAdvertisersByProfile = null;
   if (type === 'dsp' && profiles.length > 0) {
     try {
       const axios = require('axios');
       dspAdvertisersByProfile = {};
-      for (const p of profiles) {
+      const agencyProfiles = profiles.filter(p => p.type === 'agency');
+      console.log(`[Amazon] DSP: ${profiles.length} total profiles, ${agencyProfiles.length} agency profiles`);
+      for (const p of agencyProfiles) {
         try {
+          await new Promise(r => setTimeout(r, 300)); // avoid rate limiting
           // Use responseType:'text' + JSON.parse to avoid float truncation of large advertiser IDs
           const advRes = await axios.default.get('https://advertising-api.amazon.com/dsp/advertisers', {
             headers: {
@@ -444,7 +449,7 @@ async function handleCallbackPending({ clientId, code, state, type }) {
             params: { pageSize: 100 },
             timeout: 15000,
             responseType: 'text',
-            transformResponse: [d => d], // prevent axios auto-parse
+            transformResponse: [d => d],
           });
           let parsed;
           try { parsed = JSON.parse(advRes.data); } catch { parsed = {}; }
@@ -453,11 +458,45 @@ async function handleCallbackPending({ clientId, code, state, type }) {
             advertiserId: String(a.advertiserId || a.id || ''),
             name:         a.name || a.advertiserName || `Advertiser ${a.advertiserId || a.id || ''}`,
           })).filter(a => a.advertiserId);
-          console.log(`[Amazon] DSP profile ${p.profileId} (${p.name}): ${advList.length} advertisers`);
+          console.log(`[Amazon] DSP agency profile ${p.profileId} (${p.name}): ${advList.length} advertisers`);
           dspAdvertisersByProfile[p.profileId] = advList;
         } catch (advErr) {
-          console.warn(`[Amazon] DSP advertiser fetch failed for profile ${p.profileId}:`, advErr.response?.data || advErr.message);
+          const msg = advErr.response?.data || advErr.message;
+          console.warn(`[Amazon] DSP advertiser fetch failed for profile ${p.profileId}:`, msg);
           dspAdvertisersByProfile[p.profileId] = [];
+        }
+      }
+      // Also include known agency profile IDs from client_accounts even if
+      // they don't show up as 'agency' type in /v2/profiles
+      if (Object.keys(dspAdvertisersByProfile).length === 0) {
+        console.log('[Amazon] DSP: no agency profiles found via type filter, trying all profiles');
+        for (const p of profiles) {
+          if (dspAdvertisersByProfile[p.profileId] !== undefined) continue;
+          try {
+            await new Promise(r => setTimeout(r, 500));
+            const advRes = await axios.default.get('https://advertising-api.amazon.com/dsp/advertisers', {
+              headers: {
+                'Authorization':                   `Bearer ${tokens.accessToken}`,
+                'Amazon-Advertising-API-ClientId':  LWA_CLIENT_ID,
+                'Amazon-Advertising-API-Scope':     p.profileId,
+              },
+              params: { pageSize: 100 },
+              timeout: 15000,
+              responseType: 'text',
+              transformResponse: [d => d],
+            });
+            let parsed;
+            try { parsed = JSON.parse(advRes.data); } catch { parsed = {}; }
+            const advData = parsed?.response || parsed?.advertisers || parsed || [];
+            const advList = (Array.isArray(advData) ? advData : []).map(a => ({
+              advertiserId: String(a.advertiserId || a.id || ''),
+              name:         a.name || a.advertiserName || `Advertiser ${a.advertiserId || a.id || ''}`,
+            })).filter(a => a.advertiserId);
+            if (advList.length > 0) {
+              console.log(`[Amazon] DSP fallback profile ${p.profileId} (${p.name}): ${advList.length} advertisers`);
+              dspAdvertisersByProfile[p.profileId] = advList;
+            }
+          } catch { /* skip non-agency profiles silently */ }
         }
       }
     } catch (err) {
@@ -705,12 +744,59 @@ async function getPendingProfiles(pendingId, clientId) {
   return { profiles, type: pending.type, dspAdvertisersByProfile: pending.dspAdvertisersByProfile || null };
 }
 
+/**
+ * Fetch DSP advertisers for a specific agency profile on-demand.
+ * Called by the profile picker step 2 — avoids rate-limiting all profiles upfront.
+ */
+async function getDspAdvertisersForProfile(pendingId, clientId, profileId) {
+  const pending = pendingStore.get(pendingId);
+  if (!pending || pending.clientId !== clientId) return null;
+
+  // Check in-memory cache first (populated during handleCallbackPending)
+  if (pending.dspAdvertisersByProfile?.[profileId] !== undefined) {
+    return pending.dspAdvertisersByProfile[profileId];
+  }
+
+  // Fetch on-demand
+  const axios = require('axios');
+  try {
+    const advRes = await axios.default.get('https://advertising-api.amazon.com/dsp/advertisers', {
+      headers: {
+        'Authorization':                   `Bearer ${pending.tokens.accessToken}`,
+        'Amazon-Advertising-API-ClientId':  LWA_CLIENT_ID,
+        'Amazon-Advertising-API-Scope':     profileId,
+      },
+      params: { pageSize: 100 },
+      timeout: 15000,
+      responseType: 'text',
+      transformResponse: [d => d],
+    });
+    let parsed;
+    try { parsed = JSON.parse(advRes.data); } catch { parsed = {}; }
+    const advData = parsed?.response || parsed?.advertisers || parsed || [];
+    const advList = (Array.isArray(advData) ? advData : []).map(a => ({
+      advertiserId: String(a.advertiserId || a.id || ''),
+      name:         a.name || a.advertiserName || `Advertiser ${a.advertiserId || a.id || ''}`,
+    })).filter(a => a.advertiserId);
+    console.log(`[Amazon] DSP on-demand advertisers for profile ${profileId}: ${advList.length} found`);
+    // Cache it
+    if (!pending.dspAdvertisersByProfile) pending.dspAdvertisersByProfile = {};
+    pending.dspAdvertisersByProfile[profileId] = advList;
+    return advList;
+  } catch (err) {
+    const msg = err.response?.data || err.message;
+    console.warn(`[Amazon] DSP on-demand advertiser fetch failed for ${profileId}:`, typeof msg === 'object' ? JSON.stringify(msg) : msg);
+    return [];
+  }
+}
+
 module.exports = {
   getAuthUrl,
   handleCallback,
   handleCallbackPending,
   confirmProfile,
   getPendingProfiles,
+  getDspAdvertisersForProfile,
   getConnectionStatus,
   getValidToken,
   refreshAccessToken,

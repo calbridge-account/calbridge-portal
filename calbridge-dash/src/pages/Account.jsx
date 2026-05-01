@@ -682,12 +682,24 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
   async function handleConfirm() {
     if (selected.size === 0) { setError('Please select at least one.'); return; }
 
-    // DSP step 1: user picked an agency profile — advance to advertiser picker
+    // DSP step 1: user picked an agency profile — fetch its advertisers then advance
     if (type === 'dsp' && dspStep === 'profile') {
-      const profileId = [...selected][0]; // single-select for DSP
+      const profileId = [...selected][0];
       setDspAgencyId(profileId);
-      setSelected(new Set()); // reset selection for step 2
-      setDspStep('advertiser');
+      setSelected(new Set());
+      setSaving(true); setError(null);
+      try {
+        const r = await fetch(`/amazon/dsp-advertisers?pendingId=${encodeURIComponent(pendingId)}&profileId=${encodeURIComponent(profileId)}`, { credentials: 'include' });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+        const data = await r.json();
+        // Merge into dspAdvertisers map
+        setDspAdvertisers(prev => ({ ...(prev || {}), [profileId]: data.advertisers || [] }));
+        setDspStep('advertiser');
+      } catch (e) {
+        setError('Failed to load advertisers: ' + e.message);
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -793,7 +805,7 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
             disabled={saving || loading || selected.size === 0}
             className="px-5 py-2 text-sm font-semibold bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? 'Connecting…' : isDspAdvertiserStep ? 'Connect Advertiser' : type === 'dsp' ? 'Next →' : 'Connect Profile'}
+            {saving ? (isDspAdvertiserStep ? 'Connecting…' : 'Loading advertisers…') : isDspAdvertiserStep ? 'Connect Advertiser' : type === 'dsp' ? 'Next →' : 'Connect Profile'}
           </button>
         </div>
       </div>

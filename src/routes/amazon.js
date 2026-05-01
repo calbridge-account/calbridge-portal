@@ -83,6 +83,24 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * GET /amazon/dsp-advertisers?pendingId=xxx&profileId=xxx
+ * Fetches DSP advertisers for a specific agency profile on-demand.
+ * Called by the frontend in step 2 of the DSP picker.
+ */
+router.get('/dsp-advertisers', requireAuth, async (req, res, next) => {
+  try {
+    const { pendingId, profileId } = req.query;
+    if (!pendingId || !profileId) return res.status(400).json({ error: 'pendingId and profileId required' });
+
+    const { getDspAdvertisersForProfile } = require('../services/amazonAuthService');
+    const advertisers = await getDspAdvertisersForProfile(pendingId, req.session.clientId, profileId);
+    if (advertisers === null) return res.status(404).json({ error: 'Pending connection not found or expired' });
+
+    res.json({ advertisers });
+  } catch (err) { next(err); }
+});
+
+/**
  * GET /amazon/pending-profiles?pendingId=xxx
  * Returns the profile list for a pending connection so the picker UI can render.
  */
