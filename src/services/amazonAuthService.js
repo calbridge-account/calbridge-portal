@@ -441,7 +441,7 @@ async function handleCallbackPending({ clientId, code, state, type }) {
 async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
   const pending = pendingStore.get(pendingId);
   if (!pending || pending.clientId !== clientId) {
-    throw Object.assign(new Error('Invalid or expired pending connection'), { status: 400 });
+    throw Object.assign(new Error('expired'), { status: 400, expired: true });
   }
   pendingStore.delete(pendingId);
 

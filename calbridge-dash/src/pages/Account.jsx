@@ -690,13 +690,17 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
       setSaving(true); setError(null);
       try {
         const r = await fetch(`/amazon/dsp-advertisers?pendingId=${encodeURIComponent(pendingId)}&profileId=${encodeURIComponent(profileId)}`, { credentials: 'include' });
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          if (r.status === 404 || e.error === 'expired') throw Object.assign(new Error('expired'), { expired: true });
+          throw new Error(e.error || r.statusText);
+        }
         const data = await r.json();
         // Merge into dspAdvertisers map
         setDspAdvertisers(prev => ({ ...(prev || {}), [profileId]: data.advertisers || [] }));
         setDspStep('advertiser');
       } catch (e) {
-        setError('Failed to load advertisers: ' + e.message);
+        setError(e.expired ? 'expired' : 'Failed to load advertisers: ' + e.message);
       } finally {
         setSaving(false);
       }
@@ -720,9 +724,14 @@ function ProfilePickerModal({ pendingId, type, onComplete }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pendingId, selectedProfileIds: finalIds }),
       });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        // Server restart wiped the pending store — treat as expired
+        if (e.error === 'expired' || res.status === 400) throw Object.assign(new Error('expired'), { expired: true });
+        throw new Error(e.error || res.statusText);
+      }
       onComplete();
-    } catch (e) { setError(e.message); setSaving(false); }
+    } catch (e) { setError(e.expired ? 'expired' : e.message); setSaving(false); }
   }
 
   const typeLabel = type === 'dsp' ? 'DSP' : 'Sponsored Ads';
