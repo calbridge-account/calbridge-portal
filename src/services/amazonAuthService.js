@@ -16,6 +16,9 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const LWA_CLIENT_ID     = process.env.LWA_CLIENT_ID;
 const LWA_CLIENT_SECRET = process.env.LWA_CLIENT_SECRET;
 const BASE_URL          = process.env.BASE_URL || 'http://localhost:3000';
+// SP-API redirect URI may differ from BASE_URL while calbridge.ai domain approval is pending.
+// Once app.calbridge.ai is approved in Developer Console, remove this override.
+const SPAPI_REDIRECT_BASE = process.env.SPAPI_REDIRECT_BASE || BASE_URL;
 
 // SP-API application ID (amzn1.sp.solution.xxx) — used for the consent page URL
 const SPAPI_APP_ID = process.env.SPAPI_APP_ID;
@@ -77,7 +80,7 @@ function getAuthUrl(type, clientId) {
     const params = new URLSearchParams({
       application_id: SPAPI_APP_ID,
       state,
-      redirect_uri:   `${BASE_URL}/amazon/callback/${type}`,
+      redirect_uri:   `${SPAPI_REDIRECT_BASE}/amazon/callback/${type}`,
       // NOTE: do NOT include version=beta in production — that routes to the draft
       // app which may not have all roles approved. Omitting version uses the live app.
     });
@@ -109,10 +112,11 @@ async function exchangeCode({ code, type }) {
   const clientId     = conn.api === 'spapi' ? SPAPI_CLIENT_ID     : LWA_CLIENT_ID;
   const clientSecret = conn.api === 'spapi' ? SPAPI_CLIENT_SECRET  : LWA_CLIENT_SECRET;
 
+  const redirectBase = conn.api === 'spapi' ? SPAPI_REDIRECT_BASE : BASE_URL;
   const response = await axios.post(LWA_TOKEN_URL, new URLSearchParams({
     grant_type:    'authorization_code',
     code,
-    redirect_uri:  `${BASE_URL}/amazon/callback/${type}`,
+    redirect_uri:  `${redirectBase}/amazon/callback/${type}`,
     client_id:     clientId,
     client_secret: clientSecret
   }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });

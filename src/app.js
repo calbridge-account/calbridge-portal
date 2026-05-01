@@ -114,6 +114,15 @@ app.use((req, res, next) => {
   if ((host === 'teamcalbridge.com' || host === 'www.teamcalbridge.com') && req.path === '/') {
     return res.sendFile('teamcalbridge/index.html', { root: path.join(__dirname, '../public') });
   }
+
+  // SP-API OAuth relay: teamcalbridge.com/amazon/callback/* → app.calbridge.ai/amazon/callback/*
+  // Amazon Developer Console has teamcalbridge.com registered; calbridge.ai is pending approval.
+  // This relay passes all query params through so the real handler on calbridge.ai processes them.
+  if ((host === 'teamcalbridge.com' || host === 'www.teamcalbridge.com') && req.path.startsWith('/amazon/callback/')) {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    return res.redirect(302, `https://app.calbridge.ai${req.path}${qs}`);
+  }
+
   next();
 });
 
