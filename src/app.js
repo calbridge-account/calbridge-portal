@@ -56,24 +56,47 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', creden
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session — Redis store with synchronous fallback to Snowflake.
-// Redis client uses lazyConnect so this is safe to do synchronously at startup.
+// Session — Redis-backed with Snowflake fallback.
+// connect-redis v9 expects node-redis v4 API (set(k,v,{EX:n})) but we use ioredis.
+// Wrap ioredis client with a node-redis-compatible shim so connect-redis v9 works.
 app.set('trust proxy', 1);
 (() => {
   let store;
   try {
     const Redis = require('ioredis');
     const { RedisStore } = require('connect-redis');
-    const redisClient = new Redis({
+    const ioClient = new Redis({
       host: process.env.REDIS_HOST || '127.0.0.1',
       port: parseInt(process.env.REDIS_PORT || '6379', 10),
       lazyConnect: false,
       enableReadyCheck: false,
-      maxRetriesPerRequest: 1,
+      maxRetriesPerRequest: 2,
     });
-    redisClient.on('error', () => {}); // suppress unhandled error events
-    store = new RedisStore({ client: redisClient, prefix: 'sess:', ttl: 7 * 24 * 60 * 60, disableTouch: false });
-    console.log('[Session] Using Redis store');
+    ioClient.on('error', () => {});
+    // Shim: translate node-redis v4 set({EX}) → ioredis set('EX', n)
+    const shimClient = {
+      get:  (k)          => ioClient.get(k),
+      del:  (keys)       => ioClient.del(...(Array.isArray(keys) ? keys : [keys])),
+      mGet: (keys)       => ioClient.mget(...keys),
+      expire: (k, ttl)   => ioClient.expire(k, ttl),
+      set:  (k, v, opts) => {
+        if (opts && typeof opts === 'object' && opts.EX) return ioClient.set(k, v, 'EX', opts.EX);
+        if (opts && typeof opts === 'object' && opts.PX) return ioClient.set(k, v, 'PX', opts.PX);
+        return ioClient.set(k, v);
+      },
+      scanIterator: async function*(opts) {
+        let cursor = '0';
+        const match = opts?.MATCH || 'sess:*';
+        const count = opts?.COUNT || 100;
+        do {
+          const [next, keys] = await ioClient.scan(cursor, 'MATCH', match, 'COUNT', count);
+          cursor = next;
+          for (const k of keys) yield k;
+        } while (cursor !== '0');
+      },
+    };
+    store = new RedisStore({ client: shimClient, prefix: 'sess:', ttl: 7 * 24 * 60 * 60, disableTouch: false });
+    console.log('[Session] Using Redis store (ioredis shim)');
   } catch (e) {
     const SnowflakeStore = require('./services/snowflakeSessionStore');
     store = new SnowflakeStore();
