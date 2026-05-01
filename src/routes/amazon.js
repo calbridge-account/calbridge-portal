@@ -39,7 +39,18 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
     // SP-API consent page returns `spapi_oauth_code`; LWA returns `code`
     const code = req.query.spapi_oauth_code || req.query.code;
     const { state, selling_partner_id } = req.query;
-    if (!code) return res.status(400).json({ error: 'Missing authorization code' });
+
+    // Amazon may return ?error=access_denied&error_description=... on failure
+    if (req.query.error) {
+      const desc = req.query.error_description || req.query.error;
+      console.error(`[Amazon] OAuth error for ${type}: ${req.query.error} — ${desc}`);
+      return res.redirect(`/account?oauth_error=${encodeURIComponent(desc)}&type=${type}`);
+    }
+
+    if (!code) {
+      console.error(`[Amazon] Callback for ${type} missing code. Query:`, JSON.stringify(req.query));
+      return res.status(400).json({ error: 'Missing authorization code' });
+    }
 
     const extra = {};
     if (selling_partner_id) extra.sellingPartnerId = selling_partner_id;

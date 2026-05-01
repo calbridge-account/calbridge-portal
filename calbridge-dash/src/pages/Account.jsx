@@ -782,6 +782,9 @@ export default function Account() {
   const [pickerType]       = useState(urlParams.get('type'));
   const [showPicker, setShowPicker] = useState(!!urlParams.get('selectProfile') && !!urlParams.get('pendingId'));
 
+  // Show OAuth error if Amazon redirected back with ?oauth_error=...
+  const oauthError = urlParams.get('oauth_error');
+
   // Profile form state
   const [companyName, setCompanyName] = useState('');
   const [contactName, setContactName] = useState('');
@@ -959,6 +962,18 @@ export default function Account() {
 
   return (
     <div className="max-w-2xl">
+      {/* OAuth error banner — shown when Amazon redirects back with ?oauth_error= */}
+      {oauthError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 border border-red-200 rounded-xl px-6 py-4 shadow-lg max-w-lg w-full mx-4">
+          <p className="text-sm font-semibold text-red-700 mb-1">Amazon authorization failed</p>
+          <p className="text-xs text-red-500">{decodeURIComponent(oauthError)}</p>
+          <button
+            className="mt-3 text-xs text-red-600 underline"
+            onClick={() => window.history.replaceState({}, '', '/account')}
+          >Dismiss</button>
+        </div>
+      )}
+
       {/* Profile picker modal — shown after OAuth redirect */}
       {showPicker && pickerPendingId && (
         <ProfilePickerModal
