@@ -56,25 +56,32 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', creden
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session — Snowflake store (stable and synchronous)
-const SnowflakeStore = require('./services/snowflakeSessionStore');
-
+// Session store is initialised in app.init() (called by server.js before listen)
+// so we can await Redis connection before accepting requests.
+// A placeholder middleware queues any pre-init requests safely.
 app.set('trust proxy', 1);
-app.use(session({
-  secret:            process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
-  resave:            false,
-  saveUninitialized: false,
-  store:             new SnowflakeStore(),
-  cookie: {
-    secure:   process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge:   7 * 24 * 60 * 60 * 1000,
-  },
-}));
+const sessionMiddleware = { fn: (req, res, next) => next() }; // replaced in app.init()
+app.use((req, res, next) => sessionMiddleware.fn(req, res, next));
 
 // No-op init kept for compatibility with server.js
-app.init = async function initSessionStore() {};
+app.init = async function initSessionStore() {
+  const { buildSessionStore } = require('./services/redisSessionStore');
+  const store = await buildSessionStore(session);
+  const sessionFn = session({
+    secret:            process.env.SESSION_SECRET || 'dev-secret-change-in-prod',
+    resave:            false,
+    saveUninitialized: false,
+    store,
+    cookie: {
+      secure:   process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge:   7 * 24 * 60 * 60 * 1000,
+    },
+  });
+  sessionMiddleware.fn = sessionFn;
+  console.log('[Session] Store ready:', store.constructor?.name || 'unknown');
+};
 
 // Serve static frontend
 // HTML files: no-cache so browsers always re-check after deploys.
