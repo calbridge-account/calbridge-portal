@@ -67,18 +67,18 @@ async function getClientId(req) {
  */
 function parseDateRange(req) {
   const range = req.query.range || 'mtd';
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
+  // Amazon Vendor data is keyed to Pacific time
+  const pacificDateStr = (d) => d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const todayStr = pacificDateStr(new Date());
+  const [ty, tm, td] = todayStr.split('-').map(Number);
 
   if (range === 'mtd') {
-    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    return { start: start.toISOString().split('T')[0], end: todayStr, label: 'MTD' };
+    const startStr = `${ty}-${String(tm).padStart(2,'0')}-01`;
+    return { start: startStr, end: todayStr, label: 'MTD' };
   }
 
   if (range === 'ytd') {
-    const start = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
-    return { start: start.toISOString().split('T')[0], end: todayStr, label: 'YTD' };
+    return { start: `${ty}-01-01`, end: todayStr, label: 'YTD' };
   }
 
   if (range === 'custom') {

@@ -17,42 +17,46 @@ const VALID_TYPES = new Set(PRESETS.map(p => p.value));
  * For 'custom', pass the explicit start/end values.
  */
 export function getDateRange(type, customStart, customEnd) {
-  const today = new Date();
-  // Amazon Ads data is always D-1; use yesterday as the end to avoid an empty bar for today.
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const toISO = (d) => d.toISOString().slice(0, 10);
+  // Amazon Ads data is keyed to Pacific time (PST/PDT).
+  // Always compute dates in America/Los_Angeles so MTD/YTD/yesterday
+  // match what's actually in the database regardless of the user's browser timezone.
+  const toPacificDateStr = (d) =>
+    d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // en-CA gives YYYY-MM-DD
+
+  const todayPST = toPacificDateStr(new Date());
+  const [ty, tm, td] = todayPST.split('-').map(Number);
+
+  // "Yesterday" in Pacific time
+  const yesterdayDate = new Date(Date.UTC(ty, tm - 1, td) - 86400000);
+  const yesterdayPST  = toPacificDateStr(yesterdayDate);
+  const [yy, ym, yd] = yesterdayPST.split('-').map(Number);
+
+  const toISO = (y, m, d) => `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
   switch (type) {
     case '7d': {
-      const start = new Date(yesterday);
-      start.setDate(yesterday.getDate() - 6);
-      return { start: toISO(start), end: toISO(yesterday) };
+      const s = new Date(Date.UTC(yy, ym - 1, yd) - 6 * 86400000);
+      const [sy, sm, sd] = toPacificDateStr(s).split('-').map(Number);
+      return { start: toISO(sy, sm, sd), end: yesterdayPST };
     }
     case '14d': {
-      const start = new Date(yesterday);
-      start.setDate(yesterday.getDate() - 13);
-      return { start: toISO(start), end: toISO(yesterday) };
+      const s = new Date(Date.UTC(yy, ym - 1, yd) - 13 * 86400000);
+      const [sy, sm, sd] = toPacificDateStr(s).split('-').map(Number);
+      return { start: toISO(sy, sm, sd), end: yesterdayPST };
     }
     case 'mtd': {
-      // If today is the 1st, yesterday is the last day of the prior month — use it as both start and end.
-      const start = today.getDate() === 1
-        ? new Date(yesterday)
-        : new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
-      return { start: toISO(start), end: toISO(yesterday) };
+      // If today is the 1st in PST, show just yesterday (prior month end)
+      const startPST = td === 1 ? yesterdayPST : toISO(yy, ym, 1);
+      return { start: startPST, end: yesterdayPST };
     }
     case 'ytd': {
-      const start = new Date(yesterday.getFullYear(), 0, 1);
-      return { start: toISO(start), end: toISO(yesterday) };
+      return { start: toISO(yy, 1, 1), end: yesterdayPST };
     }
     case 'custom':
       return { start: customStart, end: customEnd };
     default: {
-      // Fallback: MTD
-      const start = today.getDate() === 1
-        ? new Date(yesterday)
-        : new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
-      return { start: toISO(start), end: toISO(yesterday) };
+      const startPST = td === 1 ? yesterdayPST : toISO(yy, ym, 1);
+      return { start: startPST, end: yesterdayPST };
     }
   }
 }

@@ -87,30 +87,29 @@ function dateFilter(col, days, startDate, endDate) {
  */
 function parseRange(req) {
   const range = req.query.range || '';
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
 
-  // Amazon ads data always has a minimum D-1 lag — querying today returns nothing.
-  // Cap the endDate at yesterday for time-relative ranges (MTD/YTD) so the range
-  // always includes the most recent available data.
-  const yesterday = new Date(today);
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  // Amazon Ads data is keyed to Pacific time (PST/PDT).
+  // Compute today/yesterday in Pacific so date ranges match the data.
+  const pacificDateStr = (d) =>
+    d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+  const todayPST     = pacificDateStr(new Date());
+  const [ty, tm, td] = todayPST.split('-').map(Number);
+  const yDate        = new Date(Date.UTC(ty, tm - 1, td) - 86400000);
+  const yesterdayStr = pacificDateStr(yDate);
+  const [yy, ym]     = yesterdayStr.split('-').map(Number);
 
   if (range === 'mtd') {
-    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    const startStr = start.toISOString().split('T')[0];
-    // If MTD start is today (day 1 of month), the window would be start > end — impossible BETWEEN.
-    // Fall back to showing yesterday as a 1-day window so the first of month isn't blank.
+    // If today is the 1st in PST, show just yesterday (prior month end)
+    const startStr = td === 1
+      ? yesterdayStr
+      : `${ty}-${String(tm).padStart(2,'0')}-01`;
     if (startStr >= yesterdayStr) {
       return { startDate: yesterdayStr, endDate: yesterdayStr, days: 30 };
     }
     return { startDate: startStr, endDate: yesterdayStr, days: 30 };
   }
   if (range === 'ytd') {
-    const start = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
-    return { startDate: start.toISOString().split('T')[0], endDate: yesterdayStr, days: 365 };
+    return { startDate: `${yy}-01-01`, endDate: yesterdayStr, days: 365 };
   }
   if (range === 'custom') {
     const isoRe = /^\d{4}-\d{2}-\d{2}$/;
