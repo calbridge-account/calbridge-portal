@@ -279,6 +279,13 @@ router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, n
       asins = [],
       adGroupName,
       profileId,
+      // SD-specific
+      sdTactic,
+      sdBidOptimization,
+      // SB-specific (passed through from body for logging)
+      sbHeadline,
+      sbLogoUrl,
+      sbMainImgUrl,
     } = req.body;
 
     // Validate required fields
@@ -398,6 +405,115 @@ router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, n
         }
       }
 
+    } else if (adType === 'SD') {
+      // ── Sponsored Display ────────────────────────────────────────────────
+      // SD API: /sd/campaigns, /sd/adGroups, /sd/targets (product/audience targeting)
+      // tactic: T00020 = product targeting (contextual), T00030 = audience/retargeting
+      // bidOptimization: 'clicks' | 'reach' | 'conversions' | 'viewableImpressions'
+      const tactic  = sdTactic || 'T00020'; // default: product targeting
+      const bidOpt  = sdBidOptimization || 'clicks';
+
+      // ── 1. Create SD Campaign ─────────────────────────────────────────────
+      const sdCampaignPayload = {
+        name:         campaignName,
+        state:        'enabled',
+        budget:       Number(budget),
+        budgetType:   'daily',
+        startDate:    startDate.replace(/-/g, ''),
+        ...(endDate ? { endDate: endDate.replace(/-/g, '') } : {}),
+        costType:     bidOpt === 'viewableImpressions' ? 'vcpm' : 'cpc',
+        tactic,
+      };
+
+      let sdCampRes;
+      try {
+        sdCampRes = await client.post('/sd/campaigns', [sdCampaignPayload], scope);
+      } catch (apiErr) {
+        const msg = apiErr.response?.data ? JSON.stringify(apiErr.response.data) : apiErr.message;
+        await logCampaignCreateAction(clientId, 'unknown', 'create', 'failed', req.body, msg);
+        return res.status(502).json({ success: false, error: `Amazon API error (SD campaign): ${msg}` });
+      }
+      const sdCampResult = Array.isArray(sdCampRes.data) ? sdCampRes.data[0] : sdCampRes.data;
+      if (sdCampResult?.code && sdCampResult.code !== 'SUCCESS') {
+        const msg = sdCampResult.description || sdCampResult.details || JSON.stringify(sdCampResult);
+        await logCampaignCreateAction(clientId, 'unknown', 'create', 'failed', req.body, msg);
+        return res.status(400).json({ success: false, error: `SD campaign creation failed: ${msg}` });
+      }
+      campaignId = String(sdCampResult.campaignId || sdCampResult.campaign_id);
+
+      // ── 2. Create SD Ad Group ─────────────────────────────────────────────
+      const sdAGPayload = [{
+        name:             adGroupName || `${campaignName} - Ad Group 1`,
+        campaignId:       Number(campaignId),
+        defaultBid:       Number(defaultBid || 0.75),
+        bidOptimization:  bidOpt,
+        state:            'enabled',
+      }];
+      let sdAGRes;
+      try {
+        sdAGRes = await client.post('/sd/adGroups', sdAGPayload, scope);
+      } catch (apiErr) {
+        const msg = apiErr.response?.data ? JSON.stringify(apiErr.response.data) : apiErr.message;
+        await logCampaignCreateAction(clientId, campaignId, 'create', 'failed', req.body, msg);
+        return res.status(502).json({ success: false, error: `Amazon API error (SD ad group): ${msg}` });
+      }
+      const sdAGResult = Array.isArray(sdAGRes.data) ? sdAGRes.data[0] : sdAGRes.data;
+      adGroupId = String(sdAGResult.adGroupId || sdAGResult.ad_group_id);
+
+      // ── 3. Create SD Product Ads (one per ASIN) ───────────────────────────
+      if (asins.length > 0) {
+        const sdProductAdsPayload = asins.map(asin => ({
+          campaignId: Number(campaignId),
+          adGroupId:  Number(adGroupId),
+          asin,
+          state: 'enabled',
+        }));
+        try {
+          await client.post('/sd/productAds', sdProductAdsPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SD productAds error (non-fatal):', apiErr.message);
+        }
+      }
+
+      // ── 4. Create SD Targets ──────────────────────────────────────────────
+      // T00020 = product targeting: expression type asinSameAs / asinCategorySameAs
+      // T00030 = audience: expression type audiences (views/purchases remarketing)
+      if (asins.length > 0 && tactic === 'T00020') {
+        // Product targeting: target each selected ASIN
+        const sdTargetPayload = asins.map(asin => ({
+          campaignId:     Number(campaignId),
+          adGroupId:      Number(adGroupId),
+          state:          'enabled',
+          bid:            Number(defaultBid || 0.75),
+          expression:     [{ type: 'asinSameAs', value: asin }],
+          expressionType: 'manual',
+          resolvedExpression: [{ type: 'asinSameAs', value: asin }],
+        }));
+        try {
+          await client.post('/sd/targets', sdTargetPayload, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SD targets error (non-fatal):', apiErr.message);
+        }
+      } else if (tactic === 'T00030') {
+        // Audience retargeting: views + purchases remarketing on advertised ASINs
+        const sdAudienceTargets = [
+          { type: 'views', lookback: 30 },
+          { type: 'purchases', lookback: 30 },
+        ].map(({ type, lookback }) => ({
+          campaignId:     Number(campaignId),
+          adGroupId:      Number(adGroupId),
+          state:          'enabled',
+          bid:            Number(defaultBid || 0.75),
+          expression:     [{ type: 'audiencesSameAs', value: `${type}:${lookback}d` }],
+          expressionType: 'manual',
+        }));
+        try {
+          await client.post('/sd/targets', sdAudienceTargets, scope);
+        } catch (apiErr) {
+          console.warn('[CampaignCreate] SD audience targets error (non-fatal):', apiErr.message);
+        }
+      }
+
     } else if (adType === 'SB') {
       // ── 1. Create SB Campaign ──────────────────────────────────────────────
       const sbCampaignPayload = {
@@ -453,7 +569,7 @@ router.post('/create', requireAuth, requirePlan('decisions'), async (req, res, n
       }
 
     } else {
-      return res.status(400).json({ success: false, error: `Unknown adType: ${adType}. Use SP or SB.` });
+      return res.status(400).json({ success: false, error: `Unknown adType: ${adType}. Use SP, SB, or SD.` });
     }
 
     // Log success

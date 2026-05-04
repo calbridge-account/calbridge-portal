@@ -60,6 +60,27 @@ function StepIndicator({ steps, current }) {
   );
 }
 
+// ─── DSP Banner ───────────────────────────────────────────────────────────────
+function DspBanner() {
+  return (
+    <div className="mb-6 flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3.5">
+      <span className="text-xl flex-shrink-0 mt-0.5">📺</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-indigo-800 mb-0.5">Amazon DSP available through Team Calbridge</p>
+        <p className="text-sm text-indigo-700">
+          Not running DSP yet? Amazon DSP unlocks programmatic display, video, and audio across Amazon-owned and third-party inventory — including retargeting beyond Amazon.com. Team Calbridge can create and manage DSP campaigns directly on your behalf.{' '}
+          <a
+            href="mailto:abe@teamcalbridge.com?subject=DSP Campaign Inquiry"
+            className="font-semibold underline text-indigo-800 hover:text-indigo-900"
+          >
+            Reach out to get started →
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 1: Campaign Type ────────────────────────────────────────────────────
 function StepType({ form, setForm }) {
   const types = [
@@ -67,7 +88,7 @@ function StepType({ form, setForm }) {
       key: 'SP',
       label: 'Sponsored Products',
       icon: '🛍️',
-      desc: 'Drive sales for individual products',
+      desc: 'Drive sales for individual products — keyword and product targeting',
       color: 'border-blue-500 bg-blue-50',
       badge: 'bg-blue-100 text-blue-700',
     },
@@ -75,9 +96,17 @@ function StepType({ form, setForm }) {
       key: 'SB',
       label: 'Sponsored Brands',
       icon: '🏷️',
-      desc: 'Build brand awareness with headline ads',
+      desc: 'Brand awareness with headline banner ads — requires Brand Registry',
       color: 'border-green-600 bg-green-50',
       badge: 'bg-green-100 text-green-700',
+    },
+    {
+      key: 'SD',
+      label: 'Sponsored Display',
+      icon: '🖥️',
+      desc: 'Reach shoppers on and off Amazon — product & audience retargeting',
+      color: 'border-purple-500 bg-purple-50',
+      badge: 'bg-purple-100 text-purple-700',
     },
   ];
 
@@ -85,12 +114,16 @@ function StepType({ form, setForm }) {
     <div>
       <h2 className="text-lg font-semibold text-gray-900 mb-1">Campaign Type</h2>
       <p className="text-sm text-gray-500 mb-5">Select the type of Amazon advertising campaign to create.</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+      {/* DSP upsell banner */}
+      <DspBanner />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {types.map(t => (
           <button
             key={t.key}
             onClick={() => setForm(f => ({ ...f, adType: t.key }))}
-            className={`rounded-xl border-2 p-6 text-left transition-all hover:shadow-md ${
+            className={`rounded-xl border-2 p-5 text-left transition-all hover:shadow-md ${
               form.adType === t.key ? t.color + ' shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'
             }`}
           >
@@ -106,6 +139,38 @@ function StepType({ form, setForm }) {
           </button>
         ))}
       </div>
+
+      {/* SB eligibility note */}
+      {form.adType === 'SB' && (
+        <div className="mt-5 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+          <p className="font-semibold text-amber-800 mb-1">📋 Sponsored Brands Requirements</p>
+          <ul className="text-amber-700 space-y-1 list-disc list-inside">
+            <li>Seller must be enrolled in <strong>Amazon Brand Registry</strong></li>
+            <li>Vendors are eligible without Brand Registry</li>
+            <li>A registered <strong>brand entity ID</strong> is required — Calbridge will resolve this from your connected profile</li>
+            <li>Creative assets (logo + main image) must be uploaded and <strong>approved by Amazon</strong> before ads go live — allow 24–72h</li>
+            <li>Headline text must comply with Amazon's <strong>creative acceptance policies</strong> (no superlatives, no pricing)</li>
+            <li>Minimum budget: <strong>$1/day</strong></li>
+          </ul>
+        </div>
+      )}
+
+      {/* SD targeting note */}
+      {form.adType === 'SD' && (
+        <div className="mt-5 p-4 bg-purple-50 border border-purple-200 rounded-xl text-sm">
+          <p className="font-semibold text-purple-800 mb-1">🖥️ Sponsored Display — Two Targeting Modes</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+            <div className="bg-white rounded-lg border border-purple-200 p-3">
+              <p className="font-semibold text-purple-700 text-xs mb-1">Product Targeting (T00020)</p>
+              <p className="text-purple-600 text-xs">Show ads to shoppers viewing similar products or categories. Best for conquest and category expansion.</p>
+            </div>
+            <div className="bg-white rounded-lg border border-purple-200 p-3">
+              <p className="font-semibold text-purple-700 text-xs mb-1">Audience Retargeting (T00030)</p>
+              <p className="text-purple-600 text-xs">Re-engage shoppers who viewed or purchased your products. Reaches them on and off Amazon.com.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -118,7 +183,19 @@ function StepSettings({ form, setForm, brandName }) {
     { key: 'manual',                label: 'Fixed bids' },
   ];
 
-  const TARGETING_TYPES = form.adType === 'SB'
+  const SD_TACTICS = [
+    { key: 'T00020', label: 'Product Targeting', desc: 'Target similar products & categories' },
+    { key: 'T00030', label: 'Audience Retargeting', desc: 'Re-engage viewers & past purchasers' },
+  ];
+
+  const SD_BID_OPTS = [
+    { key: 'clicks',                label: 'Optimise for clicks' },
+    { key: 'conversions',           label: 'Optimise for conversions' },
+    { key: 'reach',                 label: 'Optimise for reach' },
+    { key: 'viewableImpressions',   label: 'Optimise for viewable impressions (vCPM)' },
+  ];
+
+  const TARGETING_TYPES = (form.adType === 'SB' || form.adType === 'SD')
     ? [{ key: 'manual', label: 'Manual' }]
     : [
         { key: 'auto',   label: 'Automatic' },
@@ -193,6 +270,51 @@ function StepSettings({ form, setForm, brandName }) {
           </div>
         </div>
 
+        {/* SD Tactic selector */}
+        {form.adType === 'SD' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Targeting Tactic</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {SD_TACTICS.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setForm(f => ({ ...f, sdTactic: t.key }))}
+                  className={`px-4 py-3 text-sm rounded-lg border text-left transition-colors ${
+                    (form.sdTactic || 'T00020') === t.key
+                      ? 'border-purple-600 bg-purple-700 text-white font-medium'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="font-semibold">{t.label}</div>
+                  <div className={`text-xs mt-0.5 ${ (form.sdTactic || 'T00020') === t.key ? 'text-purple-200' : 'text-gray-400' }`}>{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SD Bid Optimization */}
+        {form.adType === 'SD' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Bid Optimization</label>
+            <div className="flex flex-wrap gap-2">
+              {SD_BID_OPTS.map(o => (
+                <button
+                  key={o.key}
+                  onClick={() => setForm(f => ({ ...f, sdBidOptimization: o.key }))}
+                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                    (form.sdBidOptimization || 'clicks') === o.key
+                      ? 'border-purple-700 bg-purple-700 text-white font-medium'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Bid Strategy (SP only) */}
         {form.adType === 'SP' && (
           <div>
@@ -215,28 +337,30 @@ function StepSettings({ form, setForm, brandName }) {
           </div>
         )}
 
-        {/* Targeting Type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Targeting Type</label>
-          <div className="flex gap-2">
-            {TARGETING_TYPES.map(tt => (
-              <button
-                key={tt.key}
-                onClick={() => setForm(f => ({ ...f, targetingType: tt.key }))}
-                className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
-                  form.targetingType === tt.key
-                    ? 'border-green-700 bg-green-700 text-white font-medium'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                {tt.label}
-              </button>
-            ))}
+        {/* Targeting Type (SP only — SB is always manual; SD uses tactic instead) */}
+        {form.adType !== 'SD' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Targeting Type</label>
+            <div className="flex gap-2">
+              {TARGETING_TYPES.map(tt => (
+                <button
+                  key={tt.key}
+                  onClick={() => setForm(f => ({ ...f, targetingType: tt.key }))}
+                  className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                    form.targetingType === tt.key
+                      ? 'border-green-700 bg-green-700 text-white font-medium'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {tt.label}
+                </button>
+              ))}
+            </div>
+            {form.targetingType === 'auto' && (
+              <p className="text-xs text-gray-400 mt-2">Amazon will automatically match your ads to relevant customer searches.</p>
+            )}
           </div>
-          {form.targetingType === 'auto' && (
-            <p className="text-xs text-gray-400 mt-2">Amazon will automatically match your ads to relevant customer searches.</p>
-          )}
-        </div>
+        )}
 
         {/* Ad Group Name */}
         <div>
@@ -941,18 +1065,27 @@ function StepReview({ form, profileId, onLaunch, launching, result }) {
   );
 }
 
+const CAMPAIGN_TYPE_LABELS = { SP: 'Sponsored Products', SB: 'Sponsored Brands', SD: 'Sponsored Display' };
+const SD_TACTIC_LABELS = { T00020: 'Product Targeting', T00030: 'Audience Retargeting' };
+const SD_BIDOPT_LABELS = { clicks: 'Clicks', conversions: 'Conversions', reach: 'Reach', viewableImpressions: 'Viewable Impressions (vCPM)' };
+
 function ReviewSummary({ form, profileId, strategyLabels }) {
   const rows = [
-    { label: 'Campaign Type',  value: form.adType === 'SP' ? 'Sponsored Products' : 'Sponsored Brands' },
+    { label: 'Campaign Type',  value: CAMPAIGN_TYPE_LABELS[form.adType] || form.adType },
     { label: 'Campaign Name',  value: form.campaignName },
     { label: 'Daily Budget',   value: fmt$(form.budget) },
     { label: 'Start Date',     value: form.startDate },
     { label: 'End Date',       value: form.endDate || 'No end date' },
-    { label: 'Targeting',      value: form.targetingType === 'auto' ? 'Automatic' : 'Manual' },
+    ...(form.adType === 'SD' ? [
+      { label: 'Tactic',          value: SD_TACTIC_LABELS[form.sdTactic || 'T00020'] },
+      { label: 'Bid Optimization', value: SD_BIDOPT_LABELS[form.sdBidOptimization || 'clicks'] },
+    ] : [
+      { label: 'Targeting', value: form.targetingType === 'auto' ? 'Automatic' : 'Manual' },
+    ]),
     ...(form.adType === 'SP' ? [{ label: 'Bid Strategy', value: strategyLabels[form.bidStrategy] || form.bidStrategy }] : []),
     { label: 'Default Bid',    value: fmt$(form.defaultBid) },
     { label: 'Ad Group Name',  value: form.adGroupName || '(auto)' },
-    { label: 'Keywords',       value: `${form.keywords.length} keyword(s)` },
+    ...(form.adType !== 'SD' ? [{ label: 'Keywords', value: `${form.keywords.length} keyword(s)` }] : []),
     { label: 'Products',       value: `${form.asins.length} ASIN(s)` },
     { label: 'Profile ID',     value: profileId || 'Not found' },
   ];
@@ -1029,20 +1162,23 @@ export default function CampaignCreate() {
   }, []);
 
   const [form, setForm] = useState(() => ({
-    adType:        'SP',
-    campaignName:  `Brand SP ${today()}`,
-    budget:        '50',
-    startDate:     today(),
-    endDate:       '',
-    bidStrategy:   'legacyForSales',
-    targetingType: 'manual',
-    defaultBid:    '0.75',
-    adGroupName:   '',
-    keywords:      [],
-    asins:         [],
-    sbHeadline:    '',
-    sbLogoUrl:     '',
-    sbMainImgUrl:  '',
+    adType:             'SP',
+    campaignName:       `Brand SP ${today()}`,
+    budget:             '50',
+    startDate:          today(),
+    endDate:            '',
+    bidStrategy:        'legacyForSales',
+    targetingType:      'manual',
+    defaultBid:         '0.75',
+    adGroupName:        '',
+    keywords:           [],
+    asins:              [],
+    sbHeadline:         '',
+    sbLogoUrl:          '',
+    sbMainImgUrl:       '',
+    // SD-specific
+    sdTactic:           'T00020',
+    sdBidOptimization:  'clicks',
   }));
 
   // Auto-update campaign name when adType changes
@@ -1050,8 +1186,8 @@ export default function CampaignCreate() {
     setForm(f => ({
       ...f,
       campaignName: `Brand ${f.adType} ${today()}`,
-      // SB only supports manual
-      ...(f.adType === 'SB' ? { targetingType: 'manual' } : {}),
+      // SB/SD only support manual targeting type
+      ...((f.adType === 'SB' || f.adType === 'SD') ? { targetingType: 'manual' } : {}),
     }));
   }, [form.adType]);
 
@@ -1064,17 +1200,19 @@ export default function CampaignCreate() {
   // Step validation
   function canProceed() {
     if (step === 0) return !!form.adType;
-    if (step === 1) return !!(form.campaignName && form.budget && Number(form.budget) >= 1 && form.startDate && form.targetingType);
-    if (step === 2 && form.adType === 'SB') return !!(form.sbHeadline && form.sbHeadline.trim().length >= 1); // headline required for SB
+    if (step === 1) return !!(form.campaignName && form.budget && Number(form.budget) >= 1 && form.startDate);
+    if (step === 2 && form.adType === 'SB') return !!(form.sbHeadline && form.sbHeadline.trim().length >= 1);
     return true;
   }
 
-  // Step flow:
-  //   SP manual:  0 Type → 1 Settings → 2 Keywords → 3 Products → 4 Review  (total 5 steps, indices 0-4)
-  //   SP auto:    0 Type → 1 Settings → 2 Products  → 3 Review               (total 4 steps, indices 0-3)
-  //   SB:         0 Type → 1 Settings → 2 Creatives → 3 Keywords → 4 Products → 5 Review (total 6 steps, 0-5)
+  // Step flows:
+  //   SP manual:  0 Type → 1 Settings → 2 Keywords → 3 Products → 4 Review
+  //   SP auto:    0 Type → 1 Settings → 2 Products → 3 Review
+  //   SB:         0 Type → 1 Settings → 2 Creatives → 3 Keywords → 4 Products → 5 Review
+  //   SD:         0 Type → 1 Settings → 2 Products → 3 Review
   function maxStep() {
     if (form.adType === 'SB') return 5;
+    if (form.adType === 'SD') return 3;
     if (form.targetingType === 'auto') return 3;
     return 4;
   }
@@ -1085,57 +1223,78 @@ export default function CampaignCreate() {
   function handleLaunch() {
     setLaunchResult(null);
     mutation.mutate({
-      adType:        form.adType,
-      campaignName:  form.campaignName,
-      budget:        Number(form.budget),
-      startDate:     form.startDate,
-      endDate:       form.endDate || null,
-      targetingType: form.targetingType,
-      bidStrategy:   form.bidStrategy,
-      defaultBid:    Number(form.defaultBid || 0.75),
-      keywords:      form.keywords.map(k => ({
+      adType:             form.adType,
+      campaignName:       form.campaignName,
+      budget:             Number(form.budget),
+      startDate:          form.startDate,
+      endDate:            form.endDate || null,
+      targetingType:      form.targetingType,
+      bidStrategy:        form.bidStrategy,
+      defaultBid:         Number(form.defaultBid || 0.75),
+      keywords:           form.keywords.map(k => ({
         term:      k.term,
         matchType: k.matchType,
         bid:       Number(k.bid || form.defaultBid || 0.75),
       })),
-      asins:        form.asins,
-      adGroupName:  form.adGroupName || `${form.campaignName} - Ad Group 1`,
+      asins:              form.asins,
+      adGroupName:        form.adGroupName || `${form.campaignName} - Ad Group 1`,
       profileId,
+      // SD
+      sdTactic:           form.sdTactic           || 'T00020',
+      sdBidOptimization:  form.sdBidOptimization  || 'clicks',
+      // SB
+      sbHeadline:         form.sbHeadline         || undefined,
+      sbLogoUrl:          form.sbLogoUrl           || undefined,
+      sbMainImgUrl:       form.sbMainImgUrl        || undefined,
     });
   }
 
-  const showKeywordsStep = form.adType === 'SB' || form.targetingType === 'manual';
+  const showKeywordsStep = form.adType === 'SB' || (form.adType === 'SP' && form.targetingType === 'manual');
 
-  const visibleStepNames = form.adType === 'SB'
-    ? ['Type', 'Settings', 'Creatives', 'Keywords', 'Products', 'Review']
-    : form.targetingType === 'auto'
-    ? ['Type', 'Settings', 'Products', 'Review']
-    : ['Type', 'Settings', 'Keywords', 'Products', 'Review'];
+  const visibleStepNames =
+    form.adType === 'SB' ? ['Type', 'Settings', 'Creatives', 'Keywords', 'Products', 'Review'] :
+    form.adType === 'SD' ? ['Type', 'Settings', 'Products', 'Review'] :
+    form.targetingType === 'auto' ? ['Type', 'Settings', 'Products', 'Review'] :
+    ['Type', 'Settings', 'Keywords', 'Products', 'Review'];
 
-  const visibleStep = step; // steps are already 1:1 for each flow
+  // Is current step the review step?
+  const isReviewStep =
+    (form.adType === 'SB' && step === 5) ||
+    (form.adType === 'SD' && step === 3) ||
+    (form.adType === 'SP' && form.targetingType === 'auto'  && step === 3) ||
+    (form.adType === 'SP' && form.targetingType === 'manual' && step === 4);
 
   return (
     <div>
-      <PageHeader title="Create Campaign" subtitle="Launch a new Sponsored Products or Sponsored Brands campaign" />
+      <PageHeader title="Create Campaign" subtitle="Launch a new Sponsored Products, Sponsored Brands, or Sponsored Display campaign" />
       <AdvertisingSubNav />
 
       <div className="max-w-4xl">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <StepIndicator steps={visibleStepNames} current={visibleStep} />
+          <StepIndicator steps={visibleStepNames} current={step} />
 
-          {/* Step Content — step indices are logical steps in the flow */}
+          {/* Step Content */}
           <div className="min-h-64">
-            {step === 0 && <StepType      form={form} setForm={setForm} />}
-            {step === 1 && <StepSettings  form={form} setForm={setForm} />}
+            {step === 0 && <StepType form={form} setForm={setForm} />}
+            {step === 1 && <StepSettings form={form} setForm={setForm} brandName={brandName} />}
+
+            {/* SB: Creatives → Keywords → Products → Review */}
             {step === 2 && form.adType === 'SB' && <StepCreative form={form} setForm={setForm} />}
-            {step === 2 && form.adType === 'SP' && showKeywordsStep && <StepKeywords form={form} setForm={setForm} brandName={brandName} competitorSignals={mergedCompetitorSignals} />}
-            {step === 2 && form.adType === 'SP' && !showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
             {step === 3 && form.adType === 'SB' && <StepKeywords form={form} setForm={setForm} brandName={brandName} competitorSignals={mergedCompetitorSignals} />}
-            {step === 3 && form.adType === 'SP' && showKeywordsStep && <StepAsins form={form} setForm={setForm} />}
             {step === 4 && form.adType === 'SB' && <StepAsins form={form} setForm={setForm} />}
-            {(step === 3 && form.adType === 'SP' && !showKeywordsStep) ||
-             (step === 4 && form.adType === 'SP') ||
-             (step === 5 && form.adType === 'SB') ? (
+
+            {/* SD: Products → Review */}
+            {step === 2 && form.adType === 'SD' && <StepAsins form={form} setForm={setForm} />}
+
+            {/* SP manual: Keywords → Products → Review */}
+            {step === 2 && form.adType === 'SP' && form.targetingType === 'manual' && <StepKeywords form={form} setForm={setForm} brandName={brandName} competitorSignals={mergedCompetitorSignals} />}
+            {step === 3 && form.adType === 'SP' && form.targetingType === 'manual' && <StepAsins form={form} setForm={setForm} />}
+
+            {/* SP auto: Products → Review */}
+            {step === 2 && form.adType === 'SP' && form.targetingType === 'auto' && <StepAsins form={form} setForm={setForm} />}
+
+            {/* Review (last step for all flows) */}
+            {isReviewStep && (
               <StepReview
                 form={form}
                 profileId={profileId}
@@ -1143,7 +1302,7 @@ export default function CampaignCreate() {
                 launching={mutation.isPending}
                 result={launchResult}
               />
-            ) : null}
+            )}
           </div>
 
           {/* Navigation */}
