@@ -94,7 +94,11 @@ function parseRange(req) {
     d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
   const todayPST     = pacificDateStr(new Date());
   const [ty, tm, td] = todayPST.split('-').map(Number);
-  const yDate        = new Date(Date.UTC(ty, tm - 1, td) - 86400000);
+  // Use noon UTC of the PST-date-minus-1 to safely avoid DST/timezone off-by-one.
+  // Using `Date.UTC(ty, tm-1, td) - 86400000` produces midnight UTC of (td-1), which
+  // in Pacific time (UTC-7/8) is still the *previous* PST day — causing yesterday to
+  // appear one day too early (e.g. today=May 3 PST → yesterday=May 1 instead of May 2).
+  const yDate        = new Date(Date.UTC(ty, tm - 1, td - 1, 12, 0, 0));
   const yesterdayStr = pacificDateStr(yDate);
   const [yy, ym]     = yesterdayStr.split('-').map(Number);
 
