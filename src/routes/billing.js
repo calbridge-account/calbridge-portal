@@ -257,7 +257,7 @@ async function getManagerBillingStatus(managerId) {
   try {
     const rows = await query(
       `SELECT subscription_plan, subscription_status, trial_ends_at, subscription_ends_at,
-              stripe_customer_id, stripe_subscription_id
+              stripe_customer_id, stripe_subscription_id, billing_exempt
        FROM CALBRIDGE_PROD.APP.manager_accounts
        WHERE manager_id = ?`,
       [managerId]
@@ -265,13 +265,43 @@ async function getManagerBillingStatus(managerId) {
     if (!rows.length) return null;
     const r = rows[0];
     // Only return manager data if it has meaningful billing content
-    if (!r.SUBSCRIPTION_PLAN && !r.STRIPE_CUSTOMER_ID && !r.STRIPE_SUBSCRIPTION_ID) {
+    if (!r.SUBSCRIPTION_PLAN && !r.STRIPE_CUSTOMER_ID && !r.STRIPE_SUBSCRIPTION_ID && !r.BILLING_EXEMPT) {
       return null;
     }
     return r;
   } catch (err) {
     console.warn('[Billing] getManagerBillingStatus failed:', err.message);
     return null;
+  }
+}
+
+/**
+ * Check if a client's agency is billing_exempt.
+ * Returns true if the client or their agency has billing_exempt=TRUE.
+ */
+async function isBillingExempt(clientId, managerId) {
+  try {
+    // Check manager-level exemption
+    if (managerId) {
+      const mgrRows = await query(
+        'SELECT billing_exempt, agency_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
+        [managerId]
+      );
+      if (mgrRows.length && mgrRows[0].BILLING_EXEMPT === true) return true;
+      // Check agency-level exemption
+      const agencyId = mgrRows[0]?.AGENCY_ID;
+      if (agencyId) {
+        const agencyRows = await query(
+          'SELECT billing_exempt FROM CALBRIDGE_PROD.APP.agency_accounts WHERE agency_id = ?',
+          [agencyId]
+        );
+        if (agencyRows.length && agencyRows[0].BILLING_EXEMPT === true) return true;
+      }
+    }
+    return false;
+  } catch (err) {
+    console.warn('[Billing] isBillingExempt check failed:', err.message);
+    return false;
   }
 }
 
@@ -301,6 +331,7 @@ router.get('/status', requireAuth, async (req, res, next) => {
     if (managerId) {
       const mgr = await getManagerBillingStatus(managerId);
       if (mgr) {
+        const billingExempt = await isBillingExempt(clientId, managerId);
         return res.json({
           plan:               mgr.SUBSCRIPTION_PLAN    || null,
           status:             mgr.SUBSCRIPTION_STATUS  || 'none',
@@ -310,6 +341,7 @@ router.get('/status', requireAuth, async (req, res, next) => {
           hasSubscription:    !!mgr.STRIPE_SUBSCRIPTION_ID,
           limits:             (PLANS[mgr.SUBSCRIPTION_PLAN || 'free'] || PLANS.free).limits,
           canUpgrade:         (mgr.SUBSCRIPTION_PLAN || 'free') !== 'pro',
+          billingExempt,
           source:             'manager_accounts',
         });
       }
@@ -355,6 +387,13 @@ async function handleCreateCheckout(req, res, next) {
     const { planId, annual = false } = req.body;
     const plan = PLANS[planId];
     if (!plan) return res.status(400).json({ error: 'Invalid plan' });
+
+    // Block checkout for billing-exempt clients
+    const _clientId = req.session.clientId;
+    const _mgId = await getManagerId(_clientId);
+    if (await isBillingExempt(_clientId, _mgId)) {
+      return res.status(400).json({ error: 'This account has complimentary access and does not require a payment method.' });
+    }
     // Use annual price ID if requested and available
     const priceId = (annual && plan.stripePriceIdAnnual) ? plan.stripePriceIdAnnual : plan.stripePriceId;
 

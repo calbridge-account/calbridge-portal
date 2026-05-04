@@ -1130,6 +1130,13 @@ agencyRouter.post('/brands', async (req, res) => {
     const inheritedPlan   = agencyPlanRows[0]?.SUBSCRIPTION_PLAN   || agencyMgrRows[0]?.SUBSCRIPTION_PLAN   || 'agency';
     const inheritedStatus = agencyPlanRows[0]?.SUBSCRIPTION_STATUS || agencyMgrRows[0]?.SUBSCRIPTION_STATUS || 'active';
 
+    // Inherit billing_exempt from the agency
+    const agencyExemptRows = await query(
+      'SELECT billing_exempt FROM CALBRIDGE_PROD.APP.agency_accounts WHERE agency_id = ?',
+      [agencyId]
+    ).catch(() => []);
+    const inheritedBillingExempt = agencyExemptRows[0]?.BILLING_EXEMPT === true;
+
     const { v4: uuidv4 } = require('uuid');
     const managerId    = uuidv4();
     const advertiserId = uuidv4();
@@ -1137,12 +1144,12 @@ agencyRouter.post('/brands', async (req, res) => {
     const userId       = uuidv4();
     const hash         = require('crypto').randomBytes(32).toString('hex');
 
-    // 1. Create manager_account under agency — inherit agency plan
+    // 1. Create manager_account under agency — inherit agency plan + billing_exempt
     await query(
       `INSERT INTO CALBRIDGE_PROD.APP.manager_accounts
-        (manager_id, name, agency_id, subscription_plan, subscription_status, created_at)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP())`,
-      [managerId, brandName, agencyId, inheritedPlan, inheritedStatus]
+        (manager_id, name, agency_id, subscription_plan, subscription_status, billing_exempt, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP())`,
+      [managerId, brandName, agencyId, inheritedPlan, inheritedStatus, inheritedBillingExempt]
     );
 
     // 2. Create advertiser_account

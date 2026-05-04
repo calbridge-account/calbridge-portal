@@ -1003,6 +1003,28 @@ router.post('/agencies/:agencyId/assign-email', requireAdmin, async (req, res, n
 });
 
 /**
+ * POST /admin/agencies/:agencyId/billing-exempt
+ * Set or clear billing_exempt for an agency and all its brands.
+ * Body: { exempt: true | false }
+ */
+router.post('/agencies/:agencyId/billing-exempt', requireAdmin, async (req, res, next) => {
+  try {
+    const { agencyId } = req.params;
+    const exempt = req.body.exempt !== false; // default true
+    await query(
+      'UPDATE CALBRIDGE_PROD.APP.agency_accounts SET billing_exempt = ? WHERE agency_id = ?',
+      [exempt, agencyId]
+    );
+    // Also update all manager_accounts under this agency
+    await query(
+      'UPDATE CALBRIDGE_PROD.APP.manager_accounts SET billing_exempt = ? WHERE agency_id = ?',
+      [exempt, agencyId]
+    );
+    res.json({ ok: true, agencyId, billingExempt: exempt });
+  } catch (err) { next(err); }
+});
+
+/**
  * POST /admin/brands/:managerId/status
  * Change brand active/inactive/suspended status
  */
