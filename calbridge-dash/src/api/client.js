@@ -231,6 +231,29 @@ export const createCampaign = (payload) =>
 export const getCampaignProfile = () =>
   campaignsJSON('/create/profile');
 
+export const getExpansionCandidates = (thresholds, marketplace) => {
+  const p = new URLSearchParams({
+    minDays: thresholds?.minDays ?? 14,
+    minSpend: thresholds?.minSpend ?? 20,
+    minOrders: thresholds?.minOrders ?? 2,
+    ...(marketplace && marketplace !== 'all' ? { marketplace } : {})
+  });
+  return advJSON(`/expansion-candidates?${p}`);
+};
+
+export const getHarvestTerms = (asin, campaignId, thresholds, range) => {
+  const p = new URLSearchParams({
+    asin,
+    campaignId,
+    minClicks: thresholds?.minClicks ?? 5,
+    minOrders: thresholds?.minOrders ?? 1,
+    ...(range?.type === 'custom'
+      ? { range: 'custom', start: range.start, end: range.end }
+      : { range: range?.type || '30d' })
+  });
+  return advJSON(`/harvest-terms?${p}`);
+};
+
 // Competitor signals — flat array of match_terms for keyword classification
 export const getCompetitorSignals = () =>
   fetch('/competitors/signals', { credentials: 'include' }).then(r => r.ok ? r.json() : []);

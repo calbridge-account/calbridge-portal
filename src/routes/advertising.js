@@ -1416,4 +1416,259 @@ router.post('/alerts/:alertId/acknowledge', requireAuth, requirePlan('anomalyDet
   } catch (err) { next(err); }
 });
 
+// ─── Advertising Expansion: classifyMatchType helper ────────────────────────
+function classifyMatchType(term, competitorSignals = [], autoAvgCpc = 0.75) {
+  const lower = (term || '').toLowerCase().trim();
+  const wordCount = lower.split(/\s+/).filter(Boolean).length;
+  const hasAsin = /\b[AB][0-9A-Z]{9}\b/i.test(term);
+  const hasModelNumber = /\b([a-z]{2,5}[-_]?\d{3,}[-_]?\w*)\b/i.test(term);
+  const isCompetitor = competitorSignals.some(s => lower.includes(s.toLowerCase()));
+  const hasBrand = /\b(acer|asus|hp|dell|lenovo|msi|samsung|lg|razer|gigabyte|alienware)\b/i.test(lower);
+  let strategy, matchTypes, label, bidMultiplier;
+  if (hasAsin) { strategy='exact_asin'; matchTypes=['EXACT']; label='ASIN Match'; bidMultiplier=1.3; }
+  else if (hasModelNumber && wordCount<=3) { strategy='model_exact'; matchTypes=['EXACT']; label='Model/SKU'; bidMultiplier=1.25; }
+  else if (isCompetitor) { strategy='competitor'; matchTypes=['EXACT','PHRASE']; label='Competitor'; bidMultiplier=1.1; }
+  else if (hasBrand && wordCount<=3) { strategy='brand'; matchTypes=['EXACT','PHRASE']; label='Brand'; bidMultiplier=1.15; }
+  else if (wordCount<=2) { strategy='head_keyword'; matchTypes=['PHRASE','BROAD']; label='Head Keyword'; bidMultiplier=0.9; }
+  else if (wordCount>=5) { strategy='long_tail'; matchTypes=['EXACT']; label='Long-tail'; bidMultiplier=1.2; }
+  else { strategy='mid_tail'; matchTypes=['EXACT','PHRASE']; label='Mid-tail'; bidMultiplier=1.1; }
+  return { strategy, matchTypes, label, suggestedBid: parseFloat((autoAvgCpc * bidMultiplier).toFixed(2)) };
+}
+
+// ─── GET /advertising/expansion-candidates ───────────────────────────────────
+router.get('/expansion-candidates', requireAuth, planDataWindow, async (req, res, next) => {
+  try {
+    const clientId = await resolveClientId(req);
+    const minDays   = Math.max(1, Number(req.query.minDays)   || 14);
+    const minSpend  = Math.max(0, Number(req.query.minSpend)  || 20);
+    const minOrders = Math.max(0, Number(req.query.minOrders) || 2);
+
+    // Find auto campaigns with enough data
+    let rows = [];
+    try {
+      rows = await query(`
+        SELECT
+          p.advertised_asin                                                 AS asin,
+          COALESCE(MAX(pr.title), p.advertised_asin)                       AS product_title,
+          MAX(pr.sku)                                                       AS model_number,
+          p.campaign_id,
+          MAX(c.campaign_name)                                              AS campaign_name,
+          COUNT(DISTINCT p.date)                                            AS days_running,
+          SUM(p.cost)                                                       AS spend,
+          SUM(p.purchases_30_d)                                             AS orders,
+          SUM(p.sales_30_d)                                                 AS sales,
+          SUM(p.impressions)                                                AS impressions,
+          SUM(p.clicks)                                                     AS clicks,
+          CASE WHEN SUM(p.sales_30_d)>0 THEN SUM(p.cost)/SUM(p.sales_30_d) ELSE NULL END AS acos,
+          DATEDIFF('day', MAX(p.date), CURRENT_DATE)                       AS days_since_last_data
+        FROM sp_advertised_product_report p
+        JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
+        LEFT JOIN products pr ON p.client_id=pr.client_id AND p.advertised_asin=pr.asin
+        WHERE p.client_id = ?
+          AND (UPPER(c.targeting_type)='AUTO' OR UPPER(c.campaign_name) LIKE '%AUTO%' OR UPPER(c.campaign_name) LIKE '%_AT_%')
+          AND p.date >= DATEADD('day', -95, CURRENT_DATE)
+          AND p.advertised_asin != 'UNATTRIBUTED'
+        GROUP BY p.advertised_asin, p.campaign_id
+        HAVING COUNT(DISTINCT p.date) >= ? AND SUM(p.cost) >= ?
+        ORDER BY SUM(p.purchases_30_d) DESC
+        LIMIT 50
+      `, [clientId, minDays, minSpend]);
+    } catch (e) {
+      // Fallback: sp_campaign_report may be empty
+      rows = await query(`
+        SELECT
+          p.advertised_asin                                                 AS asin,
+          COALESCE(MAX(pr.title), p.advertised_asin)                       AS product_title,
+          MAX(pr.sku)                                                       AS model_number,
+          p.campaign_id,
+          p.campaign_id                                                     AS campaign_name,
+          COUNT(DISTINCT p.date)                                            AS days_running,
+          SUM(p.cost)                                                       AS spend,
+          SUM(p.purchases_30_d)                                             AS orders,
+          SUM(p.sales_30_d)                                                 AS sales,
+          SUM(p.impressions)                                                AS impressions,
+          SUM(p.clicks)                                                     AS clicks,
+          CASE WHEN SUM(p.sales_30_d)>0 THEN SUM(p.cost)/SUM(p.sales_30_d) ELSE NULL END AS acos,
+          DATEDIFF('day', MAX(p.date), CURRENT_DATE)                       AS days_since_last_data
+        FROM sp_advertised_product_report p
+        LEFT JOIN products pr ON p.client_id=pr.client_id AND p.advertised_asin=pr.asin
+        WHERE p.client_id = ?
+          AND p.date >= DATEADD('day', -95, CURRENT_DATE)
+          AND p.advertised_asin != 'UNATTRIBUTED'
+        GROUP BY p.advertised_asin, p.campaign_id
+        HAVING COUNT(DISTINCT p.date) >= ? AND SUM(p.cost) >= ?
+        ORDER BY SUM(p.purchases_30_d) DESC
+        LIMIT 50
+      `, [clientId, minDays, minSpend]);
+    }
+
+    // Find ASINs that already have manual campaigns
+    let manualAsins = new Set();
+    try {
+      const manualRows = await query(`
+        SELECT DISTINCT p.advertised_asin
+        FROM sp_advertised_product_report p
+        JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
+        WHERE p.client_id=? AND UPPER(c.targeting_type)='MANUAL'
+          AND p.date >= DATEADD('day', -30, CURRENT_DATE)
+      `, [clientId]);
+      manualAsins = new Set(manualRows.map(r => r.ADVERTISED_ASIN || r.advertised_asin));
+    } catch (e) { /* ok */ }
+
+    res.json(rows.map(r => {
+      const daysRunning = Number(r.DAYS_RUNNING || 0);
+      const orders = Number(r.ORDERS || 0);
+      const hasManual = manualAsins.has(r.ASIN);
+      let harvestReadiness = 'low_data';
+      if (daysRunning >= 14 && orders >= minOrders) harvestReadiness = 'ready';
+      else if (daysRunning >= 7 && daysRunning < 14) harvestReadiness = 'warming';
+      return {
+        asin:               r.ASIN,
+        productTitle:       r.PRODUCT_TITLE || r.ASIN,
+        modelNumber:        r.MODEL_NUMBER  || null,
+        campaignId:         String(r.CAMPAIGN_ID),
+        campaignName:       r.CAMPAIGN_NAME || String(r.CAMPAIGN_ID),
+        daysRunning,
+        spend:              Number(r.SPEND       || 0),
+        orders,
+        sales:              Number(r.SALES       || 0),
+        impressions:        Number(r.IMPRESSIONS || 0),
+        clicks:             Number(r.CLICKS      || 0),
+        acos:               r.ACOS != null ? Number(r.ACOS) : null,
+        hasManualCampaign:  hasManual,
+        harvestReadiness,
+        daysSinceLastData:  Number(r.DAYS_SINCE_LAST_DATA || 0),
+      };
+    }));
+  } catch (err) { next(err); }
+});
+
+// ─── GET /advertising/harvest-terms ──────────────────────────────────────────
+router.get('/harvest-terms', requireAuth, async (req, res, next) => {
+  try {
+    const clientId  = await resolveClientId(req);
+    const asin      = (req.query.asin       || '').trim().toUpperCase();
+    const campaignId = (req.query.campaignId || '').trim();
+    const minClicks = Math.max(0, Number(req.query.minClicks)  || 5);
+    const minOrd    = Math.max(0, Number(req.query.minOrders)  || 1);
+    const { days, startDate, endDate } = parseRange(req);
+
+    if (!asin) return res.status(400).json({ error: 'asin required' });
+
+    // Fetch competitor signals for smarter classification
+    let competitorSignals = [];
+    try {
+      const sigRows = await query(
+        `SELECT match_term FROM CALBRIDGE_PROD.APP.BRAND_COMPETITORS WHERE client_id=? LIMIT 100`,
+        [clientId]
+      );
+      competitorSignals = sigRows.map(r => r.MATCH_TERM || r.match_term).filter(Boolean);
+    } catch(e) { /* table may not exist */ }
+
+    // Fetch search terms
+    const termRows = await query(`
+      SELECT
+        st.query                                                              AS search_term,
+        SUM(st.clicks)                                                        AS clicks,
+        SUM(st.impressions)                                                   AS impressions,
+        SUM(st.cost)                                                          AS spend,
+        SUM(st.purchases_30_d)                                                AS orders,
+        SUM(st.sales_30_d)                                                    AS sales,
+        CASE WHEN SUM(st.sales_30_d)>0 THEN SUM(st.cost)/SUM(st.sales_30_d) ELSE NULL END AS acos,
+        CASE WHEN SUM(st.clicks)>0     THEN SUM(st.cost)/SUM(st.clicks)     ELSE NULL END AS cpc,
+        CASE WHEN SUM(st.impressions)>0 THEN SUM(st.clicks)/SUM(st.impressions) ELSE NULL END AS ctr
+      FROM sp_search_term_report st
+      WHERE st.client_id = ?
+        AND st.campaign_id = ?
+        AND st.query IS NOT NULL AND st.query != ''
+        ${dateFilter('st.date', days, startDate, endDate)}
+      GROUP BY st.query
+      HAVING SUM(st.clicks) >= ? AND SUM(st.purchases_30_d) >= ?
+      ORDER BY SUM(st.purchases_30_d) DESC, SUM(st.cost) DESC
+      LIMIT 200
+    `, [clientId, campaignId, minClicks, minOrd]);
+
+    // Fetch existing manual keywords for this client
+    let existingKeywords = new Set();
+    try {
+      const ekRows = await query(`
+        SELECT DISTINCT LOWER(TRIM(COALESCE(keyword, targeting))) AS kw
+        FROM sp_targeting_keyword_report
+        WHERE client_id=? AND UPPER(COALESCE(match_type,'')) != 'AUTO'
+          AND COALESCE(keyword, targeting) IS NOT NULL
+          AND date >= DATEADD('day', -30, CURRENT_DATE)
+      `, [clientId]);
+      existingKeywords = new Set(ekRows.map(r => (r.KW || r.kw || '').toLowerCase().trim()));
+    } catch(e) { /* ok */ }
+
+    // Auto campaign avg CPC for bid suggestions
+    const avgCpc = termRows.length > 0
+      ? termRows.reduce((s,r) => s + Number(r.CPC||0), 0) / termRows.filter(r => Number(r.CPC||0) > 0).length || 0.75
+      : 0.75;
+
+    // Client break-even ACoS from COGS if available
+    let breakEvenAcos = null;
+    try {
+      const cogsRow = await query(
+        `SELECT cost_of_goods, selling_price FROM CALBRIDGE_PROD.APP.CLIENT_COGS WHERE client_id=? AND asin=? LIMIT 1`,
+        [clientId, asin]
+      );
+      if (cogsRow.length) {
+        const cogs = Number(cogsRow[0].COST_OF_GOODS || cogsRow[0].cost_of_goods || 0);
+        const price = Number(cogsRow[0].SELLING_PRICE || cogsRow[0].selling_price || 0);
+        if (price > 0) breakEvenAcos = parseFloat(((price - cogs) / price).toFixed(4));
+      }
+    } catch(e) { /* ok */ }
+
+    // Pausing recommendation: check if manual campaign exists and how old it is
+    let pauseRecommendation = { shouldConsider: false, reason: null, suggestedAction: 'keep_running' };
+    try {
+      const manualAge = await query(`
+        SELECT COUNT(DISTINCT date) AS manual_days
+        FROM sp_advertised_product_report p
+        JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
+        WHERE p.client_id=? AND p.advertised_asin=? AND UPPER(c.targeting_type)='MANUAL'
+          AND p.date >= DATEADD('day', -60, CURRENT_DATE)
+      `, [clientId, asin]);
+      const manualDays = Number(manualAge[0]?.MANUAL_DAYS || 0);
+      if (manualDays >= 30) {
+        pauseRecommendation = { shouldConsider: true, reason: 'Manual campaigns have 30+ days of data. Consider pausing auto campaign to reduce wasted spend.', suggestedAction: 'pause' };
+      } else if (manualDays >= 14) {
+        pauseRecommendation = { shouldConsider: true, reason: 'Manual campaigns are established. Consider reducing auto campaign budget once manual campaigns prove profitable.', suggestedAction: 'reduce_budget' };
+      } else if (manualDays > 0) {
+        pauseRecommendation = { shouldConsider: false, reason: 'Manual campaign launched recently — keep auto running in parallel until 14+ days of manual data.', suggestedAction: 'keep_running' };
+      }
+    } catch(e) { /* ok */ }
+
+    const terms = termRows.map(r => {
+      const term = r.SEARCH_TERM || r.search_term || '';
+      const clicks = Number(r.CLICKS || 0);
+      const orders = Number(r.ORDERS || 0);
+      const impressions = Number(r.IMPRESSIONS || 0);
+      const cpc = r.CPC != null ? Number(r.CPC) : null;
+      const recommendation = classifyMatchType(term, competitorSignals, cpc || avgCpc);
+      const existsInManual = existingKeywords.has(term.toLowerCase().trim());
+      const sbOpportunity = orders >= 3;
+      const sdOpportunity = impressions >= 1000 && orders < 2;
+      return {
+        searchTerm:   term,
+        clicks,
+        impressions,
+        spend:        Number(r.SPEND  || 0),
+        orders,
+        sales:        Number(r.SALES  || 0),
+        acos:         r.ACOS != null ? Number(r.ACOS) : null,
+        cpc,
+        ctr:          r.CTR  != null ? Number(r.CTR)  : null,
+        matchTypeRecommendation: recommendation,
+        existsInManual,
+        sbOpportunity,
+        sdOpportunity,
+      };
+    });
+
+    res.json({ autoStats: { avgCpc: parseFloat(avgCpc.toFixed(2)), breakEvenAcos }, terms, pauseRecommendation });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

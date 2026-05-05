@@ -8,6 +8,7 @@ const SUB_TABS = [
   { path: '/advertising/products',       label: 'Products',         exact: false },
   { path: '/advertising/targeting',      label: 'Targeting',        exact: false },
   { path: '/advertising/dsp',            label: 'DSP',              exact: false },
+  { path: '/advertising/expansion',      label: 'Expansion 🌱',     exact: false },
 ];
 
 export default function AdvertisingSubNav() {

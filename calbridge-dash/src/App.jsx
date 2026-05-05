@@ -46,6 +46,7 @@ import AdvertisingKeywords from './pages/advertising/AdvertisingKeywords';
 import AdvertisingProducts from './pages/advertising/AdvertisingProducts';
 import AdvertisingTargeting from './pages/advertising/AdvertisingTargeting';
 import AdvertisingDsp from './pages/advertising/AdvertisingDsp';
+import AdvertisingExpansion from './pages/advertising/AdvertisingExpansion';
 import CampaignCreate from './pages/advertising/CampaignCreate';
 import Forecasting from './pages/Forecasting';
 import Account from './pages/Account';
@@ -89,6 +90,7 @@ export default function App() {
             <Route path="/advertising/products"  element={<AdvertisingProducts />} />
             <Route path="/advertising/targeting" element={<AdvertisingTargeting />} />
             <Route path="/advertising/dsp"       element={<AdvertisingDsp />} />
+            <Route path="/advertising/expansion"  element={<AdvertisingExpansion />} />
             <Route path="/forecasting" element={<Forecasting />} />
             <Route path="/account"     element={<Account />} />
             <Route path="/cogs"        element={<Cogs />} />

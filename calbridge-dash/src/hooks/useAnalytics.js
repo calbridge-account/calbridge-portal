@@ -32,6 +32,8 @@ import {
   getTargetingRollup,
   getDspSummary,
   getDspOrders,
+  getExpansionCandidates,
+  getHarvestTerms,
 } from '../api/client';
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
@@ -328,5 +330,28 @@ export function useConnections() {
     queryFn: getConnections,
     staleTime: 5 * 60 * 1000, // 5 min
     retry: 1,
+  });
+}
+
+export function useExpansionCandidates(thresholds) {
+  const { activeMarketplace } = useMarketplace() ?? {};
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
+  return useQuery({
+    queryKey: ['expansion-candidates', thresholds?.minDays, thresholds?.minSpend, thresholds?.minOrders, activeMarketplace],
+    queryFn: () => getExpansionCandidates(thresholds, activeMarketplace),
+    enabled: !advertiserLoading,
+    staleTime: 10 * 60 * 1000,
+    retry: 2,
+  });
+}
+
+export function useHarvestTerms(asin, campaignId, thresholds, range, enabled) {
+  const { loading: advertiserLoading } = useAdvertiser() ?? {};
+  return useQuery({
+    queryKey: ['harvest-terms', asin, campaignId, thresholds?.minClicks, thresholds?.minOrders],
+    queryFn: () => getHarvestTerms(asin, campaignId, thresholds, range),
+    enabled: !advertiserLoading && !!enabled && !!asin && !!campaignId,
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
 }
