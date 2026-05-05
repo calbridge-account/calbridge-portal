@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useExpansionCandidates, useHarvestTerms, useMarketplace } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import PageHeader from '../../components/PageHeader';
-import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skeleton';
+import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx } from '../../utils/exportUtils';
@@ -64,66 +64,47 @@ function ReadinessBadge({ readiness }) {
   return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">📊 Low Conversion Data</span>;
 }
 
-// ─── Candidate card ──────────────────────────────────────────────────────────
-function CandidateCard({ candidate, isSelected, onSelect, fmtC }) {
+// ─── Candidate list row ────────────────────────────────────────────────────────
+function CandidateRow({ candidate, isSelected, onSelect, fmtC }) {
   const { asin, productTitle, campaignName, daysRunning, spend, orders, acos, harvestReadiness, hasManualCampaign } = candidate;
-
+  const acosColor = acos == null ? '' : acos > 0.4 ? 'text-red-600' : acos < 0.2 ? 'text-green-700' : 'text-gray-800';
   return (
-    <div
-      className={`bg-white rounded-xl border p-4 flex flex-col gap-3 cursor-pointer transition-all hover:shadow-md ${
-        isSelected ? 'ring-2 ring-green-500 border-green-300' : 'border-gray-200'
-      }`}
+    <tr
       onClick={onSelect}
+      className={`cursor-pointer transition-colors hover:bg-green-50/40 ${
+        isSelected ? 'bg-green-50 ring-inset ring-1 ring-green-300' : ''
+      }`}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="font-semibold text-sm text-gray-900 truncate flex-1" title={productTitle}>{productTitle}</p>
-        <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">{asin}</span>
-      </div>
-
-      {/* Campaign name */}
-      <p className="text-xs text-gray-400 truncate -mt-2" title={campaignName}>{campaignName}</p>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-4 gap-1 text-xs text-center">
-        <div>
-          <div className="font-semibold text-gray-800">{daysRunning}d</div>
-          <div className="text-gray-400">Days</div>
-        </div>
-        <div>
-          <div className="font-semibold text-gray-800">{fmtC(spend)}</div>
-          <div className="text-gray-400">Spend</div>
-        </div>
-        <div>
-          <div className="font-semibold text-gray-800">{orders}</div>
-          <div className="text-gray-400">Orders</div>
-        </div>
-        <div>
-          <div className="font-semibold text-gray-800">{acos != null ? fmtPct(acos) : '—'}</div>
-          <div className="text-gray-400">ACoS</div>
-        </div>
-      </div>
-
-      {/* Badges */}
-      <div className="flex flex-wrap gap-1.5">
+      <td className="py-2.5 px-3">
+        <div className="font-medium text-sm text-gray-900 truncate max-w-[220px]" title={productTitle}>{productTitle}</div>
+        <div className="text-xs text-gray-400 truncate max-w-[220px]" title={campaignName}>{campaignName}</div>
+      </td>
+      <td className="py-2.5 px-3">
+        <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{asin}</span>
+      </td>
+      <td className="py-2.5 px-3 text-center">
         <ReadinessBadge readiness={harvestReadiness} />
-        {hasManualCampaign && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">Manual Active</span>
-        )}
-      </div>
-
-      {/* CTA */}
-      <button
-        className={`w-full mt-auto py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-          isSelected
-            ? 'bg-green-600 text-white border-green-600'
-            : 'bg-white text-green-700 border-green-500 hover:bg-green-50'
-        }`}
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-      >
-        {isSelected ? '▾ Reviewing Terms' : 'Review Terms →'}
-      </button>
-    </div>
+      </td>
+      <td className="py-2.5 px-3 text-right text-sm text-gray-600">{daysRunning}d</td>
+      <td className="py-2.5 px-3 text-right text-sm text-gray-800 font-medium">{fmtC(spend)}</td>
+      <td className="py-2.5 px-3 text-right text-sm text-gray-800">{orders}</td>
+      <td className={`py-2.5 px-3 text-right text-sm font-medium ${acosColor}`}>{acos != null ? fmtPct(acos) : '—'}</td>
+      <td className="py-2.5 px-3 text-center">
+        {hasManualCampaign && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">Manual Active</span>}
+      </td>
+      <td className="py-2.5 px-3 text-right">
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelect(); }}
+          className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-colors ${
+            isSelected
+              ? 'bg-green-600 text-white border-green-600'
+              : 'bg-white text-green-700 border-green-500 hover:bg-green-50'
+          }`}
+        >
+          {isSelected ? '▾ Terms' : 'Review →'}
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -324,8 +305,8 @@ export default function AdvertisingExpansion() {
       {candidatesError ? (
         <ErrorState message="Failed to load expansion candidates. Check your data connection." />
       ) : candidatesLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-          {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+        <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
+          <SkeletonTable />
         </div>
       ) : !candidates || candidates.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-10 text-center mb-8">
@@ -333,16 +314,35 @@ export default function AdvertisingExpansion() {
           <p className="text-gray-400 text-xs mt-1">Try lowering the minimum spend or days threshold above.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-          {candidates.map(c => (
-            <CandidateCard
-              key={`${c.asin}-${c.campaignId}`}
-              candidate={c}
-              isSelected={selected?.asin === c.asin && selected?.campaignId === c.campaignId}
-              onSelect={() => handleSelectCard(c)}
-              fmtC={fmtC}
-            />
-          ))}
+        <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product / Campaign</th>
+                  <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
+                  <th className="py-2 px-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="py-2 px-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Days</th>
+                  <th className="py-2 px-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Spend</th>
+                  <th className="py-2 px-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Orders</th>
+                  <th className="py-2 px-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">ACoS</th>
+                  <th className="py-2 px-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Manual</th>
+                  <th className="py-2 px-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {candidates.map(c => (
+                  <CandidateRow
+                    key={`${c.asin}-${c.campaignId}`}
+                    candidate={c}
+                    isSelected={selected?.asin === c.asin && selected?.campaignId === c.campaignId}
+                    onSelect={() => handleSelectCard(c)}
+                    fmtC={fmtC}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
