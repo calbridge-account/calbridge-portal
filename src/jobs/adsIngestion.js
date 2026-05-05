@@ -2914,39 +2914,18 @@ const DSP_REPORT_TYPES = [
       'videoAdStart', 'videoAdMidpoint', 'videoAdComplete',
     ],
   },
-  {
-    // Fixed 2026-04-27: reportTypeId must be 'dspCampaign' (only valid DSP v3 reportTypeId)
-    key:          'dspProduct',
-    reportTypeId: 'dspCampaign',
-    groupBy:      ['product'],
-    columns:      [
-      'date', 'orderId', 'orderName', 'advertiserId', 'asin', 'productName',
-      'impressions', 'clicks', 'totalCost',
-      'purchases', 'purchasesClicks', 'sales',
-      'newToBrandPurchases', 'detailPageViews', 'addToCart',
-    ],
-  },
-  {
-    key:          'dspAudience',
-    reportTypeId: 'dspCampaign',
-    groupBy:      ['audience'],
-    columns:      [
-      'date', 'orderId', 'orderName', 'advertiserId',
-      'audienceSegmentId', 'audienceSegmentName',
-      'impressions', 'clicks', 'totalCost',
-      'purchases', 'sales', 'newToBrandPurchases', 'detailPageViews',
-    ],
-  },
-  {
-    key:          'dspGeo',
-    reportTypeId: 'dspCampaign',
-    groupBy:      ['geography'],
-    columns:      [
-      'date', 'orderId', 'orderName', 'advertiserId', 'region',
-      'impressions', 'clicks', 'totalCost',
-      'purchases', 'sales', 'detailPageViews',
-    ],
-  },
+  // NOTE 2026-05-05: Amazon removed groupBy=[product/audience/geography] for this account.
+  // API now only allows: campaign, flight, ad, creative.
+  // dspProduct, dspAudience, dspGeo are disabled until Amazon re-grants these groupBy values.
+  // {
+  //   key: 'dspProduct', groupBy: ['product'], ... — DISABLED
+  // },
+  // {
+  //   key: 'dspAudience', groupBy: ['audience'], ... — DISABLED
+  // },
+  // {
+  //   key: 'dspGeo', groupBy: ['geography'], ... — DISABLED
+  // },
 ];
 
 /**

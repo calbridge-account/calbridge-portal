@@ -150,7 +150,7 @@ async function submitAmazonReports({ triggeredBy = 'cron', daysBack = SUBMIT_DAY
         AND status = 'completed'
         AND report_type IN (
           'spCampaigns','sbCampaigns','sdCampaigns','spTargeting',
-          'dspCampaign','dspOrder','dspLineItem','dspAudience','dspProduct'
+          'dspCampaign','dspOrder','dspLineItem'
         )
         AND (completed_at IS NULL OR completed_at < DATEADD('hour', -1, CURRENT_TIMESTAMP()))
     `, [latestWindow.rangeKey]);
