@@ -87,12 +87,12 @@ export function useAdvertising(range, channel) {
   });
 }
 
-export function useAdvertisingTrend(range, channel) {
+export function useAdvertisingTrend(range, channel, adType) {
   const { activeMarketplace } = useMarketplace() ?? {};
   const { loading: advertiserLoading } = useAdvertiser() ?? {};
   return useQuery({
-    queryKey: ['advertising-trend', rangeKey(range), channel || 'all', activeMarketplace ?? 'US'],
-    queryFn: () => getAdvertisingTrend(range, channel, activeMarketplace),
+    queryKey: ['advertising-trend', rangeKey(range), channel || 'all', adType || 'all', activeMarketplace ?? 'US'],
+    queryFn: () => getAdvertisingTrend(range, channel, activeMarketplace, adType),
     enabled: !advertiserLoading,
     staleTime: STALE_TIME,
     retry: 2,

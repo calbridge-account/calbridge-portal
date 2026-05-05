@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from 'recharts';
-import { useDspSummary, useDspOrders } from '../../hooks/useAnalytics';
+import { useDspSummary, useDspOrders, useAdvertisingTrend } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
@@ -10,6 +7,7 @@ import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skelet
 import AdvertisingSubNav from './AdvertisingSubNav';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
+import AdTrendChart from '../../components/AdTrendChart';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -60,6 +58,7 @@ export default function AdvertisingDsp() {
 
   const { data: summary, isLoading: summaryLoading, isError: summaryError } = useDspSummary(range);
   const { data: ordersData, isLoading: ordersLoading, isError: ordersError } = useDspOrders(range);
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, 'dsp');
 
   const handleSort = col => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }));
 
@@ -116,6 +115,17 @@ export default function AdvertisingDsp() {
       <AdvertisingSubNav />
 
       {summaryError && <ErrorState message="Failed to load DSP summary" />}
+
+      {/* Trend chart */}
+      <AdTrendChart
+        trendRows={trendRows}
+        loading={trendLoading}
+        channel="dsp"
+        adType="DSP"
+        currency={currency}
+        title="DSP — Spend & Attribution Trend"
+        className="mb-6"
+      />
 
       {/* Attribution note */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 mb-6 text-sm text-purple-800">

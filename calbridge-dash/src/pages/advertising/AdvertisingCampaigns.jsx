@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAdvertisingCampaigns } from '../../hooks/useAnalytics';
+import { useAdvertisingCampaigns, useAdvertisingTrend } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
@@ -7,6 +7,7 @@ import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
+import AdTrendChart from '../../components/AdTrendChart';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 function makeFmtCurrency(currency = 'USD') {
@@ -59,6 +60,9 @@ export default function AdvertisingCampaigns() {
   const [sort, setSort] = useState({ col: 'spend', dir: 'desc' });
 
   const { data, isLoading, isError, error } = useAdvertisingCampaigns(range, channelFilter);
+  // Trend uses same channel + ad-type filter so chart scope matches table
+  const adTypeParam = adTypeFilter !== 'All' ? adTypeFilter : undefined;
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, channelFilter, adTypeParam);
 
   const normalize = r => ({
     campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
@@ -199,6 +203,17 @@ export default function AdvertisingCampaigns() {
           )}
         </div>
       </div>
+
+      {/* Trend chart */}
+      <AdTrendChart
+        trendRows={trendRows}
+        loading={trendLoading}
+        channel={channelFilter}
+        adType={adTypeFilter !== 'All' ? adTypeFilter : undefined}
+        currency={currency}
+        title={`Campaigns — Spend & Sales Trend${adTypeFilter !== 'All' ? ` (${adTypeFilter})` : ''}`}
+        className="mb-4"
+      />
 
       {/* Summary bar */}
       {!isLoading && filtered.length > 0 && (

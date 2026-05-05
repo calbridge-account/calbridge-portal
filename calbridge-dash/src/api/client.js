@@ -83,10 +83,11 @@ async function fetchAdvertisingJSON(path) {
   return JSON.parse(text);
 }
 
-export const getAdvertisingTrend  = (range, channel, marketplace) => {
+export const getAdvertisingTrend  = (range, channel, marketplace, adType) => {
   const channelParam = channel && channel !== 'all' ? `&channel=${channel}` : '';
   const mp = marketplace && marketplace !== 'all' ? `&marketplace=${marketplace}` : '';
-  return fetchAdvertisingJSON(`/advertising/trend${rangeParams(range)}${channelParam}${mp}`);
+  const atParam = adType ? `&adType=${adType}` : '';
+  return fetchAdvertisingJSON(`/advertising/trend${rangeParams(range)}${channelParam}${mp}${atParam}`);
 };
 
 export const getSbVideo = (range, marketplace) => {

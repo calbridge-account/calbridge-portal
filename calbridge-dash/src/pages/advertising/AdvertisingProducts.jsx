@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useAsinPerformance } from '../../hooks/useAnalytics';
+import { useAsinPerformance, useAdvertisingTrend } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
@@ -8,6 +8,7 @@ import AdvertisingSubNav from './AdvertisingSubNav';
 import CampaignDrawer from '../../components/CampaignDrawer';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
+import AdTrendChart from '../../components/AdTrendChart';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -49,6 +50,7 @@ export default function AdvertisingProducts() {
   const openDrawer  = useCallback((asin, productTitle) => setDrawer({ open: true, asin, productTitle }), []);
 
   const { data, isLoading, isError, error } = useAsinPerformance(range, channel);
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, channel);
 
   const asins = (data?.asins || []).map(a => ({
     asin:          a.asin         || a.ASIN         || '—',
@@ -133,6 +135,16 @@ export default function AdvertisingProducts() {
       <AdvertisingSubNav />
 
       {isError && <ErrorState message={error?.message} />}
+
+      {/* Trend chart */}
+      <AdTrendChart
+        trendRows={trendRows}
+        loading={trendLoading}
+        channel={channel}
+        currency={currency}
+        title={`Products — Spend & Sales Trend`}
+        className="mb-4"
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">

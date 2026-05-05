@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useKeywordTargeting } from '../../hooks/useAnalytics';
+import { useKeywordTargeting, useAdvertisingTrend } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
@@ -9,6 +9,7 @@ import AdvertisingSubNav from './AdvertisingSubNav';
 import CampaignDrawer from '../../components/CampaignDrawer';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
+import AdTrendChart from '../../components/AdTrendChart';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -69,14 +70,18 @@ export default function AdvertisingKeywords() {
   }, []);
 
   const { data, isLoading, isError, error } = useKeywordTargeting(range, channel);
+  // Trend: filter to same channel; if matchType is known it maps to SP/SB adType
+  const trendAdType = channel === 'ads' ? undefined : undefined; // channel filter sufficient
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, channel, trendAdType);
 
   const raw = Array.isArray(data) ? data : (data?.keywords || data?.rows || []);
 
   const normalize = r => ({
-    keyword:       r.KEYWORD    || r.keyword    || r.TARGETING_TEXT || r.targeting_text || '—',
-    matchType:     r.MATCH_TYPE || r.match_type || r.MATCH_TYPE_TEXT || '—',
-    adType:        r.AD_TYPE    || r.ad_type    || '—',
-    campaign:      r.CAMPAIGN_NAME || r.campaign_name || '—',
+    // Handle both Snowflake uppercase cols AND camelCase API response keys
+    keyword:       r.KEYWORD      || r.keyword      || r.TARGETING_TEXT || r.targeting_text || '—',
+    matchType:    (r.MATCH_TYPE   || r.match_type   || r.matchType      || r.MATCH_TYPE_TEXT || '—').toUpperCase().replace('N/A','—'),
+    adType:        r.AD_TYPE      || r.ad_type      || r.adType         || '—',
+    campaign:      r.CAMPAIGN_NAME|| r.campaign_name|| r.campaignName   || '—',
     campaignCount: Number(r.CAMPAIGN_COUNT || r.campaignCount || 1),
     spend:         Number(r.SPEND       || r.spend       || 0),
     sales:         Number(r.SALES       || r.sales       || 0),
@@ -153,6 +158,16 @@ export default function AdvertisingKeywords() {
       <AdvertisingSubNav />
 
       {isError && <ErrorState message={error?.message} />}
+
+      {/* Trend chart */}
+      <AdTrendChart
+        trendRows={trendRows}
+        loading={trendLoading}
+        channel={channel}
+        currency={currency}
+        title={`Keywords — Spend & Sales Trend${matchTypeFilter !== 'All' ? ` (${matchTypeFilter})` : ''}`}
+        className="mb-4"
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">

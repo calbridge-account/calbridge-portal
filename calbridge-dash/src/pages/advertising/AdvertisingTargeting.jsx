@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useTargetingRollup } from '../../hooks/useAnalytics';
+import { useTargetingRollup, useAdvertisingTrend } from '../../hooks/useAnalytics';
 import { useDateRange } from '../../context/DateRangeContext';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
@@ -8,6 +8,7 @@ import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skelet
 import AdvertisingSubNav from './AdvertisingSubNav';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
+import AdTrendChart from '../../components/AdTrendChart';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -60,6 +61,8 @@ export default function AdvertisingTargeting() {
   }, [navigate]);
 
   const { data, isLoading, isError, error } = useTargetingRollup(range);
+  // Targeting = SP + SB keywords → channel 'ads'
+  const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, 'ads');
 
   // API returns { days, total: {...}, byType: [{matchType, spend, sales, ...}] }
   const total  = data?.total   || {};
@@ -113,6 +116,16 @@ export default function AdvertisingTargeting() {
       <AdvertisingSubNav />
 
       {isError && <ErrorState message={error?.message} />}
+
+      {/* Trend chart */}
+      <AdTrendChart
+        trendRows={trendRows}
+        loading={trendLoading}
+        channel="ads"
+        currency={currency}
+        title="Targeting — Spend & Sales Trend (Sponsored Ads)"
+        className="mb-6"
+      />
 
       {/* Totals row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
