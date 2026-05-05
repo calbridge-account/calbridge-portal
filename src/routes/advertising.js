@@ -969,25 +969,24 @@ router.get('/dsp-summary', requireAuth, planDataWindow, async (req, res, next) =
       SELECT
         SUM(impressions)                                                          AS total_impressions,
         SUM(clicks)                                                               AS total_clicks,
-        SUM(adjusted_spend)                                                       AS total_spend,
+        SUM(spend)                                                                AS total_spend,
         SUM(sales)                                                                AS total_sales,
-        SUM(total_purchases)                                                      AS total_purchases,
+        SUM(purchases)                                                            AS total_purchases,
         SUM(detail_page_views)                                                    AS total_dpv,
-        SUM(new_to_brand_purchases)                                               AS total_ntb_purchases,
-        SUM(new_to_brand_sales)                                                   AS total_ntb_sales,
+        SUM(ntb_purchases)                                                        AS total_ntb_purchases,
+        SUM(ntb_product_sales)                                                    AS total_ntb_sales,
         SUM(viewable_impressions)                                                 AS total_viewable_impressions,
         SUM(add_to_cart)                                                          AS total_atc,
-        SUM(video_ad_complete)                                                    AS total_video_completions,
-        SUM(orders)                                                               AS grand_total_purchases,
+        0                                                                         AS total_video_completions,
+        SUM(purchases)                                                            AS grand_total_purchases,
         SUM(sales)                                                                AS grand_total_sales,
-        CASE WHEN SUM(adjusted_spend) > 0     THEN SUM(sales) / SUM(adjusted_spend)            ELSE NULL END AS roas,
+        CASE WHEN SUM(spend) > 0              THEN SUM(sales) / SUM(spend)                     ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0        THEN SUM(clicks) / SUM(impressions)              ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0        THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate,
-        CASE WHEN SUM(video_ad_start) > 0     THEN SUM(video_ad_complete) / SUM(video_ad_start) ELSE NULL END AS vcr,
-        CASE WHEN SUM(adjusted_spend) > 0     THEN SUM(detail_page_views) / SUM(adjusted_spend) ELSE NULL END AS dpvr
-      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
+        NULL                                                                      AS vcr,
+        CASE WHEN SUM(spend) > 0              THEN SUM(detail_page_views) / SUM(spend)         ELSE NULL END AS dpvr
+      FROM CALBRIDGE_PROD.MARTS.DSP_LINE_ITEM
       WHERE client_id = ?
-        AND ad_type = 'DSP'
         ${dateFilter("date", days, startDate, endDate)}
     `, [clientId]));
 
@@ -1027,31 +1026,30 @@ router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) =>
 
     const rows = await reqCache(clientId, req, () => query(`
       SELECT
-        campaign_id,
-        campaign_name                                                             AS order_name,
+        order_id                                                                  AS campaign_id,
+        order_name,
         MAX(order_budget)                                                         AS order_budget,
         MAX(order_start_date)                                                     AS order_start_date,
         MAX(order_end_date)                                                       AS order_end_date,
         SUM(impressions)                                                          AS impressions,
         SUM(clicks)                                                               AS clicks,
-        SUM(adjusted_spend)                                                       AS spend,
+        SUM(spend)                                                                AS spend,
         SUM(sales)                                                                AS sales,
-        SUM(orders)                                                               AS purchases,
+        SUM(purchases)                                                            AS purchases,
         SUM(detail_page_views)                                                    AS dpv,
-        SUM(new_to_brand_purchases)                                               AS ntb_purchases,
-        SUM(new_to_brand_sales)                                                   AS ntb_sales,
+        SUM(ntb_purchases)                                                        AS ntb_purchases,
+        SUM(ntb_product_sales)                                                    AS ntb_sales,
         SUM(viewable_impressions)                                                 AS viewable_impressions,
         SUM(add_to_cart)                                                          AS atc,
-        SUM(video_ad_complete)                                                    AS video_completions,
-        CASE WHEN SUM(adjusted_spend) > 0  THEN SUM(sales) / SUM(adjusted_spend)   ELSE NULL END AS roas,
+        0                                                                         AS video_completions,
+        CASE WHEN SUM(spend) > 0           THEN SUM(sales) / SUM(spend)             ELSE NULL END AS roas,
         CASE WHEN SUM(impressions) > 0     THEN SUM(clicks) / SUM(impressions)      ELSE NULL END AS ctr,
         CASE WHEN SUM(impressions) > 0     THEN SUM(viewable_impressions) / SUM(impressions) ELSE NULL END AS viewability_rate
-      FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
+      FROM CALBRIDGE_PROD.MARTS.DSP_LINE_ITEM
       WHERE client_id = ?
-        AND ad_type = 'DSP'
         ${dateFilter("date", days, startDate, endDate)}
-      GROUP BY campaign_id, campaign_name
-      ORDER BY SUM(adjusted_spend) DESC
+      GROUP BY order_id, order_name
+      ORDER BY SUM(spend) DESC
       LIMIT ?
     `, [clientId, limit]));
 

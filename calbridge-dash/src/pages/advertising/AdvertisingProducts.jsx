@@ -43,6 +43,7 @@ export default function AdvertisingProducts() {
   const [channel, setChannel] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ col: 'spend', dir: 'desc' });
+  const [selectedAsins, setSelectedAsins] = useState(new Set());
 
   // Drawer state
   const [drawer, setDrawer] = useState({ open: false, asin: null, productTitle: null });
@@ -142,8 +143,10 @@ export default function AdvertisingProducts() {
         loading={trendLoading}
         channel={channel}
         currency={currency}
-        title={`Products — Spend & Sales Trend`}
+        title="Products — Spend & Sales Trend"
         className="mb-4"
+        selectedRows={selectedAsins.size > 0 ? filtered.filter(r => selectedAsins.has(r.asin)) : []}
+        allRows={filtered}
       />
 
       {/* Filters */}
@@ -184,7 +187,7 @@ export default function AdvertisingProducts() {
           <span className="text-gray-500">{filtered.length} ASINs</span>
           <span><span className="text-gray-500">Spend</span> <strong className="text-gray-800">{fmt$(totals.spend)}</strong></span>
           <span><span className="text-gray-500">Sales</span> <strong className="text-gray-800">{fmt$(totals.sales)}</strong></span>
-          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? totalRoas.toFixed(2) + 'x' : '—'}</strong></span>
+          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? fmt$(totalRoas) : '—'}</strong></span>
           <span><span className="text-gray-500">ACoS</span> <strong className={acosColor(totalAcos)}>{totalAcos != null ? (totalAcos * 100).toFixed(1) + '%' : '—'}</strong></span>
           <span><span className="text-gray-500">Orders</span> <strong className="text-gray-800">{totals.orders.toLocaleString()}</strong></span>
         </div>
@@ -197,15 +200,20 @@ export default function AdvertisingProducts() {
           <div className="text-gray-400 text-sm text-center py-8">No ASIN data for this period</div>
         ) : (
           <>
-            <div className="text-xs text-gray-400 mb-3">
-              {filtered.length.toLocaleString()} ASINs
-              <span className="ml-2 text-gray-300">· Click a row to see campaign breakdown</span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-gray-400">
+                {filtered.length.toLocaleString()} ASINs
+                {selectedAsins.size > 0 && <span className="ml-2 text-blue-600 font-medium">{selectedAsins.size} selected — chart filtered</span>}
+                {selectedAsins.size === 0 && <span className="ml-2 text-gray-300">· ☐ Select rows to filter chart</span>}
+              </div>
+              {selectedAsins.size > 0 && <button onClick={() => setSelectedAsins(new Set())} className="text-xs text-gray-400 hover:text-gray-600 underline">Clear</button>}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
+                    <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e => { if(e.target.checked) setSelectedAsins(new Set(filtered.map(r=>r.asin))); else setSelectedAsins(new Set()); }} checked={selectedAsins.size===filtered.length&&filtered.length>0} /></th>
+                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaigns</th>
                     <Th col="spend"       label="Spend"  right sort={sort} onSort={handleSort} />
@@ -223,10 +231,12 @@ export default function AdvertisingProducts() {
                   {filtered.map((r, i) => (
                     <tr
                       key={r.asin + i}
-                      onClick={() => openDrawer(r.asin, r.productTitle)}
-                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${selectedAsins.has(r.asin) ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
                     >
-                      <td className="py-2.5 px-3 font-mono text-xs text-blue-700">{r.asin}</td>
+                      <td className="py-2.5 px-1" onClick={e => { e.stopPropagation(); setSelectedAsins(prev => { const n=new Set(prev); n.has(r.asin)?n.delete(r.asin):n.add(r.asin); return n; }); }}>
+                        <input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={selectedAsins.has(r.asin)} onChange={()=>{}} />
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-blue-700" onClick={() => openDrawer(r.asin, r.productTitle)}>{r.asin}</td>
                       <td className="py-2.5 px-3 text-gray-800 max-w-xs" title={r.productTitle}>
                         <span className="block truncate max-w-[220px] font-medium">{r.productTitle}</span>
                       </td>
@@ -238,7 +248,7 @@ export default function AdvertisingProducts() {
                       <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
                       <td className="py-2.5 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
                       <td className={`py-2.5 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
-                      <td className="py-2.5 px-3 text-right text-gray-700">{r.roas != null ? r.roas.toFixed(2) + 'x' : '—'}</td>
+                      <td className="py-2.5 px-3 text-right text-gray-700">{r.roas != null ? fmt$(r.roas) : '—'}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{r.orders.toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>

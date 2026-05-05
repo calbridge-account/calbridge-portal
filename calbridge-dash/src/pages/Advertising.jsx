@@ -52,7 +52,7 @@ function fmtNum(n) {
 }
 function fmtX(n) {
   if (n == null || isNaN(n)) return '—';
-  return `${Number(n).toFixed(2)}x`;
+  return fmt$(n);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ export default function Advertising() {
       </div>
 
       {/* Ad type breakdown cards */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {AD_TYPES.map(type => {
           const isSponsoredType = type.key !== 'dsp';
           const muted =
@@ -454,14 +454,14 @@ export default function Advertising() {
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tickFormatter={(v) => v != null ? `${Number(v).toFixed(2)}x` : ''}
+                  tickFormatter={(v) => v != null ? `$${Number(v).toFixed(2)}` : ''}
                   tick={{ fontSize: 11 }}
                 />
                 <Tooltip
                   labelFormatter={(label) => label}
                   formatter={(v, name) => {
                     if (v == null) return ['—', name];
-                    if (name === 'ROAS') return [`${Number(v).toFixed(2)}x`, name];
+                    if (name === 'ROAS') return [`$${Number(v).toFixed(2)}`, name];
                     if (name === 'CPC')  return [`$${Number(v).toFixed(2)}`, name];
                     return [new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v), name];
                   }}

@@ -58,6 +58,7 @@ export default function AdvertisingCampaigns() {
   const [channelFilter, setChannelFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ col: 'spend', dir: 'desc' });
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const { data, isLoading, isError, error } = useAdvertisingCampaigns(range, channelFilter);
   // Trend uses same channel + ad-type filter so chart scope matches table
@@ -213,6 +214,8 @@ export default function AdvertisingCampaigns() {
         currency={currency}
         title={`Campaigns — Spend & Sales Trend${adTypeFilter !== 'All' ? ` (${adTypeFilter})` : ''}`}
         className="mb-4"
+        selectedRows={selectedIds.size > 0 ? filtered.filter(r => selectedIds.has(r.campaign_id)) : []}
+        allRows={filtered}
       />
 
       {/* Summary bar */}
@@ -221,7 +224,7 @@ export default function AdvertisingCampaigns() {
           <span className="text-gray-500">{filtered.length} campaigns</span>
           <span><span className="text-gray-500">Spend</span> <strong className="text-gray-800">{fmt$(totals.spend)}</strong></span>
           <span><span className="text-gray-500">Sales</span> <strong className="text-gray-800">{fmt$(totals.sales)}</strong></span>
-          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? totalRoas.toFixed(2) + 'x' : '—'}</strong></span>
+          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? fmt$(totalRoas) : '—'}</strong></span>
           <span><span className="text-gray-500">ACoS</span> <strong className={acosColor(totalAcos)}>{totalAcos != null ? (totalAcos * 100).toFixed(1) + '%' : '—'}</strong></span>
           <span><span className="text-gray-500">Orders</span> <strong className="text-gray-800">{totals.orders.toLocaleString()}</strong></span>
         </div>
@@ -233,10 +236,19 @@ export default function AdvertisingCampaigns() {
         ) : filtered.length === 0 ? (
           <div className="text-gray-400 text-sm text-center py-8">No campaign data for this period</div>
         ) : (
+          <>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-gray-400">
+              {filtered.length.toLocaleString()} campaigns
+              {selectedIds.size > 0 && <span className="ml-2 text-blue-600 font-medium">{selectedIds.size} selected — chart filtered</span>}
+            </div>
+            {selectedIds.size > 0 && <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-400 hover:text-gray-600 underline">Clear</button>}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
+                  <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e=>{ if(e.target.checked) setSelectedIds(new Set(filtered.map(r=>r.campaign_id))); else setSelectedIds(new Set()); }} checked={selectedIds.size===filtered.length&&filtered.length>0} /></th>
                   <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>
                   <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
                   <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
@@ -253,7 +265,8 @@ export default function AdvertisingCampaigns() {
               </thead>
               <tbody>
                 {filtered.map((r, i) => (
-                  <tr key={r.campaign_id || i} className={`border-b border-gray-50 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                  <tr key={r.campaign_id || i} onClick={() => { setSelectedIds(prev => { const n=new Set(prev); const k=r.campaign_id; n.has(k)?n.delete(k):n.add(k); return n; }); }} className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${selectedIds.has(r.campaign_id) ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : i%2===1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="py-2 px-1" onClick={e=>e.stopPropagation()}><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={selectedIds.has(r.campaign_id)} onChange={()=>{}} /></td>
                     <td className="py-2 px-3 text-gray-800 max-w-xs font-medium" title={r.campaign_name}>
                       <span className="block truncate max-w-[320px]">{r.campaign_name}</span>
                     </td>
@@ -263,7 +276,7 @@ export default function AdvertisingCampaigns() {
                     <td className={`py-2 px-3 text-xs font-medium ${STATUS_COLORS[r.status] || 'text-gray-500'}`}>{r.status}</td>
                     <td className="py-2 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
                     <td className="py-2 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
-                    <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? r.roas.toFixed(2) + 'x' : '—'}</td>
+                    <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? fmt$(r.roas) : '—'}</td>
                     <td className={`py-2 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.orders.toLocaleString()}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
@@ -275,7 +288,8 @@ export default function AdvertisingCampaigns() {
               </tbody>
             </table>
           </div>
-        )}
+          </>)}
+      
       </div>
     </div>
   );

@@ -46,12 +46,14 @@ export default function AdvertisingKeywords() {
   const { range } = useDateRange();
   const { activeMarketplace } = useMarketplace() ?? { activeMarketplace: 'US' };
   const currency = activeMarketplace === 'CA' ? 'CAD' : 'USD';
-  const fmt$ = makeFmtCurrency(currency);
+  const fmtC = makeFmtCurrency(currency);
+  const fmt$ = fmtC;
 
   const [searchParams] = useSearchParams();
   const [channel, setChannel] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ col: 'spend', dir: 'desc' });
+  const [selectedKeys, setSelectedKeys] = useState(new Set());
   // Pre-fill matchType from URL param (e.g. when navigating from Targeting page)
   const [matchTypeFilter, setMatchTypeFilter] = useState(() => searchParams.get('matchType') || 'All');
 
@@ -167,6 +169,8 @@ export default function AdvertisingKeywords() {
         currency={currency}
         title={`Keywords — Spend & Sales Trend${matchTypeFilter !== 'All' ? ` (${matchTypeFilter})` : ''}`}
         className="mb-4"
+        selectedRows={selectedKeys.size > 0 ? filtered.filter(r => selectedKeys.has(r.keyword + '|' + r.matchType)) : []}
+        allRows={filtered}
       />
 
       {/* Filters */}
@@ -228,14 +232,21 @@ export default function AdvertisingKeywords() {
           </div>
         ) : (
           <>
-            <div className="text-xs text-gray-400 mb-3">
-              {filtered.length.toLocaleString()} keywords
-              <span className="ml-2 text-gray-300">· Click a row to see campaign breakdown</span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-gray-400">
+                {filtered.length.toLocaleString()} keywords
+                {selectedKeys.size > 0 && <span className="ml-2 text-blue-600 font-medium">{selectedKeys.size} selected — chart filtered</span>}
+                {selectedKeys.size === 0 && <span className="ml-2 text-gray-300">· ☐ Select rows to filter chart</span>}
+              </div>
+              {selectedKeys.size > 0 && (
+                <button onClick={() => setSelectedKeys(new Set())} className="text-xs text-gray-400 hover:text-gray-600 underline">Clear selection</button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">
+                    <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e => { if(e.target.checked) setSelectedKeys(new Set(filtered.map(r=>r.keyword+'|'+r.matchType))); else setSelectedKeys(new Set()); }} checked={selectedKeys.size === filtered.length && filtered.length > 0} /></th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keyword / Target</th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Match</th>
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
@@ -252,13 +263,18 @@ export default function AdvertisingKeywords() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r, i) => (
+                  {filtered.map((r, i) => {
+                    const rowKey = r.keyword + '|' + r.matchType;
+                    const isSelected = selectedKeys.has(rowKey);
+                    return (
                     <tr
                       key={i}
-                      onClick={() => openDrawer(r.keyword, r.matchType, r.adType)}
-                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                      className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
                     >
-                      <td className="py-2 px-3 max-w-xs" title={r.keyword}>
+                      <td className="py-2 px-1" onClick={e => { e.stopPropagation(); setSelectedKeys(prev => { const n = new Set(prev); n.has(rowKey)?n.delete(rowKey):n.add(rowKey); return n; }); }}>
+                        <input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={isSelected} onChange={()=>{}} />
+                      </td>
+                      <td className="py-2 px-3 max-w-xs" title={r.keyword} onClick={() => openDrawer(r.keyword, r.matchType, r.adType)}>
                         <span className="block truncate max-w-[260px] font-medium text-gray-800">{r.keyword}</span>
                       </td>
                       <td className="py-2 px-3">
@@ -275,17 +291,17 @@ export default function AdvertisingKeywords() {
                           {r.campaignCount}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
-                      <td className="py-2 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
+                      <td className="py-2 px-3 text-right font-medium text-gray-900">{fmtC(r.spend)}</td>
+                      <td className="py-2 px-3 text-right text-gray-700">{fmtC(r.sales)}</td>
                       <td className={`py-2 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
-                      <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? r.roas.toFixed(2) + 'x' : '—'}</td>
+                      <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? fmtC(r.roas) : '—'}</td>
                       <td className="py-2 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
                       <td className="py-2 px-3 text-right text-gray-500">{r.orders.toLocaleString()}</td>
                       <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>
                       <td className="py-2 px-3 text-right text-gray-500">{r.ctr != null ? (r.ctr * 100).toFixed(2) + '%' : '—'}</td>
-                      <td className="py-2 px-3 text-right text-gray-500">{r.cpc != null ? fmt$(r.cpc) : '—'}</td>
-                    </tr>
-                  ))}
+                      <td className="py-2 px-3 text-right text-gray-500">{r.cpc != null ? fmtC(r.cpc) : '—'}</td>
+                    </tr>);
+                  })}
                 </tbody>
               </table>
             </div>

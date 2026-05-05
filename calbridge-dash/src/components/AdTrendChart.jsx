@@ -4,13 +4,15 @@
  * Mirrors the overview's chart with Daily/Weekly/Monthly toggle + Export.
  *
  * Props:
- *   trendRows   — raw rows from /advertising/trend (may be uppercase Snowflake cols)
- *   loading     — boolean
- *   channel     — 'all' | 'ads' | 'dsp'  (for colour)
- *   adType      — 'SP' | 'SB' | 'SD' | 'DSP' | null  (for display label)
- *   currency    — 'USD' | 'CAD'
- *   title       — optional override chart heading
- *   className   — optional extra wrapper classes
+ *   trendRows      — raw rows from /advertising/trend (may be uppercase Snowflake cols)
+ *   loading        — boolean
+ *   channel        — 'all' | 'ads' | 'dsp'  (for colour)
+ *   adType         — 'SP' | 'SB' | 'SD' | 'DSP' | null  (for display label)
+ *   currency       — 'USD' | 'CAD'
+ *   title          — optional override chart heading
+ *   className      — optional extra wrapper classes
+ *   selectedRows   — array of row objects with .spend/.sales (subset selected in table)
+ *   allRows        — array of all row objects with .spend/.sales (for proportion calc)
  */
 import { useState, useMemo, useRef } from 'react';
 import {
@@ -81,7 +83,7 @@ function CustomTooltip({ active, payload, label, fmtC }) {
         <div key={p.dataKey} className="flex justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}</span>
           <span className="font-medium text-gray-800">
-            {p.dataKey === 'roas' ? (p.value?.toFixed(2) + 'x') :
+            {p.dataKey === 'roas' ? (p.value != null ? fmtC(p.value) : '—') :
              p.dataKey === 'cpc'  ? fmtC(p.value) :
              p.dataKey === 'acos' ? (p.value != null ? (p.value * 100).toFixed(1) + '%' : '—') :
              fmtC(p.value)}
@@ -93,7 +95,7 @@ function CustomTooltip({ active, payload, label, fmtC }) {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function AdTrendChart({ trendRows, loading, channel = 'all', adType, currency = 'USD', title, className = '' }) {
+export default function AdTrendChart({ trendRows, loading, channel = 'all', adType, currency = 'USD', title, className = '', selectedRows, allRows }) {
   const [granularity, setGranularity] = useState('daily');
   const chartRef = useRef(null);
   const fmtC = makeFmtCurrency(currency);
@@ -123,7 +125,28 @@ export default function AdTrendChart({ trendRows, loading, channel = 'all', adTy
 
   const chartData = useMemo(() => aggregateTrend(dailyData, granularity), [dailyData, granularity]);
 
+  // If rows are selected, scale chart proportionally to their share of total spend
+  const scaledChartData = useMemo(() => {
+    if (!selectedRows || selectedRows.length === 0 || !allRows || allRows.length === 0) return chartData;
+    const allSpend = allRows.reduce((s, r) => s + (r.spend || 0), 0);
+    const selSpend = selectedRows.reduce((s, r) => s + (r.spend || 0), 0);
+    const allSales = allRows.reduce((s, r) => s + (r.sales || 0), 0);
+    const selSales = selectedRows.reduce((s, r) => s + (r.sales || 0), 0);
+    const spendRatio = allSpend > 0 ? selSpend / allSpend : 0;
+    const salesRatio = allSales > 0 ? selSales / allSales : 0;
+    return chartData.map(r => ({
+      ...r,
+      spend: r.spend * spendRatio,
+      sales: r.sales * salesRatio,
+      roas:  (r.spend * spendRatio) > 0 ? (r.sales * salesRatio) / (r.spend * spendRatio) : null,
+      cpc:   r.clicks > 0 ? (r.spend * spendRatio) / r.clicks : null,
+    }));
+  }, [chartData, selectedRows, allRows]);
+
   const displayTitle = title || (adType ? `${adType} — Spend & Sales Trend` : 'Spend & Sales Trend');
+  const selectionNote = selectedRows && selectedRows.length > 0
+    ? ` — ${selectedRows.length} selected`
+    : '';
 
   const exportRows = () => chartData.map(r => ({
     Date:  r.date,
@@ -149,7 +172,14 @@ export default function AdTrendChart({ trendRows, loading, channel = 'all', adTy
   return (
     <div ref={chartRef} className={`bg-white rounded-xl border border-gray-200 p-5 ${className}`}>
       <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
-        <h3 className="text-sm font-semibold text-gray-700">{displayTitle}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-700">{displayTitle}{selectionNote}</h3>
+          {selectedRows && selectedRows.length > 0 && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+              Filtered to selection
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {chartData.length > 0 && (
             <ExportMenu
@@ -175,7 +205,7 @@ export default function AdTrendChart({ trendRows, loading, channel = 'all', adTy
       </div>
       <p className="text-xs text-gray-400 mb-4">Spend · Sales · ROAS · CPC</p>
       <ResponsiveContainer width="100%" height={220}>
-        <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+        <ComposedChart data={scaledChartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis
             dataKey="label"
@@ -197,7 +227,7 @@ export default function AdTrendChart({ trendRows, loading, channel = 'all', adTy
             tick={{ fontSize: 11, fill: '#9ca3af' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={v => v?.toFixed(1) + 'x'}
+            tickFormatter={v => v != null ? `$${Number(v).toFixed(2)}` : ''}
           />
           <Tooltip content={<CustomTooltip fmtC={fmtC} />} />
           <Legend wrapperStyle={{ fontSize: 12 }} />

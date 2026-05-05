@@ -124,6 +124,9 @@ router.get('/advertisers/list', async (req, res) => {
       if (requestedAdvertiserId.includes('__')) {
         const mp = requestedAdvertiserId.split('__')[1];
         if (mp) req.session.activeMarketplace = mp;
+      } else {
+        // Switching to a different client — reset marketplace to US default
+        req.session.activeMarketplace = 'US';
       }
       // Explicitly save the session so the updated advertiserId is persisted before
       // the client reloads the page. Without this, the reload can race ahead of the

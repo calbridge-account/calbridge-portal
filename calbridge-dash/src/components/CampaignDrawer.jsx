@@ -29,7 +29,7 @@ function fmtPct(n) {
 }
 function fmtX(n) {
   if (n == null || isNaN(n)) return '—';
-  return `${Number(n).toFixed(2)}x`;
+  return fmt$(n);
 }
 
 const AD_TYPE_BADGE = {
