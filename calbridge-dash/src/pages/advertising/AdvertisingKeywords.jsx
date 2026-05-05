@@ -7,6 +7,8 @@ import PageHeader from '../../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
 import CampaignDrawer from '../../components/CampaignDrawer';
+import ExportMenu from '../../components/ExportMenu';
+import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -102,6 +104,44 @@ export default function AdvertisingKeywords() {
   const handleSort = col => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }));
   const acosColor = v => v == null ? '' : v > 0.4 ? 'text-red-600' : v < 0.2 ? 'text-green-700' : 'text-gray-900';
 
+  // Export handler
+  const handleExportXlsx = () => exportToXlsx(
+    filtered.map(r => ({
+      Keyword:    r.keyword,
+      'Match Type': r.matchType,
+      'Ad Type':  r.adType,
+      Campaigns:  r.campaignCount,
+      Spend:      r.spend,
+      Sales:      r.sales,
+      ACoS:       r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      ROAS:       r.roas != null ? r.roas.toFixed(2) : '',
+      Clicks:     r.clicks,
+      Orders:     r.orders,
+      Impressions: r.impressions,
+      CTR:        r.ctr != null ? `${(r.ctr * 100).toFixed(2)}%` : '',
+      CPC:        r.cpc != null ? r.cpc.toFixed(2) : '',
+    })),
+    'keywords-performance'
+  );
+  const handleExportCsv = () => exportToCsv(
+    filtered.map(r => ({
+      Keyword:    r.keyword,
+      'Match Type': r.matchType,
+      'Ad Type':  r.adType,
+      Campaigns:  r.campaignCount,
+      Spend:      r.spend,
+      Sales:      r.sales,
+      ACoS:       r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      ROAS:       r.roas != null ? r.roas.toFixed(2) : '',
+      Clicks:     r.clicks,
+      Orders:     r.orders,
+      Impressions: r.impressions,
+      CTR:        r.ctr != null ? `${(r.ctr * 100).toFixed(2)}%` : '',
+      CPC:        r.cpc != null ? r.cpc.toFixed(2) : '',
+    })),
+    'keywords-performance'
+  );
+
   // Build drawer endpoint
   const drawerEndpoint = drawer.keyword
     ? `/advertising/keyword-campaigns?keyword=${encodeURIComponent(drawer.keyword)}${drawer.matchType && drawer.matchType !== '—' ? `&matchType=${encodeURIComponent(drawer.matchType)}` : ''}&range=${range}`
@@ -150,13 +190,18 @@ export default function AdvertisingKeywords() {
           ))}
         </div>
 
-        <input
-          type="text"
-          placeholder="Search keywords…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="ml-auto text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
-        />
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search keywords…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
+          />
+          {!isLoading && filtered.length > 0 && (
+            <ExportMenu onXlsx={handleExportXlsx} onCsv={handleExportCsv} />
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -200,9 +245,6 @@ export default function AdvertisingKeywords() {
                     >
                       <td className="py-2 px-3 max-w-xs" title={r.keyword}>
                         <span className="block truncate max-w-[260px] font-medium text-gray-800">{r.keyword}</span>
-                        {r.campaign !== '—' && (
-                          <span className="block truncate max-w-[260px] text-xs text-gray-400">{r.campaign}</span>
-                        )}
                       </td>
                       <td className="py-2 px-3">
                         <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${MATCH_TYPE_COLORS[r.matchType] || 'bg-gray-100 text-gray-500'}`}>
@@ -211,7 +253,10 @@ export default function AdvertisingKeywords() {
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-500">{r.adType}</td>
                       <td className="py-2 px-3 text-right">
-                        <span className={`inline-flex items-center justify-center min-w-[1.5rem] text-xs font-semibold px-1.5 py-0.5 rounded-full ${r.campaignCount > 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>
+                        <span
+                          className={`inline-flex items-center justify-center min-w-[1.5rem] text-xs font-semibold px-1.5 py-0.5 rounded-full ${r.campaignCount > 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}
+                          title={`Active in ${r.campaignCount} campaign${r.campaignCount !== 1 ? 's' : ''}`}
+                        >
                           {r.campaignCount}
                         </span>
                       </td>

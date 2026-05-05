@@ -6,6 +6,8 @@ import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
 import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
+import ExportMenu from '../../components/ExportMenu';
+import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -69,6 +71,42 @@ export default function AdvertisingTargeting() {
   const rows = [...byType].sort((a, b) => (b.spend || 0) - (a.spend || 0));
   const totalSpend = total.spend || 0;
 
+  // Export handlers
+  const handleExportXlsx = () => exportToXlsx(
+    rows.map(r => ({
+      'Match Type':  r.matchType,
+      'Spend':       r.spend,
+      'Spend %':     totalSpend > 0 ? `${(r.spend / totalSpend * 100).toFixed(1)}%` : '',
+      'Sales':       r.sales,
+      'ACoS':        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      'ROAS':        r.roas != null ? r.roas.toFixed(2) : '',
+      'Orders':      r.orders || 0,
+      'Clicks':      r.clicks || 0,
+      'CTR':         r.ctr  != null ? `${(r.ctr  * 100).toFixed(2)}%` : '',
+      'CVR':         r.cvr  != null ? `${(r.cvr  * 100).toFixed(2)}%` : '',
+      'CPC':         r.cpc  != null ? r.cpc.toFixed(2) : '',
+      'Impressions': r.impressions || 0,
+    })),
+    'targeting-performance'
+  );
+  const handleExportCsv = () => exportToCsv(
+    rows.map(r => ({
+      'Match Type':  r.matchType,
+      'Spend':       r.spend,
+      'Spend %':     totalSpend > 0 ? `${(r.spend / totalSpend * 100).toFixed(1)}%` : '',
+      'Sales':       r.sales,
+      'ACoS':        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      'ROAS':        r.roas != null ? r.roas.toFixed(2) : '',
+      'Orders':      r.orders || 0,
+      'Clicks':      r.clicks || 0,
+      'CTR':         r.ctr  != null ? `${(r.ctr  * 100).toFixed(2)}%` : '',
+      'CVR':         r.cvr  != null ? `${(r.cvr  * 100).toFixed(2)}%` : '',
+      'CPC':         r.cpc  != null ? r.cpc.toFixed(2) : '',
+      'Impressions': r.impressions || 0,
+    })),
+    'targeting-performance'
+  );
+
   return (
     <div>
       <PageHeader title="Targeting" subtitle="SP + SB targeting performance rolled up by match type" />
@@ -98,7 +136,12 @@ export default function AdvertisingTargeting() {
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-700">Performance by Targeting Type</h3>
-          <span className="text-xs text-gray-400">Click a row to see keywords →</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">Click a row to see keywords →</span>
+            {!isLoading && rows.length > 0 && (
+              <ExportMenu onXlsx={handleExportXlsx} onCsv={handleExportCsv} />
+            )}
+          </div>
         </div>
         {isLoading ? (
           <SkeletonTable />

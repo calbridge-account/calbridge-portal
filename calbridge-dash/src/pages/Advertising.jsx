@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -10,6 +10,8 @@ import { useMarketplace } from '../context/MarketplaceContext';
 import PageHeader from '../components/PageHeader';
 import { SkeletonCard, SkeletonChart, SkeletonTable, ErrorState } from '../components/Skeleton';
 import AdvertisingSubNav from './advertising/AdvertisingSubNav';
+import ExportMenu from '../components/ExportMenu';
+import { exportToXlsx, exportToCsv, exportChartToPng } from '../utils/exportUtils';
 
 // ─── Ad type color map ───────────────────────────────────────────────────────
 const AD_TYPES = [
@@ -260,6 +262,7 @@ export default function Advertising() {
 
   const chartData = useMemo(() => aggregateTrend(dailyData, trendGranularity), [dailyData, trendGranularity]);
 
+  const trendChartRef = useRef(null);
   const activeChannelInfo = CHANNELS.find(c => c.key === activeChannel);
 
   const chartTitle = activeChannel === 'all' ? 'All Channels'
@@ -268,6 +271,48 @@ export default function Advertising() {
 
   // ASIN table data — sorted by spend desc
   const tableAsins = (asinData?.asins || []).sort((a, b) => (b.spend || 0) - (a.spend || 0));
+
+  // Export handlers
+  const handleExportAsinXlsx = () => exportToXlsx(
+    tableAsins.map(a => ({
+      ASIN:        a.asin,
+      Product:     a.productTitle || a.product_title || '',
+      Spend:       a.spend || 0,
+      Sales:       a.sales || 0,
+      ACoS:        a.acos != null ? `${(a.acos * 100).toFixed(1)}%` : '',
+      ROAS:        a.roas != null ? Number(a.roas).toFixed(2) : '',
+      Clicks:      a.clicks || 0,
+      Orders:      a.purchases || a.orders || 0,
+    })),
+    'overview-asins'
+  );
+  const handleExportAsinCsv = () => exportToCsv(
+    tableAsins.map(a => ({
+      ASIN:        a.asin,
+      Product:     a.productTitle || a.product_title || '',
+      Spend:       a.spend || 0,
+      Sales:       a.sales || 0,
+      ACoS:        a.acos != null ? `${(a.acos * 100).toFixed(1)}%` : '',
+      ROAS:        a.roas != null ? Number(a.roas).toFixed(2) : '',
+      Clicks:      a.clicks || 0,
+      Orders:      a.purchases || a.orders || 0,
+    })),
+    'overview-asins'
+  );
+  const handleExportTrendXlsx = () => exportToXlsx(
+    chartData.map(r => ({
+      Date:  r.date,
+      Spend: r.spend,
+      Sales: r.sales,
+      ROAS:  r.roas != null ? r.roas.toFixed(2) : '',
+      CPC:   r.cpc  != null ? r.cpc.toFixed(2)  : '',
+      ACoS:  r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+    })),
+    'trend-data'
+  );
+  const handleExportTrendPng = () => {
+    if (trendChartRef.current) exportChartToPng(trendChartRef.current, `trend-${chartTitle.toLowerCase().replace(/ /g, '-')}`);
+  };
 
   // Pie chart data for spend mix — filter by active channel so chart reflects selection
   const pieData = AD_TYPES
@@ -359,11 +404,15 @@ export default function Advertising() {
       {/* Trend + Spend Mix side by side */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
         {/* Trend chart — 2/3 width */}
-        <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
+        <div ref={trendChartRef} className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-1 gap-4">
             <h3 className="text-sm font-semibold text-gray-700">Spend &amp; Sales Trend — {chartTitle}</h3>
+            <div className="flex items-center gap-2 flex-shrink-0">
+            {!trendLoading && chartData.length > 0 && (
+              <ExportMenu onXlsx={handleExportTrendXlsx} onCsv={() => exportToCsv(chartData.map(r => ({ Date: r.date, Spend: r.spend, Sales: r.sales, ROAS: r.roas?.toFixed(2) || '', CPC: r.cpc?.toFixed(2) || '' })), 'trend-data')} onPng={handleExportTrendPng} />
+            )}
             {/* Daily | Weekly | Monthly toggle */}
-            <div className="flex gap-0 border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+            <div className="flex gap-0 border border-gray-200 rounded-lg overflow-hidden">
               {[{ key: 'daily', label: 'Daily' }, { key: 'weekly', label: 'Weekly' }, { key: 'monthly', label: 'Monthly' }].map(g => (
                 <button
                   key={g.key}
@@ -378,6 +427,7 @@ export default function Advertising() {
                 </button>
               ))}
             </div>
+            </div>{/* end flex items-center gap-2 */}
           </div>
           <p className="text-xs text-gray-400 mb-4">Spend · Sales · ROAS · CPC</p>
           {trendLoading ? (

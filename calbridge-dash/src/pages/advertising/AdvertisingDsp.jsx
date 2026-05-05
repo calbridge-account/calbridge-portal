@@ -8,6 +8,8 @@ import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
 import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
+import ExportMenu from '../../components/ExportMenu';
+import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -152,13 +154,45 @@ export default function AdvertisingDsp() {
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-700">DSP Orders &amp; Line Items</h3>
-          <input
-            type="text"
-            placeholder="Search orders…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="text-sm border border-gray-200 rounded px-3 py-1.5 w-56 focus:outline-none focus:ring-1 focus:ring-purple-500"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Search orders…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="text-sm border border-gray-200 rounded px-3 py-1.5 w-56 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
+            {!ordersLoading && orders.length > 0 && (
+              <ExportMenu
+                onXlsx={() => exportToXlsx(orders.map(r => ({
+                  Order:       r.orderName !== '—' ? r.orderName : r.orderId,
+                  Spend:       r.spend,
+                  Sales:       r.sales,
+                  ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+                  Impressions: r.impressions,
+                  Clicks:      r.clicks,
+                  DPV:         r.dpv,
+                  'Add to Cart': r.atc,
+                  'NTB Orders': r.ntbOrders,
+                  'NTB Sales':  r.ntbSales,
+                  Viewability: r.viewability != null ? `${(r.viewability * 100).toFixed(1)}%` : '',
+                })), 'dsp-orders')}
+                onCsv={() => exportToCsv(orders.map(r => ({
+                  Order:       r.orderName !== '—' ? r.orderName : r.orderId,
+                  Spend:       r.spend,
+                  Sales:       r.sales,
+                  ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+                  Impressions: r.impressions,
+                  Clicks:      r.clicks,
+                  DPV:         r.dpv,
+                  'Add to Cart': r.atc,
+                  'NTB Orders': r.ntbOrders,
+                  'NTB Sales':  r.ntbSales,
+                  Viewability: r.viewability != null ? `${(r.viewability * 100).toFixed(1)}%` : '',
+                })), 'dsp-orders')}
+              />
+            )}
+          </div>
         </div>
 
         {ordersLoading ? (

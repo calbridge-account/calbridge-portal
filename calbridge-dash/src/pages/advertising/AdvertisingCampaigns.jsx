@@ -5,6 +5,8 @@ import { useMarketplace } from '../../context/MarketplaceContext';
 import PageHeader from '../../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
+import ExportMenu from '../../components/ExportMenu';
+import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 function makeFmtCurrency(currency = 'USD') {
@@ -88,6 +90,42 @@ export default function AdvertisingCampaigns() {
   const handleSort = (col) => setSort(s => ({ col, dir: s.col === col && s.dir === 'desc' ? 'asc' : 'desc' }));
   const acosColor = v => v == null ? '' : v > 0.4 ? 'text-red-600' : v < 0.2 ? 'text-green-700' : 'text-gray-900';
 
+  // Export handlers
+  const handleExportXlsx = () => exportToXlsx(
+    filtered.map(r => ({
+      Campaign:    r.campaign_name,
+      Type:        r.ad_type,
+      Status:      r.status,
+      Spend:       r.spend,
+      Sales:       r.sales,
+      ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+      ACoS:        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      Orders:      r.orders,
+      Clicks:      r.clicks,
+      Impressions: r.impressions,
+      CTR:         r.ctr  != null ? `${(r.ctr  * 100).toFixed(2)}%` : '',
+      CPC:         r.cpc  != null ? r.cpc.toFixed(2) : '',
+    })),
+    'campaigns-performance'
+  );
+  const handleExportCsv = () => exportToCsv(
+    filtered.map(r => ({
+      Campaign:    r.campaign_name,
+      Type:        r.ad_type,
+      Status:      r.status,
+      Spend:       r.spend,
+      Sales:       r.sales,
+      ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+      ACoS:        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      Orders:      r.orders,
+      Clicks:      r.clicks,
+      Impressions: r.impressions,
+      CTR:         r.ctr  != null ? `${(r.ctr  * 100).toFixed(2)}%` : '',
+      CPC:         r.cpc  != null ? r.cpc.toFixed(2) : '',
+    })),
+    'campaigns-performance'
+  );
+
   // Aggregate totals
   const totals = filtered.reduce((acc, r) => {
     acc.spend += r.spend;
@@ -147,14 +185,19 @@ export default function AdvertisingCampaigns() {
           ))}
         </div>
 
-        {/* Search */}
-        <input
-          type="text"
-          placeholder="Search campaigns…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="ml-auto text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
-        />
+        {/* Search + Export */}
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search campaigns…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
+          />
+          {!isLoading && filtered.length > 0 && (
+            <ExportMenu onXlsx={handleExportXlsx} onCsv={handleExportCsv} />
+          )}
+        </div>
       </div>
 
       {/* Summary bar */}

@@ -6,6 +6,8 @@ import PageHeader from '../../components/PageHeader';
 import { SkeletonTable, ErrorState } from '../../components/Skeleton';
 import AdvertisingSubNav from './AdvertisingSubNav';
 import CampaignDrawer from '../../components/CampaignDrawer';
+import ExportMenu from '../../components/ExportMenu';
+import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -89,6 +91,42 @@ export default function AdvertisingProducts() {
     ? `/advertising/product-campaigns?asin=${encodeURIComponent(drawer.asin)}&range=${range}`
     : null;
 
+  // Export handlers
+  const handleExportXlsx = () => exportToXlsx(
+    filtered.map(r => ({
+      ASIN:        r.asin,
+      Product:     r.productTitle,
+      Campaigns:   r.campaignCount,
+      Spend:       r.spend,
+      Sales:       r.sales,
+      ACoS:        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+      Clicks:      r.clicks,
+      Orders:      r.orders,
+      Impressions: r.impressions,
+      CTR:         r.ctr != null ? `${(r.ctr * 100).toFixed(2)}%` : '',
+      CPC:         r.cpc != null ? r.cpc.toFixed(2) : '',
+    })),
+    'products-performance'
+  );
+  const handleExportCsv = () => exportToCsv(
+    filtered.map(r => ({
+      ASIN:        r.asin,
+      Product:     r.productTitle,
+      Campaigns:   r.campaignCount,
+      Spend:       r.spend,
+      Sales:       r.sales,
+      ACoS:        r.acos != null ? `${(r.acos * 100).toFixed(1)}%` : '',
+      ROAS:        r.roas != null ? r.roas.toFixed(2) : '',
+      Clicks:      r.clicks,
+      Orders:      r.orders,
+      Impressions: r.impressions,
+      CTR:         r.ctr != null ? `${(r.ctr * 100).toFixed(2)}%` : '',
+      CPC:         r.cpc != null ? r.cpc.toFixed(2) : '',
+    })),
+    'products-performance'
+  );
+
   return (
     <div>
       <PageHeader title="Products" subtitle="ASIN-level advertising performance" />
@@ -114,13 +152,18 @@ export default function AdvertisingProducts() {
           ))}
         </div>
 
-        <input
-          type="text"
-          placeholder="Search ASIN or title…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="ml-auto text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
-        />
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search ASIN or title…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-sm border border-gray-200 rounded px-3 py-1.5 w-64 focus:outline-none focus:ring-1 focus:ring-green-600"
+          />
+          {!isLoading && filtered.length > 0 && (
+            <ExportMenu onXlsx={handleExportXlsx} onCsv={handleExportCsv} />
+          )}
+        </div>
       </div>
 
       {/* Summary bar */}

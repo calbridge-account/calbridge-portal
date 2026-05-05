@@ -1284,6 +1284,7 @@ router.get('/product-campaigns', requireAuth, async (req, res, next) => {
       campaignStatus: r.CAMPAIGN_STATUS  || '—',
       campaignBudget: r.CAMPAIGN_BUDGET  != null ? Number(r.CAMPAIGN_BUDGET) : null,
       adGroupName:    r.AD_GROUP_NAME    || '—',
+      adType:         'SP',
       impressions:    Number(r.IMPRESSIONS || 0),
       clicks:         Number(r.CLICKS     || 0),
       spend:          Number(r.SPEND      || 0),
