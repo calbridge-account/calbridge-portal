@@ -69,7 +69,9 @@ function parseDateRange(req) {
   const range = req.query.range || 'mtd';
   // Amazon Vendor data is keyed to Pacific time
   const pacificDateStr = (d) => d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-  const todayStr = pacificDateStr(new Date());
+  const todayDate = new Date();
+  const todayStr = pacificDateStr(todayDate);
+  const today = todayDate.getTime();
   const [ty, tm, td] = todayStr.split('-').map(Number);
 
   if (range === 'mtd') {
