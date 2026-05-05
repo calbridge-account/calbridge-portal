@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useAdvertiser } from '../context/AdvertiserContext';
 import { useMarketplace } from '../context/MarketplaceContext';
 import DateRangePicker from './DateRangePicker';
 import { useDateRange } from '../context/DateRangeContext';
@@ -200,6 +201,23 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
 
   const userIsAgency = (user?.accountType === 'agency' || user?.account_type === 'agency') && !user?.isBrandSession;
   const activeNav = userIsAgency ? AGENCY_NAV : NAV;
+  const advertiserCtx = useAdvertiser();
+  const isBrandSession = !!user?.isBrandSession;
+  // Determine sidebar badge label and display name
+  // Agency home view: label='Agency', name=companyName
+  // Agency in brand session: label='Brand', name=current brand advertiser name
+  // Regular brand: label='Client', name=companyName
+  const isAgencyAccount = user?.accountType === 'agency' || user?.account_type === 'agency';
+  const badgeLabel = isAgencyAccount && !isBrandSession ? 'Agency'
+    : isBrandSession ? 'Brand'
+    : 'Client';
+  const badgeColor = isAgencyAccount && !isBrandSession ? 'bg-indigo-600'
+    : isBrandSession ? 'bg-amber-600'
+    : 'bg-green-700';
+  // For agency in brand session, show the current brand name from advertiser context
+  const currentBrandName = isBrandSession
+    ? (advertiserCtx?.current?.advertiserName || clientName)
+    : clientName;
 
   return (
     <aside
@@ -245,16 +263,24 @@ function Sidebar({ collapsed, onToggle, hasRole, user, navConfig }) {
         )}
       </div>
 
-      {/* ── Client badge ── */}
+      {/* ── Account badge ── */}
       {!collapsed && (
-        <div className="px-3 py-3 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+        <div className={`px-3 py-3 border-b flex-shrink-0 ${
+          isAgencyAccount && !isBrandSession ? 'bg-indigo-50 border-indigo-100' :
+          isBrandSession ? 'bg-amber-50 border-amber-100' :
+          'bg-gray-50 border-gray-200'
+        }`}>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-green-700 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-white leading-none">{initials}</span>
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${badgeColor}`}>
+              <span className="text-xs font-bold text-white leading-none">{getInitials(currentBrandName)}</span>
             </div>
             <div className="min-w-0">
-              <div className="text-xs text-gray-400 leading-tight">Client</div>
-              <div className="text-sm font-medium text-gray-700 truncate leading-tight">{clientName}</div>
+              <div className={`text-xs leading-tight font-medium ${
+                isAgencyAccount && !isBrandSession ? 'text-indigo-400' :
+                isBrandSession ? 'text-amber-500' :
+                'text-gray-400'
+              }`}>{badgeLabel}</div>
+              <div className="text-sm font-medium text-gray-700 truncate leading-tight">{currentBrandName}</div>
             </div>
           </div>
         </div>
