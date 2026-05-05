@@ -4,7 +4,7 @@ import { useExpansionCandidates, useHarvestTerms, useMarketplace } from '../../h
 import { useDateRange } from '../../context/DateRangeContext';
 import PageHeader from '../../components/PageHeader';
 import { SkeletonCard, SkeletonTable, ErrorState } from '../../components/Skeleton';
-import AdvertisingSubNav from './AdvertisingSubNav';
+
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx } from '../../utils/exportUtils';
 
@@ -295,7 +295,7 @@ export default function AdvertisingExpansion() {
 
   return (
     <div className="px-4 sm:px-6 pb-16 max-w-screen-xl mx-auto">
-      <AdvertisingSubNav />
+
 
       <PageHeader
         title="Advertising Expansion 🌱"
