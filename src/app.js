@@ -161,8 +161,8 @@ app.use((req, res, next) => {
   }
 
   // SP-API OAuth relay: teamcalbridge.com/amazon/callback/* → app.calbridge.ai/amazon/callback/*
-  // Amazon Developer Console has teamcalbridge.com registered; calbridge.ai is pending approval.
-  // This relay passes all query params through so the real handler on calbridge.ai processes them.
+  // app.calbridge.ai approved as redirect URI 2026-05-05. Relay kept for any old bookmarks/links.
+  // SPAPI_REDIRECT_BASE now points to app.calbridge.ai directly.
   if ((host === 'teamcalbridge.com' || host === 'www.teamcalbridge.com') && req.path.startsWith('/amazon/callback/')) {
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     return res.redirect(302, `https://app.calbridge.ai${req.path}${qs}`);
