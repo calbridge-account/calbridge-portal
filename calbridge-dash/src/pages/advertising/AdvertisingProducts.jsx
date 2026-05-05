@@ -9,6 +9,7 @@ import CampaignDrawer from '../../components/CampaignDrawer';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 import AdTrendChart from '../../components/AdTrendChart';
+import { ResizableTh, useTableResize } from '../../components/ResizableTable';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -52,6 +53,7 @@ export default function AdvertisingProducts() {
 
   const { data, isLoading, isError, error } = useAsinPerformance(range, channel);
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, channel);
+  const { colWidths, startResize, resetWidth } = useTableResize({ product: 240, asin: 120 });
 
   const asins = (data?.asins || []).map(a => ({
     asin:          a.asin         || a.ASIN         || '—',
@@ -213,8 +215,8 @@ export default function AdvertisingProducts() {
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e => { if(e.target.checked) setSelectedAsins(new Set(filtered.map(r=>r.asin))); else setSelectedAsins(new Set()); }} checked={selectedAsins.size===filtered.length&&filtered.length>0} /></th>
-                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</th>
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                <ResizableTh col="asin" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">ASIN</ResizableTh>
+                    <ResizableTh col="product" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</ResizableTh>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaigns</th>
                     <Th col="spend"       label="Spend"  right sort={sort} onSort={handleSort} />
                     <Th col="sales"       label="Sales"  right sort={sort} onSort={handleSort} />
@@ -236,9 +238,9 @@ export default function AdvertisingProducts() {
                       <td className="py-2.5 px-1" onClick={e => { e.stopPropagation(); setSelectedAsins(prev => { const n=new Set(prev); n.has(r.asin)?n.delete(r.asin):n.add(r.asin); return n; }); }}>
                         <input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={selectedAsins.has(r.asin)} onChange={()=>{}} />
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs text-blue-700" onClick={() => openDrawer(r.asin, r.productTitle)}>{r.asin}</td>
-                      <td className="py-2.5 px-3 text-gray-800 max-w-xs" title={r.productTitle}>
-                        <span className="block truncate max-w-[220px] font-medium">{r.productTitle}</span>
+                      <td className="py-2.5 px-3 font-mono text-xs text-blue-700 overflow-hidden" style={{ maxWidth: colWidths.asin ? colWidths.asin + 'px' : '120px' }} onClick={() => openDrawer(r.asin, r.productTitle)}><span className="block truncate">{r.asin}</span></td>
+                      <td className="py-2.5 px-3 text-gray-800 overflow-hidden" style={{ maxWidth: colWidths.product ? colWidths.product + 'px' : '240px' }} title={r.productTitle}>
+                        <span className="block truncate font-medium">{r.productTitle}</span>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <span className={`inline-flex items-center justify-center min-w-[1.5rem] text-xs font-semibold px-1.5 py-0.5 rounded-full ${r.campaignCount > 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>

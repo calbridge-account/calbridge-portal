@@ -27,6 +27,9 @@ function fmtPct(n) {
   if (n == null || isNaN(n)) return '—';
   return `${(Number(n) * 100).toFixed(1)}%`;
 }
+// fmt$ — default USD currency formatter (2dp)
+const fmt$ = makeFmtCurrency('USD');
+
 function fmtX(n) {
   if (n == null || isNaN(n)) return '—';
   return fmt$(n);

@@ -25,9 +25,11 @@ function fmtPct(n) {
   if (n == null || isNaN(n)) return '—';
   return `${(Number(n) * 100).toFixed(1)}%`;
 }
-function fmtX(n) {
+// fmtX is called with the per-component fmt$ passed as arg
+function fmtX(n, fmtFn) {
   if (n == null || isNaN(n)) return '—';
-  return fmt$(n);
+  const _default = (v) => `$${Number(v).toFixed(2)}`;
+  return (fmtFn || _default)(n);
 }
 
 const MATCH_TYPE_COLORS = {
@@ -138,7 +140,7 @@ export default function AdvertisingTargeting() {
             <MetricTile label="Total Spend"    value={fmt$(total.spend)}   />
             <MetricTile label="Total Sales"    value={fmt$(total.sales)}   />
             <MetricTile label="Blended ACoS"   value={fmtPct(total.acos)}  />
-            <MetricTile label="Blended ROAS"   value={fmtX(total.roas)}    />
+            <MetricTile label="Blended ROAS"   value={fmtX(total.roas, fmt$)}    />
             <MetricTile label="Total Orders"   value={fmtNum(total.orders)} />
             <MetricTile label="Total Clicks"   value={fmtNum(total.clicks)} sub={total.ctr != null ? fmtPct(total.ctr) + ' CTR' : null} />
           </>
@@ -198,7 +200,7 @@ export default function AdvertisingTargeting() {
                       <td className="py-3 px-3 text-right text-gray-500">{spendPct}%</td>
                       <td className="py-3 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
                       <td className={`py-3 px-3 text-right font-medium ${acosColor(r.acos)}`}>{fmtPct(r.acos)}</td>
-                      <td className="py-3 px-3 text-right text-gray-700">{fmtX(r.roas)}</td>
+                      <td className="py-3 px-3 text-right text-gray-700">{fmtX(r.roas, fmt$)}</td>
                       <td className="py-3 px-3 text-right text-gray-500">{(r.orders || 0).toLocaleString()}</td>
                       <td className="py-3 px-3 text-right text-gray-500">{(r.clicks || 0).toLocaleString()}</td>
                       <td className="py-3 px-3 text-right text-gray-500">{fmtPct(r.ctr)}</td>
@@ -216,7 +218,7 @@ export default function AdvertisingTargeting() {
                   <td className="py-3 px-3 text-right text-gray-500">100%</td>
                   <td className="py-3 px-3 text-right text-gray-700">{fmt$(total.sales)}</td>
                   <td className={`py-3 px-3 text-right font-semibold ${acosColor(total.acos)}`}>{fmtPct(total.acos)}</td>
-                  <td className="py-3 px-3 text-right text-gray-700">{fmtX(total.roas)}</td>
+                  <td className="py-3 px-3 text-right text-gray-700">{fmtX(total.roas, fmt$)}</td>
                   <td className="py-3 px-3 text-right text-gray-500">{(total.orders || 0).toLocaleString()}</td>
                   <td className="py-3 px-3 text-right text-gray-500">{(total.clicks || 0).toLocaleString()}</td>
                   <td className="py-3 px-3 text-right text-gray-500">{fmtPct(total.ctr)}</td>

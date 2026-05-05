@@ -8,6 +8,7 @@ import AdvertisingSubNav from './AdvertisingSubNav';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 import AdTrendChart from '../../components/AdTrendChart';
+import { ResizableTh, useTableResize } from '../../components/ResizableTable';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 function makeFmtCurrency(currency = 'USD') {
@@ -64,6 +65,7 @@ export default function AdvertisingCampaigns() {
   // Trend uses same channel + ad-type filter so chart scope matches table
   const adTypeParam = adTypeFilter !== 'All' ? adTypeFilter : undefined;
   const { data: trendRows, isLoading: trendLoading } = useAdvertisingTrend(range, channelFilter, adTypeParam);
+  const { colWidths, startResize, resetWidth } = useTableResize({ campaign: 280, type: 60, status: 80 });
 
   const normalize = r => ({
     campaign_id:   r.CAMPAIGN_ID   || r.campaign_id,
@@ -248,10 +250,10 @@ export default function AdvertisingCampaigns() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e=>{ if(e.target.checked) setSelectedIds(new Set(filtered.map(r=>r.campaign_id))); else setSelectedIds(new Set()); }} checked={selectedIds.size===filtered.length&&filtered.length>0} /></th>
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="py-2 px-1 w-8 flex-shrink-0"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e=>{ if(e.target.checked) setSelectedIds(new Set(filtered.map(r=>r.campaign_id))); else setSelectedIds(new Set()); }} checked={selectedIds.size===filtered.length&&filtered.length>0} /></th>
+                  <ResizableTh col="campaign" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</ResizableTh>
+                  <ResizableTh col="type" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</ResizableTh>
+                  <ResizableTh col="status" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</ResizableTh>
                   <Th col="spend"       label="Spend"    right sort={sort} onSort={handleSort} />
                   <Th col="sales"       label="Sales"    right sort={sort} onSort={handleSort} />
                   <Th col="roas"        label="ROAS"     right sort={sort} onSort={handleSort} />
@@ -267,8 +269,8 @@ export default function AdvertisingCampaigns() {
                 {filtered.map((r, i) => (
                   <tr key={r.campaign_id || i} onClick={() => { setSelectedIds(prev => { const n=new Set(prev); const k=r.campaign_id; n.has(k)?n.delete(k):n.add(k); return n; }); }} className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${selectedIds.has(r.campaign_id) ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : i%2===1 ? 'bg-gray-50/40' : ''}`}>
                     <td className="py-2 px-1" onClick={e=>e.stopPropagation()}><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={selectedIds.has(r.campaign_id)} onChange={()=>{}} /></td>
-                    <td className="py-2 px-3 text-gray-800 max-w-xs font-medium" title={r.campaign_name}>
-                      <span className="block truncate max-w-[320px]">{r.campaign_name}</span>
+                    <td className="py-2 px-3 text-gray-800 font-medium overflow-hidden" style={{ maxWidth: colWidths.campaign ? colWidths.campaign + 'px' : '280px' }} title={r.campaign_name}>
+                      <span className="block truncate">{r.campaign_name}</span>
                     </td>
                     <td className="py-2 px-3">
                       <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${AD_TYPE_COLORS[r.ad_type] || 'bg-gray-100 text-gray-600'}`}>{r.ad_type}</span>

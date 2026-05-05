@@ -10,6 +10,7 @@ import CampaignDrawer from '../../components/CampaignDrawer';
 import ExportMenu from '../../components/ExportMenu';
 import { exportToXlsx, exportToCsv } from '../../utils/exportUtils';
 import AdTrendChart from '../../components/AdTrendChart';
+import { ResizableTh, useTableResize } from '../../components/ResizableTable';
 
 function makeFmtCurrency(currency = 'USD') {
   const locale = currency === 'CAD' ? 'en-CA' : 'en-US';
@@ -71,6 +72,7 @@ export default function AdvertisingKeywords() {
     setDrawer({ open: true, keyword, matchType, adType });
   }, []);
 
+  const { colWidths, startResize, resetWidth } = useTableResize({ keyword: 260, match: 70, adtype: 50 });
   const { data, isLoading, isError, error } = useKeywordTargeting(range, channel);
   // Trend: filter to same channel; if matchType is known it maps to SP/SB adType
   const trendAdType = channel === 'ads' ? undefined : undefined; // channel filter sufficient
@@ -247,9 +249,9 @@ export default function AdvertisingKeywords() {
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="py-2 px-1 w-8"><input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" onChange={e => { if(e.target.checked) setSelectedKeys(new Set(filtered.map(r=>r.keyword+'|'+r.matchType))); else setSelectedKeys(new Set()); }} checked={selectedKeys.size === filtered.length && filtered.length > 0} /></th>
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keyword / Target</th>
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Match</th>
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                    <ResizableTh col="keyword" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keyword / Target</ResizableTh>
+                    <ResizableTh col="match" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Match</ResizableTh>
+                    <ResizableTh col="adtype" colWidths={colWidths} startResize={startResize} resetWidth={resetWidth} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</ResizableTh>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaigns</th>
                     <Th col="spend"       label="Spend"  right sort={sort} onSort={handleSort} />
                     <Th col="sales"       label="Sales"  right sort={sort} onSort={handleSort} />
@@ -274,8 +276,8 @@ export default function AdvertisingKeywords() {
                       <td className="py-2 px-1" onClick={e => { e.stopPropagation(); setSelectedKeys(prev => { const n = new Set(prev); n.has(rowKey)?n.delete(rowKey):n.add(rowKey); return n; }); }}>
                         <input type="checkbox" className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" checked={isSelected} onChange={()=>{}} />
                       </td>
-                      <td className="py-2 px-3 max-w-xs" title={r.keyword} onClick={() => openDrawer(r.keyword, r.matchType, r.adType)}>
-                        <span className="block truncate max-w-[260px] font-medium text-gray-800">{r.keyword}</span>
+                      <td className="py-2 px-3 overflow-hidden" style={{ maxWidth: colWidths.keyword ? colWidths.keyword + 'px' : '260px' }} title={r.keyword} onClick={() => openDrawer(r.keyword, r.matchType, r.adType)}>
+                        <span className="block truncate font-medium text-gray-800">{r.keyword}</span>
                       </td>
                       <td className="py-2 px-3">
                         <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${MATCH_TYPE_COLORS[r.matchType] || 'bg-gray-100 text-gray-500'}`}>

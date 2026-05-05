@@ -50,9 +50,10 @@ function fmtNum(n) {
   if (n == null || isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(n);
 }
-function fmtX(n) {
+const _fmtUSD = makeFmtCurrency('USD');
+function fmtX(n, fmtFn) {
   if (n == null || isNaN(n)) return '—';
-  return fmt$(n);
+  return (fmtFn || _fmtUSD)(n);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ function AdTypeCard({ type, metrics, muted, loading, fmtC = fmtCurrency }) {
 
   const spend = muted ? '—' : fmtC(metrics?.spend);
   const sales = muted ? '—' : fmtC(metrics?.sales);
-  const roas  = muted ? '—' : fmtX(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null));
+  const roas  = muted ? '—' : fmtX(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null), fmtC);
   const acos  = muted ? '—' : (type.key === 'dsp' ? null : fmtPct(metrics?.acos));
 
   if (loading) return <SkeletonCard />;
