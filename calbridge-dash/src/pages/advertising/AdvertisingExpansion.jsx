@@ -162,7 +162,7 @@ export default function AdvertisingExpansion() {
   const fmtC = makeFmtCurrency(currency);
 
   // State
-  const [thresholds, setThresholds] = useState({ minDays: 14, minSpend: 20, minOrders: 2, minClicks: 5 });
+  const [thresholds, setThresholds] = useState({ minDays: 14, minSpend: 20, minOrders: 2, minClicks: 3 });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState(null);
   const [termFilter, setTermFilter] = useState('all');

@@ -1549,8 +1549,8 @@ router.get('/harvest-terms', requireAuth, async (req, res, next) => {
     const clientId  = await resolveClientId(req);
     const asin      = (req.query.asin       || '').trim().toUpperCase();
     const campaignId = (req.query.campaignId || '').trim();
-    const minClicks = Math.max(0, Number(req.query.minClicks)  || 5);
-    const minOrd    = Math.max(0, Number(req.query.minOrders)  || 1);
+    const minClicks = Math.max(0, Number(req.query.minClicks)  || 3);
+    const minOrd    = Math.max(0, Number(req.query.minOrders)  || 0);
     const { days, startDate, endDate } = parseRange(req);
 
     if (!asin) return res.status(400).json({ error: 'asin required' });
@@ -1565,24 +1565,24 @@ router.get('/harvest-terms', requireAuth, async (req, res, next) => {
       competitorSignals = sigRows.map(r => r.MATCH_TERM || r.match_term).filter(Boolean);
     } catch(e) { /* table may not exist */ }
 
-    // Fetch search terms
+    // Fetch search terms — column is SEARCH_TERM (not query), purchases/sales use underscore format
     const termRows = await query(`
       SELECT
-        st.query                                                              AS search_term,
+        st.search_term,
         SUM(st.clicks)                                                        AS clicks,
         SUM(st.impressions)                                                   AS impressions,
         SUM(st.cost)                                                          AS spend,
         SUM(st.purchases_30_d)                                                AS orders,
         SUM(st.sales_30_d)                                                    AS sales,
-        CASE WHEN SUM(st.sales_30_d)>0 THEN SUM(st.cost)/SUM(st.sales_30_d) ELSE NULL END AS acos,
-        CASE WHEN SUM(st.clicks)>0     THEN SUM(st.cost)/SUM(st.clicks)     ELSE NULL END AS cpc,
+        CASE WHEN SUM(st.sales_30_d)>0  THEN SUM(st.cost)/SUM(st.sales_30_d)    ELSE NULL END AS acos,
+        CASE WHEN SUM(st.clicks)>0      THEN SUM(st.cost)/SUM(st.clicks)        ELSE NULL END AS cpc,
         CASE WHEN SUM(st.impressions)>0 THEN SUM(st.clicks)/SUM(st.impressions) ELSE NULL END AS ctr
       FROM sp_search_term_report st
       WHERE st.client_id = ?
         AND st.campaign_id = ?
-        AND st.query IS NOT NULL AND st.query != ''
+        AND st.search_term IS NOT NULL AND st.search_term != ''
         ${dateFilter('st.date', days, startDate, endDate)}
-      GROUP BY st.query
+      GROUP BY st.search_term
       HAVING SUM(st.clicks) >= ? AND SUM(st.purchases_30_d) >= ?
       ORDER BY SUM(st.purchases_30_d) DESC, SUM(st.cost) DESC
       LIMIT 200
