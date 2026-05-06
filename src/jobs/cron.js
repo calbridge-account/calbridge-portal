@@ -498,7 +498,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'flush_job_runs',
-    expr:  SCHEDULE_CRONS['every5min'],  // flush buffered JOB_RUNS to Snowflake
+    expr:  '*/15 * * * *',  // reduced from every5min — 15min flush is fine, saves ~200 Snowflake writes/day
   },
   {
     jobId: 'poll_report_status',
@@ -506,7 +506,7 @@ const CRON_SCHEDULE = [
   },
   {
     jobId: 'retry_transient_failures',
-    expr:  SCHEDULE_CRONS['every5min'],
+    expr:  '*/30 * * * *',  // reduced from every5min — saves ~400 Snowflake queries/day
   },
   {
     jobId: 'portal_uptime_monitor',
