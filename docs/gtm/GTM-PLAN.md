@@ -1,191 +1,219 @@
-# Calbridge GTM Plan — Maximum Signups
-_Created: 2026-04-21_
-
-## The Opportunity
-
-The incumbent tools are handing us a gift:
-
-- **Perpetua** — Trustpilot reviews from April 2026: "six-figure loss, no refund, locked into annual contracts, sent to collections." Users saying competitor tools are "40% cheaper and more effective."
-- **Teikametrics** — Keeps charging after cancellation. "Billing traps." "Support is entirely bots. No humans. No phone number." Ad spend doubled with no improvement.
-- **Pacvue / Skai** — Enterprise-only pricing ($2k+/mo), not accessible to mid-market brands or agencies.
-- **Helium10** — Research tool, not an analytics/decisions platform.
-
-The market gap is real: **no affordable, transparent, white-label multi-client portal**. Agencies are duct-taping Sellerboard + Google Sheets. That's our lane.
+# Calbridge GTM Plan — Refreshed
+_Updated: 2026-05-07 | Previous version: Apr 21_
 
 ---
 
-## Positioning
+## Status Audit vs April 21 Plan
 
-**Tagline options:**
-- "Amazon analytics that actually takes action"
-- "The tool agencies build when they're tired of duct-taping Sellerboard"
-- "No black boxes. No contracts. No billing traps."
-
-**Core differentiators to lead with:**
-1. AI that writes back to Amazon — not just reports, actual bid adjustments
-2. White-label multi-client portal (agencies love this)
-3. Month-to-month — no annual lock-in, no surprise charges
-4. Built by operators ($500k/mo real ad spend), not VC-funded SaaS
-5. Contribution margin at the campaign level — not just ACoS
-
----
-
-## Channel Playbook
-
-### 🔴 Priority 1: Competitor Disgruntled Users (this week)
-
-**Where to find them:**
-- Trustpilot reviews for Perpetua, Teikametrics, Pacvue (sorted by 1-3 stars)
-- Reddit: r/AmazonSeller, r/PPC, r/amazonfba — search "perpetua" OR "teikametrics" + "alternative"
-- My Amazon Guy Skool community — post and monitor
-- Seller Sessions Discord
-- EcomCrew community forums
-- LinkedIn: search "Perpetua" OR "Teikametrics" in posts, filter to last 90 days, find complaints
-
-**Outreach message (DM/reply template):**
-> "Saw your post about [Perpetua/Teikametrics]. We built Calbridge after managing $500k/mo in Amazon ad spend ourselves — same frustrations. No contracts, no billing surprises, AI that actually writes back to Amazon. Free tier to try. Happy to give you a live walkthrough if you're still looking. — Abe @ Calbridge"
-
-**Volume target:** 20-30 personal outreach DMs this week.
+| Item | Apr 21 Status | May 7 Status |
+|------|---------------|--------------|
+| Community drops posted | ❌ Abe action | ❓ Confirm with Abe |
+| Competitor DM outreach (20-30) | ❌ Abe action | ❓ Confirm with Abe |
+| LinkedIn posts (3/week) | ❌ Abe action | ❓ Confirm with Abe |
+| Stripe Agency price ID | ❌ Abe action | ✅ STRIPE_PRICE_AGENCY in .env |
+| Smart campaign creation (Pro) | 🔶 In progress | ✅ Shipped (SP/SB/SD wizard) |
+| Portfolio budget management | ❌ Not started | ❌ Still needed |
+| Budget automation + smart alerts | ❌ Not started | 🔶 Route exists, needs UI |
+| Dayparting | ❌ Not started | ✅ Routes built (needs Marketing Stream for AI) |
+| SmartScout API integration | ❌ Waiting on key | ❓ Key in .env? |
+| White-label agency portal | 🔶 Foundation | ✅ Full agency portal shipped |
+| Case study (CyberPower) | ❌ Ask Colin/Justina/Tim | ❓ Confirm with Abe |
+| Blog comparison pages | 🔶 In progress | ❌ /blog/ returns 404 — needs deploy |
+| teamcalbridge.com rebuild | ❌ DNS pending | ✅ Live (nginx serving, Calbridge title) |
+| Inbound email (contact@calbridge.ai) | ❌ MX record needed | ❓ Unknown — check DNS |
+| ROAS 2dp display | ❌ Bug | ✅ Fixed May 7 |
 
 ---
 
-### 🟡 Priority 2: LinkedIn Personal Brand (this week)
+## 🔴 Do This Week — Revenue-Generating (Abe's Actions)
 
-**Post 1 (Monday):** Founder story
-> "I manage $500k/month in Amazon ad spend. I couldn't find a tool that did what I needed, so I built one. [brief story]. Calbridge is now open for signups — free tier, no credit card. [link]"
+These cannot be delegated. They require your identity and credibility.
 
-**Post 2 (Wednesday):** Competitor pain angle
-> "Perpetua just got a 1-star review: 'six-figure loss, locked into annual contract, sent to collections.' This is why we made Calbridge month-to-month. [link to signup]"
+### 1. Community Drops
+Post in this order (each is 5 minutes):
+- **Seller Sessions Discord** — `#tools` channel — most technical crowd
+- **My Amazon Guy Skool** — biggest reach among active sellers
+- **r/AmazonSeller** — founder framing, not a pitch ("I built this after managing $500k/mo")
+- **EcomCrew Community**
+- **r/amazonfba**
+- **Helium 10 Facebook Group**
 
-**Post 3 (Friday):** Feature proof
-> "Our AI analyzed 257 campaigns this week and automatically adjusted bids. Here's what it found. [screenshot of recommendations page]" — with CTA to signup
+> Need fresh drafts? Say the word — I'll write new ones tuned to today's context (you now have agency features, Report Builder, campaign creation wizard — much stronger than April).
 
-**Target:** 3 posts/week for 4 weeks. Engage every comment personally.
+### 2. Competitor Outreach — 20+ DMs this week
+Mine 1-3 star reviews from:
+- **Perpetua** → https://www.trustpilot.com/review/perpetua.io (April 2026: 6-figure losses, annual contracts, sent to collections)
+- **Teikametrics** → https://www.trustpilot.com/review/www.teikametrics.com (charges after cancellation, bot support)
+- **Reddit** → r/AmazonSeller + r/amazonfba search "perpetua" OR "teikametrics" + "alternative"
 
----
+DM template:
+> "Saw your post about [Perpetua/Teikametrics]. We built Calbridge after managing $500k/mo in Amazon ad spend ourselves — same exact frustrations. Month-to-month, no contracts, AI that actually adjusts bids. Free tier to try. Happy to do a 20-min live walkthrough if you're looking. — Abe @ Calbridge"
 
-### 🟡 Priority 3: Community Posts (this week)
+**Target:** 20-30 DMs → expect 3-5 replies → 1-2 demos → 1 close.
 
-Post in:
-- r/AmazonSeller — "I built a free Amazon ads analytics tool after managing $500k/mo"
-- r/amazonfba — same angle
-- My Amazon Guy Skool
-- Seller Sessions Discord #tools channel
-- EcomCrew community
-- Helium 10 Users Facebook Group
+### 3. LinkedIn Posts — 3 this week
+Stronger angles now vs April (you have more to show):
 
-**Post format:** Lead with value (what it does, what's free), not a sales pitch. Offer free walkthrough in comments.
+**Monday — Founder story:**
+> "I manage $500k/month in Amazon ad spend across multiple brands. For years I pieced together Sellerboard + Google Sheets + Amazon console to try to answer one question: is this actually making money? I got tired of it and built something better. Calbridge is live. Free tier. No contracts. [link]"
 
----
+**Wednesday — Competitor pain:**
+> "Perpetua just got a Trustpilot review: 'six-figure loss, locked into an annual contract, they sent me to collections.' We built Calbridge on the opposite philosophy: month-to-month, cancel in 2 clicks, no surprise charges. [link]"
 
-### 🟠 Priority 4: Agency Direct Outreach (week 1-2)
+**Friday — Feature proof:**
+> "Our campaign creation wizard just built a full SP + SB campaign structure — keywords, bids, match types, negatives — from one ASIN. Here's what it looks like. [screenshot] Built for operators, not analysts. [link]"
 
-One agency = 5-30 brands. Highest leverage channel.
+**Engagement rule:** Reply to every comment personally within 24 hours.
 
-**LinkedIn search:** "Amazon agency" + "PPC" + "account manager" / "founder" — filter US + UK
+### 4. Agency Direct Outreach — 20 DMs/week
+LinkedIn search: `"Amazon agency" + "PPC" + founder/owner/director` — filter US + Canada
 
-**Pitch:**
-> "We built a white-label Amazon analytics portal specifically for agencies managing multiple brands. Our clients include [brands]. Free pilot for your first 3 brands. Takes 10 minutes to connect. Happy to jump on a 20-min call?"
+Pitch:
+> "We built a white-label Amazon analytics portal for agencies — your logo, client logins, multi-brand switcher, Report Builder with PDF exports. Free pilot for your first 3 brands. 10 minutes to connect. Worth a 20-min call?"
 
-**Target:** 20 agency DMs per week. Track in a Google Sheet.
-
----
-
-### 🟠 Priority 5: Podcast / Content (month 1-2)
-
-Target podcasts (with Abe as guest):
-- EcomCrew — Mike & Dave, large seller audience
-- Seller Sessions — Danny McMillan, technical Amazon audience
-- My Amazon Guy — Steve Chou, massive reach
-- Serious Sellers Podcast (Helium 10)
-- The Ecommerce Fuel Podcast
-
-Pitch: "I manage $500k/mo in Amazon ads, built an AI tool that auto-adjusts bids, and I'll show your audience live data." That's a strong episode pitch.
+One agency = 5-30 brands. Highest LTV channel.
 
 ---
 
-### 🟢 Priority 6: ProductHunt Launch (week 2)
+## 🟡 Build Next (Ash Executes — Ordered by Revenue Impact)
 
-Already in the plan. Tips:
-- Launch Tuesday-Thursday (highest traffic)
-- Get 20+ hunters lined up before launch day
-- Prepare a 30-second GIF/demo video of the AI recommendations + write-back
-- Offer a "ProductHunt exclusive" — e.g., 3 months of Growth free for first 50 signups
-- Post in r/SideProject and r/startups same day
+### 5. Blog Comparison Pages — Deploy NOW (Ash)
+`/blog/` is returning 404. The comparison pages are the highest-intent SEO traffic available.
+- `calbridge-vs-perpetua`
+- `calbridge-vs-teikametrics`
+- "What is contribution margin on Amazon" (how-to, ranks fast)
+- "Amazon dayparting guide" (longer tail)
 
----
+**Ash action:** Build the blog directory, create these 4 pages, deploy. ETA: today.
 
-## Competitor Review Mining — Action Items
+### 6. SmartScout Integration (Ash — needs SMARTSCOUT_API_KEY)
+Once key is in `.env`:
+- Enrich ASIN profiles with estimated monthly sales
+- Competitor intelligence panel in dashboard
+- Category benchmarks (your ROAS vs category avg)
+- Massive value-add for Growth/Pro/Agency — no competitor at this price point has it
 
-### Perpetua disgruntled users to find:
-- Trustpilot: https://www.trustpilot.com/review/perpetua.io — sort by lowest
-- G2: https://www.g2.com/products/perpetua/reviews — sort by lowest
-- Reddit: search r/amazonfba + r/AmazonSeller for "perpetua" complaints
+**Abe action:** `SMARTSCOUT_API_KEY=xxx` → add to `.env` on server. I build immediately.
 
-**Key pain points to address in outreach:**
-- Annual contract lock-in → "Calbridge is month-to-month, cancel anytime"
-- Placement optimization missing → "We support all placement adjustments including dayparting"
-- Poor support → "You'll talk to Abe directly"
+### 7. Inbound Email — contact@calbridge.ai (Ash — needs MX record)
+Resend inbound webhook → emails land in our chat → I draft replies → you approve and send.
+Cost: $0. Setup: 10 minutes once MX is added.
 
-### Teikametrics disgruntled users:
-- Trustpilot: https://www.trustpilot.com/review/www.teikametrics.com — many 1-stars
-- Key complaints: charges after cancellation, bot support, ad spend went UP not down
+**Abe action:** Add MX record for calbridge.ai in Squarespace DNS:
+- Type: MX
+- Host: @
+- Value: `feedback-smtp.us-east-1.amazonses.com` ← (Resend's inbound MX — I'll confirm exact value when ready to configure)
+- Priority: 10
 
-**Outreach angle:** "No billing surprises. Cancel in 2 clicks. Real humans (actually Abe)."
+**Ash action:** Configure Resend inbound webhook after MX propagates.
 
-### Pacvue / Skai:
-- G2: https://www.g2.com/products/pacvue/reviews
-- Pain: enterprise pricing, requires dedicated AM, out of reach for $500k/mo brands
+### 8. Portfolio Budget Management (Pro differentiator)
+- Set total portfolio budget; AI reallocates weekly toward highest-ROAS campaigns
+- Auto-pause runaway campaigns before budget blows (anomaly detection hook)
+- This is the "killer feature" that justifies Pro over Growth
 
----
+**Ash action:** Build once blog + SmartScout done. ~3-4 days.
 
-## Free Tier as Acquisition Engine
+### 9. Budget Automation + Smart Alerts (Growth)
+Routes exist (`budgets.js`). UI not wired.
+- Auto-pause campaigns at monthly budget cap, auto-resume next month
+- Alerts: ACoS spike, spend surge, budget burn rate
+- Unlocks Growth upsell for existing Starter users
 
-The free tier is the key unlock. It lets anyone sign up without friction.
-
-**Free tier should:**
-- Connect 1 account (SP ads)
-- Show 30-day dashboard + campaign performance
-- Show the AI recommendations (but blur/lock the "approve" button)
-- Show a clear "Upgrade to Growth to enable AI write-back" CTA
-
-This converts on competence. Once someone sees their campaigns scored and the AI flagging real issues, they upgrade.
-
-**Referral loop idea (future):** "Refer an agency → 2 months free"
+**Ash action:** Wire UI after portfolio budget management.
 
 ---
 
-## What We Can't Serve Yet
+## 🟠 Content & SEO (Ash Executes)
 
-Marketplace limitations to be upfront about:
-- Only US marketplace fully tested end-to-end (CyberPower is US)
-- CA/UK/EU/JP/AU — SP-API connected but untested at scale
-- Vendor Central: data in but retail analytics still need Brand Analytics role
-- DSP: works but requires Calbridge as DSP seat OR client-owned seat
+### 10. Case Study — CyberPower
+Best candidate. Even anonymous ("8-figure PC accessories brand") converts hard.
+Format: Before/After — ACoS improvement, contribution margin gain, time saved.
+**Abe action:** Ask Colin/Justina/Tim if they'll consent. Anonymous version OK too.
+**Ash action:** Write case study the moment you get the green light.
 
-**Approach:** Don't hide it. State it clearly on the signup page. "Currently optimized for US marketplace. International coming soon." Early adopters from other marketplaces help us test.
+### 11. ProductHunt Launch — Week 2
+- Launch Tuesday-Thursday
+- Line up 20+ hunters before launch day
+- Prepare 30-second GIF: campaign creation wizard + AI recommendations in action
+- "ProductHunt exclusive": 3 months Growth free for first 50 signups
+- Cross-post to r/SideProject and r/startups same day
+
+**Ash action:** Write full ProductHunt page copy + hunter recruitment email. Ready this week.
+
+### 12. Podcast Pitches — Send this week
+Target in priority order:
+1. **EcomCrew** — Mike & Dave, large seller audience
+2. **Seller Sessions** — Danny McMillan, technical Amazon crowd
+3. **My Amazon Guy** — Steve Chou, massive reach
+4. **Serious Sellers Podcast** (Helium 10)
+5. **The Ecommerce Fuel Podcast**
+
+Pitch hook: "I manage $500k/mo in real Amazon ad spend, built an AI that auto-adjusts bids, and I'll show your audience live data."
+
+**Ash action:** Write all 5 podcast pitches. Ready today.
 
 ---
 
-## Week 1 Execution Checklist
+## 🔵 Infrastructure (Ash — Near-Term)
 
-- [ ] Abe writes LinkedIn post #1 (founder story) — Monday
-- [ ] Post in 3+ seller communities — Monday/Tuesday  
-- [ ] Mine Perpetua + Teikametrics Trustpilot for disgruntled users — start DMs
-- [ ] 20 agency LinkedIn DMs
-- [ ] Submit podcast pitch to EcomCrew + Seller Sessions
-- [ ] Plan ProductHunt launch for week 2 (Thursday)
-- [ ] Review landing page CTA — make sure free tier value prop is front and center
-- [ ] Add "No contracts. Cancel anytime." to landing page hero
+### 13. Blog Directory Deploy
+`/blog/` → 404 right now. Pages exist in plan, not deployed.
+
+### 14. calbridge.ai Inbound Email
+MX record → Resend inbound → routes to our chat.
+
+### 15. Marketplace Expansion Positioning
+| Marketplace | Status | Action |
+|-------------|--------|--------|
+| US | ✅ Live, fully tested | — |
+| CA | 🟡 Connected | Accept signups, flag as beta |
+| UK | 🟡 Connected | Accept signups, flag as beta |
+| DE/FR/IT/ES | 🟡 Connected | EU VAT note on signup |
+| JP/AU/MX | 🟡 Connected | Currency handling needed |
+
+Landing page already says "US optimized, international beta available" — honest and correct.
 
 ---
 
-## Metrics to Track (week by week)
+## 📊 Week 1 Success Metrics
 
-| Metric | Week 1 target |
-|--------|---------------|
-| Signups (free) | 25+ |
-| Signups (paid) | 2+ |
-| Outreach DMs sent | 50+ |
+| Metric | Target |
+|--------|--------|
+| Free signups | 25+ |
+| Paid conversions | 2+ |
+| Outreach DMs sent | 50+ (competitor + agency) |
 | LinkedIn post impressions | 5k+ |
-| Community post upvotes/comments | 20+ combined |
+| Community post upvotes/replies | 20+ combined |
+| Demo calls booked | 3+ |
+
+---
+
+## Abe's Action Items (Nothing Moves Without These)
+
+| # | Action | Urgency |
+|---|--------|---------|
+| 1 | Post community drops (or confirm if already done) | 🔴 This week |
+| 2 | Mine Perpetua/Teikametrics Trustpilot + send 20+ DMs | 🔴 This week |
+| 3 | Post 3 LinkedIn posts | 🔴 This week |
+| 4 | Add `SMARTSCOUT_API_KEY` to `.env` on server | 🟡 When ready |
+| 5 | Add MX record for calbridge.ai inbound email | 🟡 When ready |
+| 6 | Ask CyberPower team (Colin/Justina/Tim) about case study | 🟡 This week |
+| 7 | Confirm: have community drops / competitor DMs been done since Apr 21? | 🔴 Now |
+
+---
+
+## Ash's Action Items (I Handle These)
+
+| # | Action | ETA |
+|---|--------|-----|
+| 1 | Refresh community drop drafts with current feature set | Today |
+| 2 | Write updated competitor DM templates | Today |
+| 3 | Write 3 LinkedIn post drafts | Today |
+| 4 | Write 5 podcast pitch emails | Today |
+| 5 | Build + deploy blog comparison pages | Today |
+| 6 | Write ProductHunt launch page copy | Today |
+| 7 | Build SmartScout integration (after key in .env) | Same day as key |
+| 8 | Configure inbound email (after MX record) | Same day as MX |
+| 9 | Build portfolio budget management (Pro) | This week |
+| 10 | Wire budget automation UI (Growth) | Next week |

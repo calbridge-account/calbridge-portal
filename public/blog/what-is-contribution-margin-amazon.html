@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained</title>
+  <link rel="canonical" href="https://calbridge.ai/blog/what-is-contribution-margin-amazon.html" />
+  <meta name="description" content="ACoS and ROAS don't tell you if you're profitable. Contribution margin does. Learn CM1, CM2, and CM3 for Amazon sellers — with formulas, examples, and how to calculate it for your products." />
+  <meta property="og:title" content="What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained" />
+  <meta property="og:description" content="ACoS looks great. ROAS looks great. But are you actually making money? Contribution margin is the metric that answers that question." />
+  <meta property="og:url" content="https://calbridge.ai/blog/what-is-contribution-margin-amazon.html" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Calbridge" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained",
+    "description": "Complete guide to contribution margin for Amazon sellers. CM1, CM2, CM3 formulas, examples, and why ACoS and ROAS don't tell the full story.",
+    "datePublished": "2026-05-07",
+    "author": { "@type": "Person", "name": "Abe Curry" },
+    "publisher": { "@type": "Organization", "name": "Calbridge", "url": "https://calbridge.ai" }
+  }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #2d5a27; --brand-dark: #1e3a1a; --brand-light: #edf5ec; --brand-mid: #3d7a35;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb; --gray-400: #9ca3af;
+      --gray-500: #6b7280; --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--gray-800); background: #fff; line-height: 1.6; }
+    a { text-decoration: none; color: inherit; }
+    nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border-bottom: 1px solid var(--gray-200); }
+    .nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo img { height: 44px; width: auto; display: block; }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-ghost { padding: 8px 16px; font-size: 14px; font-weight: 500; color: var(--gray-600); border-radius: 8px; transition: background 0.15s; }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary { display: inline-block; padding: 9px 20px; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; border-radius: 8px; transition: background 0.15s; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .content-wrap { max-width: 760px; margin: 64px auto; padding: 0 24px 96px; }
+    .breadcrumb { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
+    .breadcrumb a { color: var(--brand); }
+    .page-header { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--gray-200); }
+    .tag { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand); background: var(--brand-light); padding: 3px 10px; border-radius: 99px; margin-bottom: 16px; }
+    .page-header h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; color: var(--gray-900); letter-spacing: -0.02em; margin-bottom: 12px; line-height: 1.2; }
+    .page-header .meta { font-size: 14px; color: var(--gray-500); }
+    h2 { font-size: 22px; font-weight: 700; color: var(--gray-900); margin: 40px 0 12px; }
+    h3 { font-size: 18px; font-weight: 600; color: var(--gray-900); margin: 28px 0 8px; }
+    p { font-size: 16px; color: var(--gray-700); margin-bottom: 16px; line-height: 1.7; }
+    ul, ol { margin: 0 0 20px 0; padding: 0; }
+    ul { list-style: none; }
+    ul li { font-size: 16px; color: var(--gray-700); padding: 6px 0 6px 24px; position: relative; line-height: 1.6; }
+    ul li::before { content: '•'; color: var(--brand); font-weight: 700; position: absolute; left: 6px; }
+    ol { padding-left: 24px; }
+    ol li { font-size: 16px; color: var(--gray-700); padding: 4px 0; line-height: 1.6; }
+    .content-wrap a { color: var(--brand); text-decoration: underline; }
+    .formula-box { background: var(--gray-50); border: 1px solid var(--gray-200); border-left: 4px solid var(--brand); border-radius: 0 8px 8px 0; padding: 16px 20px; margin: 20px 0; font-family: 'Courier New', monospace; font-size: 15px; color: var(--gray-800); }
+    .formula-box strong { color: var(--brand-dark); }
+    .example-box { background: var(--brand-light); border: 1px solid rgba(45,90,39,0.2); border-radius: 12px; padding: 24px; margin: 28px 0; }
+    .example-box h3 { color: var(--brand-dark); margin-top: 0; margin-bottom: 12px; }
+    .example-box table { margin: 0; }
+    .example-box th { background: rgba(45,90,39,0.12); }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 24px 0; }
+    th { background: var(--gray-50); text-align: left; padding: 12px 14px; font-weight: 600; border: 1px solid var(--gray-200); color: var(--gray-900); }
+    td { padding: 11px 14px; border: 1px solid var(--gray-200); color: var(--gray-700); }
+    td.positive { color: #166534; font-weight: 600; }
+    td.negative { color: #dc2626; font-weight: 600; }
+    .highlight-box { background: var(--brand-light); border: 1px solid rgba(45,90,39,0.2); border-radius: 12px; padding: 20px 24px; margin: 32px 0; }
+    .highlight-box p { color: var(--brand-dark); font-weight: 600; margin: 0; }
+    .cta-block { background: var(--brand); border-radius: 16px; padding: 40px; text-align: center; margin: 48px 0 32px; }
+    .cta-block h2 { color: #fff; margin: 0 0 12px; font-size: 24px; }
+    .cta-block p { color: rgba(255,255,255,0.8); margin: 0 0 24px; }
+    .cta-block a { display: inline-block; background: #fff; color: var(--brand); font-weight: 700; padding: 12px 28px; border-radius: 8px; font-size: 15px; text-decoration: none; transition: transform 0.15s; }
+    .cta-block a:hover { transform: translateY(-2px); }
+    .related { margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--gray-200); }
+    .related h3 { font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 16px; }
+    .related-links { display: flex; flex-direction: column; gap: 8px; }
+    .related-links a { font-size: 15px; color: var(--brand); text-decoration: underline; }
+    footer { background: var(--brand-dark); color: rgba(255,255,255,0.65); padding: 32px 24px; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    footer p { font-size: 13px; }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { font-size: 13px; color: rgba(255,255,255,0.55); }
+    .footer-links a:hover { color: #fff; }
+    @media (max-width: 480px) { .nav-actions .btn-ghost { display: none; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-inner">
+      <a href="https://calbridge.ai" class="nav-logo"><img src="/calbridge-logo.png" alt="Calbridge" /></a>
+      <div class="nav-actions">
+        <a href="https://app.calbridge.ai" class="btn-ghost">Sign in</a>
+        <a href="https://calbridge.ai/signup" class="btn-primary">Get started free</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content-wrap">
+    <div class="breadcrumb"><a href="/blog/">Blog</a> → Guides</div>
+    <div class="page-header">
+      <span class="tag">Guide</span>
+      <h1>What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained</h1>
+      <div class="meta">By Abe Curry · May 2026 · 10 min read</div>
+    </div>
+
+    <p>You check your Amazon dashboard. ACoS is 18%. ROAS is $5.50. Revenue is up 30% year-over-year. Everything looks great. But your bank account doesn't look 30% bigger. In fact, it barely moved.</p>
+    <p>This is the most common experience for Amazon sellers who optimize for ad metrics instead of profitability. ACoS and ROAS measure how efficiently your ads generate attributed revenue. They don't tell you whether that revenue covers your costs. <strong>Contribution margin does.</strong></p>
+
+    <h2>Why ACoS and ROAS Aren't Enough</h2>
+    <p>ACoS (Advertising Cost of Sale) is simply your ad spend divided by ad-attributed sales. A 20% ACoS means you spent $20 to generate $100 in attributed sales. That sounds good. But it tells you nothing about:</p>
+    <ul>
+      <li>What it cost to make or buy the product (COGS)</li>
+      <li>What Amazon takes in referral fees (typically 8–17% of revenue)</li>
+      <li>What FBA charges for fulfillment and storage</li>
+      <li>What returns and chargebacks cost you</li>
+    </ul>
+    <p>A product with a 20% ACoS can still be deeply unprofitable if the underlying unit economics are bad. Contribution margin is the framework that captures all of it.</p>
+
+    <h2>The Three Levels of Contribution Margin</h2>
+    <p>Amazon sellers typically work with three contribution margin layers. Each one answers a progressively deeper question about profitability.</p>
+
+    <h3>CM1 — Gross Profit After Amazon Costs</h3>
+    <p>CM1 tells you how much money you make on each sale before advertising. It strips out COGS and Amazon's fees but leaves advertising untouched — because advertising is a choice, and you want to see the base economics before that choice.</p>
+    <div class="formula-box">
+      <strong>CM1</strong> = Revenue − COGS − Amazon Referral Fee − FBA Fulfillment Fee − FBA Storage Fee
+    </div>
+
+    <div class="example-box">
+      <h3>CM1 Example</h3>
+      <table>
+        <tr><td>Selling price</td><td class="positive">$45.00</td></tr>
+        <tr><td>COGS (manufactured cost + shipping to FBA)</td><td class="negative">− $12.00</td></tr>
+        <tr><td>Amazon referral fee (15%)</td><td class="negative">− $6.75</td></tr>
+        <tr><td>FBA fulfillment fee</td><td class="negative">− $4.50</td></tr>
+        <tr><td>FBA storage (monthly average per unit)</td><td class="negative">− $0.50</td></tr>
+        <tr><td><strong>CM1</strong></td><td class="positive"><strong>$21.25 (47.2%)</strong></td></tr>
+      </table>
+    </div>
+
+    <p>A CM1 of 47% means nearly half of every sale is available to cover advertising and overhead. This is your ceiling for how much you can afford to spend on ads before the product stops making money.</p>
+
+    <h3>CM2 — Profit After Advertising</h3>
+    <p>CM2 is where advertising enters the picture. It answers the question most sellers actually care about: after paying Amazon and paying for ads, how much do I keep?</p>
+    <div class="formula-box">
+      <strong>CM2</strong> = CM1 − Ad Spend (per unit or per ASIN)
+    </div>
+
+    <div class="example-box">
+      <h3>CM2 Example (continuing from above)</h3>
+      <table>
+        <tr><td>CM1</td><td class="positive">$21.25</td></tr>
+        <tr><td>Ad spend attributed to this ASIN (per unit sold)</td><td class="negative">− $5.00</td></tr>
+        <tr><td><strong>CM2</strong></td><td class="positive"><strong>$16.25 (36.1%)</strong></td></tr>
+      </table>
+    </div>
+
+    <p>CM2 is the most operationally important number for most sellers. It tells you whether your advertising is sustainable. If CM2 is negative, you're paying Amazon to sell your product at a loss — and no amount of revenue growth will fix that.</p>
+
+    <h3>CM3 — True Product Profitability</h3>
+    <p>CM3 accounts for the remaining overhead: returns and reimbursements, long-term storage fees, damage, chargebacks, and any other per-unit or per-ASIN costs not captured in CM1 or CM2.</p>
+    <div class="formula-box">
+      <strong>CM3</strong> = CM2 − Returns Cost − Long-term Storage − Other Overhead
+    </div>
+    <p>CM3 is your true per-unit profit. It's the number that maps to what actually hits your bank account — not gross revenue, not attributed ROAS, not ACoS.</p>
+
+    <h2>Break-Even ACoS: The Most Useful Derived Metric</h2>
+    <p>Once you know your CM1, you can calculate your break-even ACoS — the maximum ACoS at which your advertising still makes money.</p>
+    <div class="formula-box">
+      <strong>Break-even ACoS</strong> = CM1 Margin % <br/>
+      (In the example above: 47.2% — so any ACoS below 47% is technically profitable)
+    </div>
+    <p>Most sellers target ACoS well below break-even — typically 50–70% of break-even — to ensure a healthy CM2. If your break-even ACoS is 47% and you're running at 40%, you have room to scale. If you're running at 50%, you're advertising at a loss.</p>
+
+    <h2>TACoS: The Metric That Catches Over-Reliance on Ads</h2>
+    <p>TACoS (Total Advertising Cost of Sale) divides your total ad spend by your <em>total</em> revenue — not just ad-attributed revenue. It's the metric that catches a dangerous pattern: brands whose organic sales are shrinking and whose revenue is increasingly dependent on paid ads.</p>
+    <div class="formula-box">
+      <strong>TACoS</strong> = Total Ad Spend ÷ Total Revenue (all channels)
+    </div>
+    <p>A healthy TACoS trend looks like this: during launch, TACoS is high (say 25%) because most sales are ad-driven. As the product builds organic rank and reviews, TACoS gradually declines (to 10%, then 8%, then 5%) as organic sales grow without proportional ad spend growth. A TACoS that's flat or increasing after 6+ months is a warning sign.</p>
+
+    <h2>A Realistic CM1/CM2/CM3 Example</h2>
+    <table>
+      <tr><th>Product</th><th>Revenue</th><th>CM1</th><th>CM1%</th><th>Ad Spend</th><th>CM2</th><th>CM2%</th></tr>
+      <tr><td>Widget A</td><td>$45.00</td><td class="positive">$21.25</td><td class="positive">47%</td><td>$5.00</td><td class="positive">$16.25</td><td class="positive">36%</td></tr>
+      <tr><td>Widget B</td><td>$22.00</td><td class="positive">$6.00</td><td>27%</td><td>$4.50</td><td class="negative">$1.50</td><td>7%</td></tr>
+      <tr><td>Widget C</td><td>$18.00</td><td class="negative">$2.00</td><td>11%</td><td>$3.00</td><td class="negative">−$1.00</td><td class="negative">−6%</td></tr>
+    </table>
+    <p>In this example, Widget A is healthy — strong CM1, and advertising is well within the margin. Widget B is marginal — the unit economics are tight and ad spend is consuming most of the CM1. Widget C is a problem: every unit sold is costing you money. Even with a "good" ACoS, the underlying economics can't support the ad spend.</p>
+    <p>Without contribution margin data, all three products might look similar in your Seller Central dashboard. ACoS could be 22% across all three. They're not the same product.</p>
+
+    <h2>How to Calculate Contribution Margin for Your Products</h2>
+    <ol>
+      <li><strong>Get your COGS per unit.</strong> Include manufactured cost, freight, and any prep/labeling. Don't forget the cost to ship to Amazon's fulfillment center.</li>
+      <li><strong>Find your Amazon referral fee.</strong> Check the Seller Central fee schedule for your category. Usually 8–17%.</li>
+      <li><strong>Get your FBA fee.</strong> Use the FBA calculator in Seller Central. It varies by size and weight.</li>
+      <li><strong>Calculate CM1.</strong> Revenue − COGS − referral fee − FBA fee − storage estimate.</li>
+      <li><strong>Divide your monthly ad spend by units sold</strong> to get per-unit ad cost. Subtract from CM1 for CM2.</li>
+      <li><strong>Add returns and misc overhead</strong> to get CM3.</li>
+    </ol>
+    <p>If you're doing this manually in a spreadsheet, the main pain is keeping COGS updated as manufacturing costs change, and allocating ad spend per ASIN accurately when campaigns often cover multiple products.</p>
+
+    <div class="highlight-box">
+      <p>Calbridge calculates CM1, CM2, and CM3 per ASIN automatically — pulling revenue from your Seller/Vendor Central data, fees from Amazon's fee schedule, and COGS from your inputs. You see your real profitability per product in real time, without the spreadsheet.</p>
+    </div>
+
+    <h2>Common Mistakes in Contribution Margin Analysis</h2>
+    <ul>
+      <li><strong>Using shipped revenue instead of collected revenue.</strong> Returns happen. Use net revenue after returns for accurate CM numbers.</li>
+      <li><strong>Ignoring storage fees.</strong> Long-term storage fees can meaningfully erode CM3 for slow-moving SKUs, especially Q1 post-peak.</li>
+      <li><strong>Allocating ad spend only to ad-attributed orders.</strong> Your ads build organic rank and brand awareness. Allocating all ad spend to attributed revenue understates the true cost per organic sale.</li>
+      <li><strong>Not updating COGS when costs change.</strong> A 15% increase in manufacturing cost can move a healthy CM1 into the red. Update your numbers quarterly at minimum.</li>
+      <li><strong>Ignoring co-op and vendor allowances.</strong> For vendor central brands, co-op charges can significantly alter net revenue. Include them in your CM3 calculation.</li>
+    </ul>
+
+    <div class="cta-block">
+      <h2>See your CM1, CM2, CM3 automatically</h2>
+      <p>Calbridge pulls your Amazon data and calculates contribution margin per ASIN in real time. Free tier available — no credit card required.</p>
+      <a href="https://calbridge.ai/signup">Start for free →</a>
+    </div>
+
+    <div class="related">
+      <h3>Related articles</h3>
+      <div class="related-links">
+        <a href="/blog/amazon-dayparting-guide.html">Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments</a>
+        <a href="/blog/calbridge-vs-perpetua.html">Calbridge vs Perpetua: Which Amazon Ads Tool is Worth It in 2026?</a>
+        <a href="/blog/calbridge-vs-teikametrics.html">Calbridge vs Teikametrics: A Real Comparison for Amazon Sellers in 2026</a>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge. Built in Seattle.</p>
+      <div class="footer-links">
+        <a href="https://calbridge.ai">Home</a>
+        <a href="/blog/">Blog</a>
+        <a href="https://calbridge.ai/privacy">Privacy</a>
+        <a href="https://calbridge.ai/terms">Terms</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

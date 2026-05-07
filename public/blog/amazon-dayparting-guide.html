@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments</title>
+  <link rel="canonical" href="https://calbridge.ai/blog/amazon-dayparting-guide.html" />
+  <meta name="description" content="Amazon dayparting explained: how to identify peak conversion hours, set bid multipliers, and stop wasting budget on hours that don't convert. Full guide for Amazon PPC advertisers." />
+  <meta property="og:title" content="Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments" />
+  <meta property="og:description" content="Not all hours on Amazon convert equally. Dayparting lets you bid up during peak hours and pull back when buyers aren't around. Here's how to do it." />
+  <meta property="og:url" content="https://calbridge.ai/blog/amazon-dayparting-guide.html" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Calbridge" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments",
+    "description": "Complete guide to Amazon PPC dayparting — identifying peak hours, setting bid multipliers, and avoiding budget waste on low-converting times.",
+    "datePublished": "2026-05-07",
+    "author": { "@type": "Person", "name": "Abe Curry" },
+    "publisher": { "@type": "Organization", "name": "Calbridge", "url": "https://calbridge.ai" }
+  }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #2d5a27; --brand-dark: #1e3a1a; --brand-light: #edf5ec; --brand-mid: #3d7a35;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb; --gray-400: #9ca3af;
+      --gray-500: #6b7280; --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--gray-800); background: #fff; line-height: 1.6; }
+    a { text-decoration: none; color: inherit; }
+    nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border-bottom: 1px solid var(--gray-200); }
+    .nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo img { height: 44px; width: auto; display: block; }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-ghost { padding: 8px 16px; font-size: 14px; font-weight: 500; color: var(--gray-600); border-radius: 8px; transition: background 0.15s; }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary { display: inline-block; padding: 9px 20px; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; border-radius: 8px; transition: background 0.15s; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .content-wrap { max-width: 760px; margin: 64px auto; padding: 0 24px 96px; }
+    .breadcrumb { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
+    .breadcrumb a { color: var(--brand); }
+    .page-header { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--gray-200); }
+    .tag { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand); background: var(--brand-light); padding: 3px 10px; border-radius: 99px; margin-bottom: 16px; }
+    .page-header h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; color: var(--gray-900); letter-spacing: -0.02em; margin-bottom: 12px; line-height: 1.2; }
+    .page-header .meta { font-size: 14px; color: var(--gray-500); }
+    h2 { font-size: 22px; font-weight: 700; color: var(--gray-900); margin: 40px 0 12px; }
+    h3 { font-size: 18px; font-weight: 600; color: var(--gray-900); margin: 28px 0 8px; }
+    p { font-size: 16px; color: var(--gray-700); margin-bottom: 16px; line-height: 1.7; }
+    ul, ol { margin: 0 0 20px 0; padding: 0; }
+    ul { list-style: none; }
+    ul li { font-size: 16px; color: var(--gray-700); padding: 6px 0 6px 24px; position: relative; line-height: 1.6; }
+    ul li::before { content: '•'; color: var(--brand); font-weight: 700; position: absolute; left: 6px; }
+    ol { padding-left: 24px; }
+    ol li { font-size: 16px; color: var(--gray-700); padding: 6px 0; line-height: 1.6; }
+    .content-wrap a { color: var(--brand); text-decoration: underline; }
+    .formula-box { background: var(--gray-50); border: 1px solid var(--gray-200); border-left: 4px solid var(--brand); border-radius: 0 8px 8px 0; padding: 16px 20px; margin: 20px 0; font-family: 'Courier New', monospace; font-size: 15px; color: var(--gray-800); }
+    .highlight-box { background: var(--brand-light); border: 1px solid rgba(45,90,39,0.2); border-radius: 12px; padding: 20px 24px; margin: 32px 0; }
+    .highlight-box p { color: var(--brand-dark); font-weight: 600; margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 24px 0; }
+    th { background: var(--gray-50); text-align: left; padding: 12px 14px; font-weight: 600; border: 1px solid var(--gray-200); color: var(--gray-900); }
+    td { padding: 11px 14px; border: 1px solid var(--gray-200); color: var(--gray-700); }
+    td.high { color: #166534; font-weight: 600; }
+    td.low { color: #dc2626; }
+    td.mid { color: #a16207; }
+    .cta-block { background: var(--brand); border-radius: 16px; padding: 40px; text-align: center; margin: 48px 0 32px; }
+    .cta-block h2 { color: #fff; margin: 0 0 12px; font-size: 24px; }
+    .cta-block p { color: rgba(255,255,255,0.8); margin: 0 0 24px; }
+    .cta-block a { display: inline-block; background: #fff; color: var(--brand); font-weight: 700; padding: 12px 28px; border-radius: 8px; font-size: 15px; text-decoration: none; transition: transform 0.15s; }
+    .cta-block a:hover { transform: translateY(-2px); }
+    .related { margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--gray-200); }
+    .related h3 { font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 16px; }
+    .related-links { display: flex; flex-direction: column; gap: 8px; }
+    .related-links a { font-size: 15px; color: var(--brand); text-decoration: underline; }
+    footer { background: var(--brand-dark); color: rgba(255,255,255,0.65); padding: 32px 24px; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    footer p { font-size: 13px; }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { font-size: 13px; color: rgba(255,255,255,0.55); }
+    .footer-links a:hover { color: #fff; }
+    @media (max-width: 480px) { .nav-actions .btn-ghost { display: none; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-inner">
+      <a href="https://calbridge.ai" class="nav-logo"><img src="/calbridge-logo.png" alt="Calbridge" /></a>
+      <div class="nav-actions">
+        <a href="https://app.calbridge.ai" class="btn-ghost">Sign in</a>
+        <a href="https://calbridge.ai/signup" class="btn-primary">Get started free</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content-wrap">
+    <div class="breadcrumb"><a href="/blog/">Blog</a> → Guides</div>
+    <div class="page-header">
+      <span class="tag">Guide</span>
+      <h1>Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments</h1>
+      <div class="meta">By Abe Curry · May 2026 · 9 min read</div>
+    </div>
+
+    <p>Amazon shoppers don't buy at a uniform rate throughout the day. A software engineer browsing during a lunch break converts differently than a parent shopping at 10pm. A B2B buyer researching industrial supplies at 9am has a completely different intent profile than a weekend impulse buyer at 2pm.</p>
+    <p>Dayparting is the practice of adjusting your bids — up or down — based on the time of day and day of week. Done well, it lets you concentrate budget during hours when your customers are most likely to convert, and pull back during low-yield windows. The result: the same total ad spend, distributed more efficiently, with better ROAS and lower wasted spend.</p>
+
+    <h2>How Amazon Dayparting Works</h2>
+    <p>Amazon's advertising platform supports bid multipliers that adjust your base bid by a percentage for specific time blocks. A multiplier of +50% at 8pm means if your base bid is $1.00, Amazon will bid up to $1.50 during that hour. A multiplier of −30% at 3am means your effective bid drops to $0.70.</p>
+    <p>These adjustments are applied on top of your existing campaign bid and any placement multipliers you have set. They interact multiplicatively — a +50% dayparting multiplier on top of a +20% top-of-search placement multiplier doesn't add to 70%; it compounds.</p>
+    <div class="formula-box">
+      Effective bid = Base bid × (1 + placement multiplier) × (1 + dayparting multiplier)
+    </div>
+
+    <h2>Why Most Sellers Don't Use It (and Should)</h2>
+    <p>The primary reason dayparting is underused is data access. Amazon's native Seller Central reporting doesn't give you hourly performance data. You can see daily aggregates, but not the breakdown by hour that lets you identify when your conversions actually cluster.</p>
+    <p>Getting hourly data requires either Amazon Marketing Stream (Amazon's real-time data streaming API, available via the Ads API) or a third-party tool that aggregates it. Without that data, any dayparting schedule you set is a guess rather than a data-driven decision.</p>
+    <p>The other reason is complexity. Managing bid multipliers manually across multiple campaigns and updating them as patterns shift is tedious. The sellers who do dayparting well typically have tooling that automates it or at least surfaces the data clearly enough to act on it.</p>
+
+    <h2>Finding Your Peak Hours: The Right Way</h2>
+    <p>Before setting any multipliers, you need to understand when your specific customers buy. General Amazon shopping patterns are a starting point, but your product category, price point, and customer demographics will shift the curve.</p>
+
+    <h3>General Amazon Shopping Patterns</h3>
+    <table>
+      <tr><th>Time window (ET)</th><th>Typical pattern</th><th>Bid strategy</th></tr>
+      <tr><td>12am – 6am</td><td class="low">Low traffic, low conversion</td><td class="low">Reduce bids −20 to −40%</td></tr>
+      <tr><td>6am – 9am</td><td class="mid">Rising — morning commute browsing</td><td class="mid">Baseline or slight reduction</td></tr>
+      <tr><td>9am – 12pm</td><td class="high">Strong — B2B buyers active, household purchases</td><td class="high">Baseline or +10 to +20%</td></tr>
+      <tr><td>12pm – 2pm</td><td class="high">Peak — lunch break shopping spike</td><td class="high">+20 to +40%</td></tr>
+      <tr><td>2pm – 5pm</td><td class="mid">Moderate — post-lunch dip</td><td class="mid">Baseline</td></tr>
+      <tr><td>5pm – 9pm</td><td class="high">Strong — evening shopping, highest impulse conversion</td><td class="high">+20 to +30%</td></tr>
+      <tr><td>9pm – 12am</td><td class="mid">Declining — late browsing, lower conversion</td><td class="mid">Baseline or slight reduction</td></tr>
+    </table>
+    <p><em>Note: This is a general pattern for US consumer products. B2B products, industrial items, and some categories shift significantly. Always validate against your own data.</em></p>
+
+    <h3>Category-Specific Patterns to Know</h3>
+    <ul>
+      <li><strong>B2B / industrial products:</strong> Conversion peaks shift to 9am–3pm on weekdays. Weekends often see 40–60% lower conversion rates. Pull back bids sharply on Saturday/Sunday.</li>
+      <li><strong>Consumer electronics:</strong> Evening peak (7–10pm) is typically the strongest. Weekend afternoons also convert well.</li>
+      <li><strong>Household consumables:</strong> Morning and weekend peaks. Buyers restocking on Sunday evenings is a real pattern.</li>
+      <li><strong>Kids/toys:</strong> Evening peak, strong weekends and holiday periods. Consider seasonal patterns separately.</li>
+      <li><strong>Health / personal care:</strong> Morning and evening peaks. Purchase decisions often happen at natural routine checkpoints.</li>
+    </ul>
+
+    <h2>Setting Up Dayparting: Step by Step</h2>
+
+    <h3>Step 1: Pull Hourly Data</h3>
+    <p>If you have access to Amazon Marketing Stream or a tool that surfaces hourly campaign data (Calbridge includes this on Growth+ plans), pull at least 30 days of hourly impressions, clicks, and conversions by campaign. 60–90 days is better for identifying patterns that aren't just noise.</p>
+
+    <h3>Step 2: Calculate Hourly CVR and CPA</h3>
+    <p>For each hour block, calculate:</p>
+    <div class="formula-box">
+      Hourly CVR = orders in that hour ÷ clicks in that hour<br/>
+      Hourly CPA = spend in that hour ÷ orders in that hour
+    </div>
+    <p>Sort by CVR descending. Your top quartile of hours is where you want to concentrate budget. Your bottom quartile — hours with very low CVR or very high CPA — is where you want to pull back.</p>
+
+    <h3>Step 3: Define Your Time Blocks</h3>
+    <p>Group hours into 3–5 tiers based on conversion rate. A simple approach:</p>
+    <ul>
+      <li><strong>Tier 1 (Peak):</strong> Top 25% of hours by CVR → +25 to +40% bid multiplier</li>
+      <li><strong>Tier 2 (Normal):</strong> Middle 50% of hours → baseline (0% adjustment)</li>
+      <li><strong>Tier 3 (Off-peak):</strong> Bottom 25% of hours → −20 to −35% multiplier</li>
+    </ul>
+
+    <h3>Step 4: Apply Multipliers and Monitor</h3>
+    <p>Set your multipliers in the campaign manager. Check performance weekly for the first month — especially watch for budget exhaustion. If your peak-hour bids are much higher, your daily budget might exhaust before the day's best hours arrive. You may need to increase daily budgets or redistribute when campaigns go to sleep.</p>
+
+    <h3>Step 5: Separate Campaigns for B2B vs Consumer (if applicable)</h3>
+    <p>If your product sells to both business buyers and consumers, consider splitting into separate campaigns — one with a weekday/business-hours schedule and one with a consumer evening/weekend schedule. The patterns are different enough that a single dayparting schedule will sub-optimize for both.</p>
+
+    <h2>Common Dayparting Mistakes</h2>
+    <ul>
+      <li><strong>Setting multipliers before you have hourly data.</strong> Any schedule based on guesswork is as likely to hurt as help. Get the data first.</li>
+      <li><strong>Applying one schedule across all campaigns.</strong> A brand-awareness campaign at the top of search has different hour-of-day patterns than an exact-match campaign for high-intent buyers. Segment your schedule by campaign type.</li>
+      <li><strong>Not accounting for time zones.</strong> If your audience is coast-to-coast US, the "lunch peak" at 12pm ET is 9am PT — some buyers haven't started their day. Consider whether you need Eastern-focused or broad scheduling.</li>
+      <li><strong>Setting it and forgetting it.</strong> Shopping patterns shift seasonally. The summer weekend peak is different from the holiday season. Review your dayparting schedule quarterly.</li>
+      <li><strong>Over-restricting off-hours.</strong> A −90% multiplier at 2am sounds smart, but you're also potentially missing late-night impulse buyers who convert despite low volume. A −30 to −40% reduction preserves presence without wasting budget.</li>
+    </ul>
+
+    <h2>Dayparting for Sponsored Brands vs Sponsored Products</h2>
+    <p>The mechanics are similar for SP and SB, but the data and objectives differ:</p>
+    <ul>
+      <li><strong>Sponsored Products:</strong> Conversion-focused. Dayparting here directly impacts CPA and ROAS. Optimize aggressively.</li>
+      <li><strong>Sponsored Brands:</strong> Awareness + conversion. SB click-through to a landing page adds a step to conversion. SB benefits from peak hours but the impact is less direct — factor in downstream organic halo effects.</li>
+      <li><strong>Sponsored Display:</strong> Retargeting campaigns often run on different logic — a user who viewed your product 3 days ago can be retargeted productively at many hours. Be more conservative with dayparting restrictions on SD.</li>
+    </ul>
+
+    <h2>How Calbridge Handles Dayparting</h2>
+    <p>Calbridge includes a dayparting scheduler on Growth and above. You can set bid multipliers by hour block and day of week per campaign, and — once hourly data is available via Amazon Marketing Stream integration — the system can surface your actual hourly CVR and recommend adjustments automatically.</p>
+    <p>The AI-driven dayparting recommendation (on Growth+) analyzes your historical hourly performance, identifies statistically significant peak and off-peak windows, and proposes a schedule for your review before applying anything. You always approve changes before they go live.</p>
+
+    <div class="highlight-box">
+      <p>Calbridge's dayparting is available on Growth ($249/mo) and above. Connect your Amazon account and the hourly performance data starts populating immediately.</p>
+    </div>
+
+    <div class="cta-block">
+      <h2>Set smarter bids, hour by hour</h2>
+      <p>Calbridge includes dayparting on Growth plans. Free tier available — no credit card required.</p>
+      <a href="https://calbridge.ai/signup">Start for free →</a>
+    </div>
+
+    <div class="related">
+      <h3>Related articles</h3>
+      <div class="related-links">
+        <a href="/blog/what-is-contribution-margin-amazon.html">What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained</a>
+        <a href="/blog/calbridge-vs-perpetua.html">Calbridge vs Perpetua: Which Amazon Ads Tool is Worth It in 2026?</a>
+        <a href="/blog/calbridge-vs-teikametrics.html">Calbridge vs Teikametrics: A Real Comparison for Amazon Sellers in 2026</a>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge. Built in Seattle.</p>
+      <div class="footer-links">
+        <a href="https://calbridge.ai">Home</a>
+        <a href="/blog/">Blog</a>
+        <a href="https://calbridge.ai/privacy">Privacy</a>
+        <a href="https://calbridge.ai/terms">Terms</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

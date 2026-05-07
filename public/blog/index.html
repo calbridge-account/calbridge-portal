@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blog — Calbridge</title>
+  <link rel="canonical" href="https://calbridge.ai/blog/" />
+  <meta name="description" content="Amazon advertising and analytics guides from the team at Calbridge. Contribution margin, dayparting, tool comparisons, and more." />
+  <meta property="og:title" content="Blog — Calbridge" />
+  <meta property="og:url" content="https://calbridge.ai/blog/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Calbridge" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #2d5a27; --brand-dark: #1e3a1a; --brand-light: #edf5ec; --brand-mid: #3d7a35;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb; --gray-400: #9ca3af;
+      --gray-500: #6b7280; --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--gray-800); background: #fff; line-height: 1.6; }
+    a { text-decoration: none; color: inherit; }
+    nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border-bottom: 1px solid var(--gray-200); }
+    .nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo img { height: 44px; width: auto; display: block; }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-ghost { padding: 8px 16px; font-size: 14px; font-weight: 500; color: var(--gray-600); border-radius: 8px; transition: background 0.15s; }
+    .btn-ghost:hover { background: var(--gray-100); color: var(--gray-800); }
+    .btn-primary { display: inline-block; padding: 9px 20px; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; border-radius: 8px; transition: background 0.15s; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .content-wrap { max-width: 860px; margin: 64px auto; padding: 0 24px 96px; }
+    .page-header { margin-bottom: 48px; padding-bottom: 32px; border-bottom: 1px solid var(--gray-200); }
+    .page-header h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; color: var(--gray-900); letter-spacing: -0.02em; margin-bottom: 8px; }
+    .page-header p { font-size: 16px; color: var(--gray-500); }
+    .post-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 640px) { .post-grid { grid-template-columns: 1fr; } }
+    .post-card { border: 1px solid var(--gray-200); border-radius: 12px; padding: 24px; transition: border-color 0.15s, box-shadow 0.15s; }
+    .post-card:hover { border-color: var(--brand); box-shadow: 0 4px 16px rgba(45,90,39,0.08); }
+    .post-card .tag { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand); background: var(--brand-light); padding: 3px 10px; border-radius: 99px; margin-bottom: 12px; }
+    .post-card h2 { font-size: 18px; font-weight: 700; color: var(--gray-900); margin-bottom: 10px; line-height: 1.3; }
+    .post-card p { font-size: 14px; color: var(--gray-600); line-height: 1.6; margin-bottom: 16px; }
+    .post-card .read-more { font-size: 14px; font-weight: 600; color: var(--brand); }
+    .post-card .read-more:hover { text-decoration: underline; }
+    .post-date { font-size: 12px; color: var(--gray-400); margin-bottom: 8px; }
+    footer { background: var(--brand-dark); color: rgba(255,255,255,0.65); padding: 32px 24px; text-align: center; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    footer p { font-size: 13px; }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { font-size: 13px; color: rgba(255,255,255,0.55); transition: color 0.15s; }
+    .footer-links a:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-inner">
+      <a href="https://calbridge.ai" class="nav-logo"><img src="/calbridge-logo.png" alt="Calbridge" /></a>
+      <div class="nav-actions">
+        <a href="https://app.calbridge.ai" class="btn-ghost">Sign in</a>
+        <a href="https://calbridge.ai/signup" class="btn-primary">Get started free</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content-wrap">
+    <div class="page-header">
+      <h1>The Calbridge Blog</h1>
+      <p>Amazon advertising guides, tool comparisons, and analytics deep-dives from operators.</p>
+    </div>
+    <div class="post-grid">
+      <a href="/blog/calbridge-vs-perpetua.html" class="post-card">
+        <span class="tag">Comparison</span>
+        <div class="post-date">May 2026</div>
+        <h2>Calbridge vs Perpetua: Which Amazon Ads Tool is Worth It in 2026?</h2>
+        <p>Perpetua's 2026 reviews mention six-figure losses, annual contract lock-ins, and billing disputes. Here's a full comparison.</p>
+        <span class="read-more">Read article →</span>
+      </a>
+      <a href="/blog/calbridge-vs-teikametrics.html" class="post-card">
+        <span class="tag">Comparison</span>
+        <div class="post-date">May 2026</div>
+        <h2>Calbridge vs Teikametrics: A Real Comparison for Amazon Sellers in 2026</h2>
+        <p>Teikametrics charges after cancellation, provides bot-only support, and users report ad spend going up — not down. We dig in.</p>
+        <span class="read-more">Read article →</span>
+      </a>
+      <a href="/blog/what-is-contribution-margin-amazon.html" class="post-card">
+        <span class="tag">Guide</span>
+        <div class="post-date">May 2026</div>
+        <h2>What Is Contribution Margin on Amazon? CM1, CM2, CM3 Explained</h2>
+        <p>ACoS and ROAS tell you about your ads. Contribution margin tells you if you're actually making money. Here's how to calculate it.</p>
+        <span class="read-more">Read article →</span>
+      </a>
+      <a href="/blog/amazon-dayparting-guide.html" class="post-card">
+        <span class="tag">Guide</span>
+        <div class="post-date">May 2026</div>
+        <h2>Amazon Dayparting: The Complete Guide to Hour-by-Hour Bid Adjustments</h2>
+        <p>Not all hours convert equally. Dayparting lets you bid up during peak hours and pull back when buyers aren't around. Full guide.</p>
+        <span class="read-more">Read article →</span>
+      </a>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <p>© 2026 Calbridge. Built in Seattle.</p>
+      <div class="footer-links">
+        <a href="https://calbridge.ai">Home</a>
+        <a href="https://calbridge.ai/privacy">Privacy</a>
+        <a href="https://calbridge.ai/terms">Terms</a>
+        <a href="https://app.calbridge.ai">Sign in</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
