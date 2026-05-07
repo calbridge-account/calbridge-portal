@@ -18,6 +18,10 @@ function makeFmtCurrency(currency = 'USD') {
     return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   };
 }
+function fmtRoas(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `$${Number(n).toFixed(2)}`;
+}
 function fmtNum(n) {
   if (n == null || isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(n);
@@ -189,7 +193,7 @@ export default function AdvertisingProducts() {
           <span className="text-gray-500">{filtered.length} ASINs</span>
           <span><span className="text-gray-500">Spend</span> <strong className="text-gray-800">{fmt$(totals.spend)}</strong></span>
           <span><span className="text-gray-500">Sales</span> <strong className="text-gray-800">{fmt$(totals.sales)}</strong></span>
-          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? fmt$(totalRoas) : '—'}</strong></span>
+          <span><span className="text-gray-500">ROAS</span> <strong className="text-gray-800">{totalRoas != null ? fmtRoas(totalRoas) : '—'}</strong></span>
           <span><span className="text-gray-500">ACoS</span> <strong className={acosColor(totalAcos)}>{totalAcos != null ? (totalAcos * 100).toFixed(1) + '%' : '—'}</strong></span>
           <span><span className="text-gray-500">Orders</span> <strong className="text-gray-800">{totals.orders.toLocaleString()}</strong></span>
         </div>
@@ -250,7 +254,7 @@ export default function AdvertisingProducts() {
                       <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
                       <td className="py-2.5 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
                       <td className={`py-2.5 px-3 text-right font-medium ${acosColor(r.acos)}`}>{r.acos != null ? (r.acos * 100).toFixed(1) + '%' : '—'}</td>
-                      <td className="py-2.5 px-3 text-right text-gray-700">{r.roas != null ? fmt$(r.roas) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right text-gray-700">{r.roas != null ? fmtRoas(r.roas) : '—'}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{r.orders.toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>

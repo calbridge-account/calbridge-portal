@@ -30,6 +30,10 @@ function makeFmtCurrency(currency = 'USD') {
     return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   };
 }
+function fmtRoas(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `$${Number(n).toFixed(2)}`;
+}
 
 function isoWeek(dateStr) {
   const d = new Date(dateStr + 'T00:00:00Z');
@@ -83,7 +87,7 @@ function CustomTooltip({ active, payload, label, fmtC }) {
         <div key={p.dataKey} className="flex justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}</span>
           <span className="font-medium text-gray-800">
-            {p.dataKey === 'roas' ? (p.value != null ? fmtC(p.value) : '—') :
+            {p.dataKey === 'roas' ? fmtRoas(p.value) :
              p.dataKey === 'cpc'  ? fmtC(p.value) :
              p.dataKey === 'acos' ? (p.value != null ? (p.value * 100).toFixed(1) + '%' : '—') :
              fmtC(p.value)}

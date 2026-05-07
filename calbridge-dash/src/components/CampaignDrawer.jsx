@@ -19,6 +19,10 @@ function makeFmtCurrency(currency = 'USD') {
     return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   };
 }
+function fmtRoas(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `$${Number(n).toFixed(2)}`;
+}
 function fmtBid(n) {
   if (n == null || isNaN(n)) return '—';
   return `$${Number(n).toFixed(2)}`;
@@ -130,7 +134,7 @@ export default function CampaignDrawer({ open, onClose, title, subtitle, endpoin
             <span><span className="text-gray-400">Spend&nbsp;</span><strong>{fmt$(totalSpend)}</strong></span>
             <span><span className="text-gray-400">Sales&nbsp;</span><strong>{fmt$(totalSales)}</strong></span>
             <span><span className="text-gray-400">Blended ACoS&nbsp;</span><strong className={acosColor(blendedAcos)}>{fmtPct(blendedAcos)}</strong></span>
-            <span><span className="text-gray-400">ROAS&nbsp;</span><strong>{totalSpend > 0 ? fmtX(totalSales / totalSpend) : '—'}</strong></span>
+            <span><span className="text-gray-400">ROAS&nbsp;</span><strong>{totalSpend > 0 ? fmtRoas(totalSales / totalSpend) : '—'}</strong></span>
           </div>
         )}
 
@@ -198,7 +202,7 @@ export default function CampaignDrawer({ open, onClose, title, subtitle, endpoin
                         { label: 'Spend',  value: fmt$(r.spend)  },
                         { label: 'Sales',  value: fmt$(r.sales)  },
                         { label: 'ACoS',   value: fmtPct(r.acos), color: acosColor(r.acos) },
-                        { label: 'ROAS',   value: fmtX(r.roas)   },
+                        { label: 'ROAS',   value: fmtRoas(r.roas)   },
                         { label: 'Orders', value: (r.orders || 0).toLocaleString() },
                         { label: 'Clicks', value: (r.clicks || 0).toLocaleString() },
                         { label: 'Impr.',  value: new Intl.NumberFormat('en-US', { notation: 'compact' }).format(r.impressions || 0) },

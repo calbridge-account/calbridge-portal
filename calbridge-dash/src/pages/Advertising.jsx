@@ -37,6 +37,10 @@ function makeFmtCurrency(currency = 'USD') {
     return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   };
 }
+function fmtRoas(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `$${Number(n).toFixed(2)}`;
+}
 // Default USD formatter (used outside component scope e.g. Recharts tooltip)
 function fmtCurrency(n) {
   if (n == null || isNaN(n)) return '—';
@@ -69,7 +73,7 @@ function AdTypeCard({ type, metrics, muted, loading, fmtC = fmtCurrency }) {
 
   const spend = muted ? '—' : fmtC(metrics?.spend);
   const sales = muted ? '—' : fmtC(metrics?.sales);
-  const roas  = muted ? '—' : fmtX(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null), fmtC);
+  const roas  = muted ? '—' : fmtRoas(metrics?.roas ?? (metrics?.spend > 0 ? metrics?.sales / metrics?.spend : null));
   const acos  = muted ? '—' : (type.key === 'dsp' ? null : fmtPct(metrics?.acos));
 
   if (loading) return <SkeletonCard />;
@@ -117,7 +121,7 @@ function MetricCard({ title, value, format = 'currency', sub, highlight, loading
   if (loading) return <SkeletonCard />;
   const formatted = format === 'currency' ? fmtC(value)
     : format === 'percent' ? fmtPct(value)
-    : format === 'roas' ? fmtX(value)
+    : format === 'roas' ? fmtRoas(value)
     : format === 'number' ? fmtNum(value)
     : value;
   return (
@@ -158,7 +162,7 @@ function AsinTable({ asins, loading, fmtC = fmtCurrency }) {
                 <td className="py-2.5 px-3 text-right font-medium text-gray-900">{fmtC(a.spend)}</td>
                 <td className="py-2.5 px-3 text-right text-gray-700">{fmtC(a.sales)}</td>
                 <td className={`py-2.5 px-3 text-right font-medium ${acosColor}`}>{fmtPct(a.acos)}</td>
-                <td className="py-2.5 px-3 text-right text-gray-700">{fmtX(a.roas)}</td>
+                <td className="py-2.5 px-3 text-right text-gray-700">{fmtRoas(a.roas)}</td>
                 <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(a.clicks)}</td>
                 <td className="py-2.5 px-3 text-right text-gray-500">{fmtNum(a.purchases)}</td>
               </tr>

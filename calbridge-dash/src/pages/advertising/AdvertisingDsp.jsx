@@ -16,6 +16,10 @@ function makeFmtCurrency(currency = 'USD') {
     return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
   };
 }
+function fmtRoas(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `$${Number(n).toFixed(2)}`;
+}
 function fmtNum(n) {
   if (n == null || isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(n);
@@ -140,7 +144,7 @@ export default function AdvertisingDsp() {
           <>
             <MetricTile label="Total Spend"       value={fmt$(spend)}                                              purple />
             <MetricTile label="Attributed Sales"   value={fmt$(sales)}                                           purple />
-            <MetricTile label="ROAS"               value={roas != null ? fmt$(roas) : '—'}            purple />
+            <MetricTile label="ROAS"               value={roas != null ? fmtRoas(roas) : '—'}            purple />
             <MetricTile label="Impressions"        value={fmtNum(impr)} sub={viewRate != null ? `${(Number(viewRate) * 100).toFixed(2)}% viewable` : null} />
             <MetricTile label="Detail Page Views"  value={fmtNum(dpv)}  sub={impr > 0 ? `${((dpv / impr) * 100).toFixed(2)}% DPV rate` : null} />
             <MetricTile label="NTB Orders"         value={fmtNum(ntbOrders)} sub={ntbPct != null ? `${(ntbPct * 100).toFixed(1)}% of sales NTB` : null} />
@@ -240,7 +244,7 @@ export default function AdvertisingDsp() {
                     </td>
                     <td className="py-2 px-3 text-right font-medium text-gray-900">{fmt$(r.spend)}</td>
                     <td className="py-2 px-3 text-right text-gray-700">{fmt$(r.sales)}</td>
-                    <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? fmt$(r.roas) : '—'}</td>
+                    <td className="py-2 px-3 text-right text-gray-700">{r.roas != null ? fmtRoas(r.roas) : '—'}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.impressions)}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{r.clicks.toLocaleString()}</td>
                     <td className="py-2 px-3 text-right text-gray-500">{fmtNum(r.dpv)}</td>
