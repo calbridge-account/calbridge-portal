@@ -103,17 +103,15 @@ function parseRange(req) {
   const [yy, ym]     = yesterdayStr.split('-').map(Number);
 
   if (range === 'mtd') {
-    // If today is the 1st in PST, show just yesterday (prior month end)
+    // Include today — intraday data is available and users expect to see it.
+    // If today is the 1st, fall back to just today (no prior days this month yet).
     const startStr = td === 1
-      ? yesterdayStr
+      ? todayPST
       : `${ty}-${String(tm).padStart(2,'0')}-01`;
-    if (startStr >= yesterdayStr) {
-      return { startDate: yesterdayStr, endDate: yesterdayStr, days: 30 };
-    }
-    return { startDate: startStr, endDate: yesterdayStr, days: 30 };
+    return { startDate: startStr, endDate: todayPST, days: 30 };
   }
   if (range === 'ytd') {
-    return { startDate: `${yy}-01-01`, endDate: yesterdayStr, days: 365 };
+    return { startDate: `${ty}-01-01`, endDate: todayPST, days: 365 };
   }
   if (range === 'custom') {
     const isoRe = /^\d{4}-\d{2}-\d{2}$/;
