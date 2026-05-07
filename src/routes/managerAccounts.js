@@ -1403,15 +1403,14 @@ agencyRouter.get('/kpi-summary', async (req, res) => {
         adRows = await query(
           `SELECT
              client_id,
-             SUM(cost)           AS total_spend,
-             SUM(sales_30d)      AS total_sales,
-             SUM(impressions)    AS total_impressions,
-             SUM(clicks)         AS total_clicks,
+             SUM(spend)                  AS total_spend,
+             SUM(sales)                  AS total_sales,
+             SUM(impressions)            AS total_impressions,
+             SUM(clicks)                 AS total_clicks,
              COUNT(DISTINCT campaign_id) AS active_campaigns
-           FROM CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE
+           FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
            WHERE client_id IN (${placeholders})
              AND date >= DATEADD('day', ?, CURRENT_DATE)
-             AND date <  CURRENT_DATE
            GROUP BY client_id`,
           [...clientIds, -days]
         );
