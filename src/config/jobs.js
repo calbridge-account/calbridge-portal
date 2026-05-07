@@ -35,12 +35,12 @@ const JOBS = [
     id:               'check_connector_health',
     name:             'Connector Health Check',
     owner:            'connector',
-    schedule:         'every5min',
-    timeout_seconds:  30,
-    sla_minutes:      10,             // Must run at least every 10 min or alert
+    schedule:         'every8h',
+    timeout_seconds:  60,
+    sla_minutes:      600,            // 10h SLA — runs every 8h + on-demand after each OAuth connection
     idempotent:       true,
     dependencies:     [],
-    description:      'Verify all connector tokens are valid and not expired. Flag stale or broken connections.',
+    description:      'Verify all connector tokens are valid and not expired. Runs every 8h + immediately on new OAuth connection (scoped to that client only). Token refresh writes go to Redis cache; Snowflake only updated on actual expiry.',
   },
 
   {
@@ -402,6 +402,7 @@ function getJobsByOwner(owner) {
 const SCHEDULE_CRONS = {
   'every5min':        '*/5 * * * *',
   'every15min':       '*/15 * * * *',
+  'every8h':          '0 */8 * * *',
   'hourly':           '0 * * * *',
   'daily-early':      '0 2 * * *',       // 02:00 UTC
   'daily-post-models':'30 4 * * *',      // 04:30 UTC (after daily-early has had time to finish)

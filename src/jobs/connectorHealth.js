@@ -223,8 +223,12 @@ async function upsertConnectorHealth(clientId, connectionType, accountId, status
  * @param {object} [opts]
  * @param {string} [opts.triggeredBy='cron']
  */
-async function checkConnectorHealth({ triggeredBy = 'cron' } = {}) {
-  const connections = await getActiveConnections();
+async function checkConnectorHealth({ triggeredBy = 'cron', clientFilter = null } = {}) {
+  let connections = await getActiveConnections();
+  if (clientFilter) {
+    connections = connections.filter(c => c.clientId === clientFilter);
+    console.log(`[connectorHealth] Scoped to client ${clientFilter} — ${connections.length} connection(s)`);
+  }
   if (!connections.length) {
     console.log('[connectorHealth] No active connections — nothing to check');
     return { healthy: 0, degraded: 0, failed: 0 };

@@ -494,7 +494,7 @@ const CRON_SCHEDULE = [
   // ── Every 5 min ────────────────────────────────────────────────────────────
   {
     jobId: 'check_connector_health',
-    expr:  '*/30 * * * *',  // reduced from every5min — saves ~400 Snowflake writes/day
+    expr:  '0 */8 * * *',  // every 8h — health is event-driven on new connections; no need to poll constantly
   },
   {
     jobId: 'flush_job_runs',

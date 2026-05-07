@@ -3,6 +3,20 @@ const router = express.Router();
 const amazonAuthService = require('../services/amazonAuthService');
 const { requireAuth } = require('../middleware/requireAuth');
 
+// Fire connector health check for a single client after a new OAuth connection —
+// non-blocking, errors are swallowed so they never affect the OAuth response.
+function triggerHealthCheckForClient(clientId, type) {
+  setImmediate(async () => {
+    try {
+      const { checkConnectorHealth } = require('../jobs/connectorHealth');
+      await checkConnectorHealth({ triggeredBy: 'oauth_callback', clientFilter: clientId });
+      console.log(`[amazon] Post-connect health check done for ${clientId}/${type}`);
+    } catch (err) {
+      console.warn(`[amazon] Post-connect health check failed for ${clientId}/${type}: ${err.message}`);
+    }
+  });
+}
+
 const VALID_TYPES = ['ads', 'dsp', 'seller', 'vendor'];
 // Types that require the user to pick a profile before completing the connection
 const PROFILE_PICKER_TYPES = ['ads', 'dsp'];
@@ -76,6 +90,7 @@ router.get('/callback/:type', requireAuth, async (req, res, next) => {
       extra
     });
 
+    triggerHealthCheckForClient(req.session.clientId, type);
     res.redirect(`/analytics/account?connected=${type}`);
   } catch (err) {
     next(err);
@@ -134,6 +149,7 @@ router.post('/confirm-profile', requireAuth, async (req, res, next) => {
       clientId: req.session.clientId,
       selectedProfileIds,
     });
+    triggerHealthCheckForClient(req.session.clientId, result?.type);
     res.json(result);
   } catch (err) {
     next(err);

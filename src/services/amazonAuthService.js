@@ -161,13 +161,50 @@ async function refreshAccessToken({ refreshToken, type }) {
  *
  * On refresh: writes back to BOTH client_credentials AND clients.connections.
  */
-// In-process token cache: avoid hitting Snowflake on every call within the same Node process.
-// Key: `${clientId}:${type}`, value: { accessToken, expiresAt (ms), credentialId (optional) }
-const _tokenCache = new Map();
+// Token cache backed by Redis (shared across all worker processes).
+// Falls back to in-process Map when Redis is unavailable.
+// Key: `token_cache:${clientId}:${type}`, TTL = 50 min (tokens live ~60 min)
+const _tokenCacheFallback = new Map(); // in-process fallback only
+const TOKEN_CACHE_TTL_SECS = 50 * 60; // 50 minutes
+
+async function _getCachedToken(cacheKey) {
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      const raw = await redis.get(`token_cache:${cacheKey}`);
+      if (raw) return JSON.parse(raw);
+      return null;
+    }
+  } catch { /* fall through */ }
+  return _tokenCacheFallback.get(cacheKey) || null;
+}
+
+async function _setCachedToken(cacheKey, value) {
+  _tokenCacheFallback.set(cacheKey, value);
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      await redis.set(`token_cache:${cacheKey}`, JSON.stringify(value), 'EX', TOKEN_CACHE_TTL_SECS);
+    }
+  } catch { /* non-fatal */ }
+}
+
+async function _deleteCachedToken(cacheKey) {
+  _tokenCacheFallback.delete(cacheKey);
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      await redis.del(`token_cache:${cacheKey}`);
+    }
+  } catch { /* non-fatal */ }
+}
 
 async function getValidToken(clientId, type) {
   const cacheKey = `${clientId}:${type}`;
-  const cached = _tokenCache.get(cacheKey);
+  const cached = await _getCachedToken(cacheKey);
   // Use cache if token is valid for >30 more minutes
   if (cached && cached.expiresAt - Date.now() > 30 * 60 * 1000) {
     return cached.accessToken;
@@ -215,22 +252,13 @@ async function getValidToken(clientId, type) {
         console.warn(`[AmazonAuth] Failed to update amazon_connections on refresh: ${err.message}`);
       }
 
-      // Write back to clients.connections (legacy path — keep in sync during Phase 2)
-      try {
-        const client = await authService.getById(clientId);
-        const conn = client.connections?.[type] || {};
-        const updated = { ...conn, accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
-        const connections = { ...(client.connections || {}), [type]: updated };
-        await authService.updateClient(clientId, { connections });
-      } catch (err) {
-        console.warn(`[AmazonAuth] Failed to update clients.connections on refresh: ${err.message}`);
-      }
+      // NOTE: clients.connections legacy sync intentionally removed — amazon_connections is source of truth.
 
-      _tokenCache.set(cacheKey, { accessToken: refreshed.accessToken, expiresAt: newExpiresAt, credentialId });
+      await _setCachedToken(cacheKey, { accessToken: refreshed.accessToken, expiresAt: newExpiresAt, credentialId });
       return refreshed.accessToken;
     }
 
-    _tokenCache.set(cacheKey, { accessToken, expiresAt, credentialId });
+    await _setCachedToken(cacheKey, { accessToken, expiresAt, credentialId });
     return accessToken;
   }
 
@@ -248,11 +276,11 @@ async function getValidToken(clientId, type) {
     const updated = { ...conn, ...refreshed };
     const connections = { ...(client.connections || {}), [type]: updated };
     await authService.updateClient(clientId, { connections });
-    _tokenCache.set(cacheKey, { accessToken: updated.accessToken, expiresAt: new Date(updated.expiresAt).getTime() });
+    await _setCachedToken(cacheKey, { accessToken: updated.accessToken, expiresAt: new Date(updated.expiresAt).getTime() });
     return updated.accessToken;
   }
 
-  _tokenCache.set(cacheKey, { accessToken: conn.accessToken, expiresAt });
+  await _setCachedToken(cacheKey, { accessToken: conn.accessToken, expiresAt });
   return conn.accessToken;
 }
 
@@ -354,8 +382,8 @@ async function handleCallback({ clientId, code, state, type, extra = {} }) {
       ]);
     }
 
-    // Invalidate in-process cache so next read picks up fresh token
-    _tokenCache.delete(`${clientId}:${type}`);
+    // Invalidate token cache so next read picks up fresh token
+    await _deleteCachedToken(`${clientId}:${type}`);
 
     console.log(`[Amazon] ${CONNECTIONS[type].label} connected for client ${clientId} — connected OK${accountId ? ` (account=${accountId})` : ''}`);
 
@@ -476,7 +504,7 @@ async function confirmProfile({ pendingId, clientId, selectedProfileIds }) {
       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP())
     `, [uuidv4(), clientId, type, encrypt(tokens.accessToken), encrypt(tokens.refreshToken), tokenExpiresAtSf, connectedAtSf]);
   }
-  _tokenCache.delete(`${clientId}:${type}`);
+  await _deleteCachedToken(`${clientId}:${type}`);
 
   // ── Write selected profiles to client_accounts ─────────────────────────────
   if (channel && selectedProfileIds && selectedProfileIds.length > 0) {
