@@ -523,14 +523,9 @@ const CRON_SCHEDULE = [
     jobId: 'download_completed_reports',
     expr:  '*/30 * * * *',  // every 30 min — sets pending_stage flag when new rows land
   },
-  {
-    jobId: 'refresh_queue_status',
-    expr:  SCHEDULE_CRONS['every15min'],
-  },
-  {
-    jobId: 'sync_job_metadata',
-    expr:  SCHEDULE_CRONS['every15min'],
-  },
+  // refresh_queue_status and sync_job_metadata removed — were console.log-only
+  // jobs hitting Snowflake every 15min with no downstream effect. Queue status
+  // is visible in Snowflake directly; no value in polling it constantly.
 
   // ── Hourly ─────────────────────────────────────────────────────────────────
   {
@@ -730,7 +725,7 @@ function startCron({ runImmediately = false } = {}) {
     console.log('[cron] Running startup jobs...');
     // Only run the cheap health checks on startup, not the heavy daily jobs
     // Also run ingest jobs on startup so missed runs self-heal after worker restarts
-    const startupJobs = ['check_connector_health', 'poll_report_status', 'refresh_queue_status', 'ingest_vendor_reports', 'ingest_seller_reports'];
+    const startupJobs = ['check_connector_health', 'poll_report_status', 'ingest_vendor_reports', 'ingest_seller_reports'];
     for (const jobId of startupJobs) {
       setImmediate(() => withLock(jobId, JOB_HANDLERS[jobId] || (() => {})));
     }

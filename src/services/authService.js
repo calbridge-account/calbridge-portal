@@ -165,7 +165,47 @@ async function login({ email, password }) {
   return { id: effectiveId, email: row.EMAIL, name: row.NAME, status: row.STATUS };
 }
 
+// Client record cache — Redis-backed, 30min TTL.
+// Avoids hitting Snowflake on every token refresh / auth middleware call.
+// Invalidated on updateClient so stale data is never served.
+const CLIENT_CACHE_TTL = 30 * 60; // 30 minutes
+
+async function _getCachedClient(id) {
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      const raw = await redis.get(`client:${id}`);
+      if (raw) return JSON.parse(raw);
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+async function _setCachedClient(id, value) {
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      await redis.set(`client:${id}`, JSON.stringify(value), 'EX', CLIENT_CACHE_TTL);
+    }
+  } catch { /* non-fatal */ }
+}
+
+async function _deleteCachedClient(id) {
+  try {
+    const { getRedisClient } = require('./redisSessionStore');
+    const redis = getRedisClient();
+    if (redis && redis.status === 'ready') {
+      await redis.del(`client:${id}`);
+    }
+  } catch { /* non-fatal */ }
+}
+
 async function getById(id) {
+  const cached = await _getCachedClient(id);
+  if (cached) return cached;
+
   const rows = await query(
     `SELECT client_id, email, name, connections FROM clients WHERE client_id = ?`, [id]
   );
@@ -173,7 +213,7 @@ async function getById(id) {
     const err = new Error('Client not found'); err.status = 404; throw err;
   }
   const row = rows[0];
-  return {
+  const client = {
     id: row.CLIENT_ID,
     email: row.EMAIL,
     name: row.NAME,
@@ -181,6 +221,8 @@ async function getById(id) {
       ? (typeof row.CONNECTIONS === 'string' ? JSON.parse(row.CONNECTIONS) : row.CONNECTIONS)
       : {}
   };
+  await _setCachedClient(id, client);
+  return client;
 }
 
 async function updateClient(id, updates) {
@@ -190,6 +232,7 @@ async function updateClient(id, updates) {
       : JSON.stringify(updates.connections);
     await query(`UPDATE clients SET connections = PARSE_JSON(?) WHERE client_id = ?`, [val, id]);
   }
+  await _deleteCachedClient(id); // invalidate so next read is fresh
   return getById(id);
 }
 

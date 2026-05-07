@@ -243,15 +243,19 @@ setInterval(() => {
   if (leaked > 0) console.log(`[Snowflake] Force-released ${leaked} leaked connection(s)`);
 }, 2 * 60 * 1000);
 
-// ─── Keepalive: ping idle connections every 10 min to prevent Snowflake idle timeout ──
-// Snowflake drops idle connections after ~30 min by default. This prevents the
-// "terminated connection" errors that silently drop ingestion runs.
+// ─── Keepalive: ping idle connections to prevent Snowflake idle timeout ──────
+// Snowflake drops idle connections after ~4h by default (account setting).
+// We only ping connections idle >3.5h — this lets the warehouse auto-suspend
+// (60s threshold) between job cycles instead of staying awake 24/7.
+// Terminated connections are caught by the prune interval and recreated on demand.
+const KEEPALIVE_IDLE_MS  = 3.5 * 60 * 60 * 1000; // 3.5 hours
+const KEEPALIVE_CHECK_MS =  30 * 60 * 1000;        // check every 30 min
 setInterval(() => {
   const now = Date.now();
   for (const entry of pool) {
     if (entry.inUse || !isAlive(entry)) continue;
     const idleMs = entry.lastUsedAt ? now - entry.lastUsedAt : now - entry.createdAt;
-    if (idleMs > 20 * 60 * 1000) { // idle >20 min — ping it (raised from 8min; less frequent keepalives = warehouse suspends sooner)
+    if (idleMs > KEEPALIVE_IDLE_MS) {
       entry.conn.execute({
         sqlText: 'SELECT 1',
         complete: (err) => {
@@ -265,7 +269,7 @@ setInterval(() => {
       });
     }
   }
-}, 10 * 60 * 1000);
+}, KEEPALIVE_CHECK_MS);
 
 // ─── Batch Merge Helper ───────────────────────────────────────────────────────
 //
