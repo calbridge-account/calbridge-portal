@@ -21,11 +21,6 @@ const { query } = require('./snowflakeService');
  * @param {import('express').Request} req
  * @returns {Promise<string>}
  */
-// Admin accounts have no direct advertiser mapping — default them to CyberPower
-// so the admin can view live data. Remove once a proper impersonation UI exists.
-const ADMIN_DEFAULT_CLIENT_ID = '7d88ea17-002b-4a02-97fc-bcab1292d57e'; // CyberPower
-const ADMIN_CLIENT_IDS = new Set(['abe-admin-001']);
-
 async function resolveClientId(req) {
   const advertiserId = req.session.activeAdvertiserId || req.session.advertiserId;
   if (advertiserId) {
@@ -39,9 +34,8 @@ async function resolveClientId(req) {
       // Fall through to session.clientId on any Snowflake error
     }
   }
-  // Admin default: only apply when session.clientId is literally the admin account
-  // (not a brand session — switch-brand changes clientId away from abe-admin-001)
-  if (req.session.clientId === 'abe-admin-001') return ADMIN_DEFAULT_CLIENT_ID;
+  // Return the session clientId directly — no silent defaults.
+  // Agency/admin users must switch into a brand session before data is shown.
   return req.session.clientId;
 }
 
