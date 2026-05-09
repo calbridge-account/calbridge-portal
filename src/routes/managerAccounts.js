@@ -1303,6 +1303,8 @@ agencyRouter.post('/switch-brand', async (req, res) => {
     req.session.clientId = brandClientId;
     req.session.activeAdvertiserId = null;
     req.session.advertiserId = null;    // clear legacy advertiserId so resolveClientId uses clientId directly
+    req.session.managerId = null;       // clear so requireAuth re-resolves from new clientId on next request
+    req.session.agencyId = null;
     req.session.activeMarketplace = null;
     req.session.isBrandSession = true;
     req.session.planCache = null;
@@ -1334,6 +1336,8 @@ agencyRouter.post('/exit-brand', async (req, res) => {
     req.session.agencyClientId = null;
     req.session.activeAdvertiserId = null;
     req.session.advertiserId = null;    // will be re-resolved from migration map on next request
+    req.session.managerId = null;       // force re-resolve on next request
+    req.session.agencyId = null;
     req.session.isBrandSession = false;
     req.session.planCache = null;
 

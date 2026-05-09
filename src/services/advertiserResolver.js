@@ -39,8 +39,9 @@ async function resolveClientId(req) {
       // Fall through to session.clientId on any Snowflake error
     }
   }
-  // Admin accounts default to CyberPower data until impersonation UI exists
-  if (ADMIN_CLIENT_IDS.has(req.session.clientId)) return ADMIN_DEFAULT_CLIENT_ID;
+  // Admin default: only apply when session.clientId is literally the admin account
+  // (not a brand session — switch-brand changes clientId away from abe-admin-001)
+  if (req.session.clientId === 'abe-admin-001') return ADMIN_DEFAULT_CLIENT_ID;
   return req.session.clientId;
 }
 
