@@ -1047,7 +1047,7 @@ router.get('/dsp-orders', requireAuth, planDataWindow, async (req, res, next) =>
       WHERE client_id = ?
         ${dateFilter("date", days, startDate, endDate)}
       GROUP BY order_id, order_name
-      ORDER BY SUM(spend) DESC
+      ORDER BY spend DESC
       LIMIT ?
     `, [clientId, limit]));
 
@@ -1463,7 +1463,7 @@ router.get('/expansion-candidates', requireAuth, planDataWindow, async (req, res
         JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
         LEFT JOIN products pr ON p.client_id=pr.client_id AND p.advertised_asin=pr.asin
         WHERE p.client_id = ?
-          AND (UPPER(c.targeting_type)='AUTO' OR UPPER(c.campaign_name) LIKE '%AUTO%' OR UPPER(c.campaign_name) LIKE '%_AT_%')
+          AND (UPPER(c.campaign_bidding_strategy) LIKE '%AUTO%' OR UPPER(c.campaign_name) LIKE '%AUTO%' OR UPPER(c.campaign_name) LIKE '%_AT_%')
           AND p.date >= DATEADD('day', -95, CURRENT_DATE)
           AND p.advertised_asin != 'UNATTRIBUTED'
         GROUP BY p.advertised_asin, p.campaign_id
@@ -1507,7 +1507,7 @@ router.get('/expansion-candidates', requireAuth, planDataWindow, async (req, res
         SELECT DISTINCT p.advertised_asin
         FROM sp_advertised_product_report p
         JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
-        WHERE p.client_id=? AND UPPER(c.targeting_type)='MANUAL'
+        WHERE p.client_id=? AND UPPER(c.campaign_name) NOT LIKE '%AUTO%' AND UPPER(c.campaign_name) NOT LIKE '%_AT_%'
           AND p.date >= DATEADD('day', -30, CURRENT_DATE)
       `, [clientId]);
       manualAsins = new Set(manualRows.map(r => r.ADVERTISED_ASIN || r.advertised_asin));
@@ -1557,10 +1557,13 @@ router.get('/harvest-terms', requireAuth, async (req, res, next) => {
     let competitorSignals = [];
     try {
       const sigRows = await query(
-        `SELECT match_term FROM CALBRIDGE_PROD.APP.BRAND_COMPETITORS WHERE client_id=? LIMIT 100`,
+        `SELECT match_terms FROM CALBRIDGE_PROD.APP.BRAND_COMPETITORS WHERE client_id=? LIMIT 100`,
         [clientId]
       );
-      competitorSignals = sigRows.map(r => r.MATCH_TERM || r.match_term).filter(Boolean);
+      competitorSignals = sigRows.flatMap(r => {
+        const v = r.MATCH_TERMS || r.match_terms || '';
+        return v.split(',').map(s => s.trim()).filter(Boolean);
+      });
     } catch(e) { /* table may not exist */ }
 
     // Fetch search terms — column is SEARCH_TERM (not query), purchases/sales use underscore format
@@ -1608,13 +1611,14 @@ router.get('/harvest-terms', requireAuth, async (req, res, next) => {
     let breakEvenAcos = null;
     try {
       const cogsRow = await query(
-        `SELECT cost_of_goods, selling_price FROM CALBRIDGE_PROD.APP.CLIENT_COGS WHERE client_id=? AND asin=? LIMIT 1`,
+        `SELECT cost_per_unit FROM CALBRIDGE_PROD.APP.CLIENT_COGS WHERE client_id=? AND asin=? LIMIT 1`,
         [clientId, asin]
       );
       if (cogsRow.length) {
-        const cogs = Number(cogsRow[0].COST_OF_GOODS || cogsRow[0].cost_of_goods || 0);
-        const price = Number(cogsRow[0].SELLING_PRICE || cogsRow[0].selling_price || 0);
-        if (price > 0) breakEvenAcos = parseFloat(((price - cogs) / price).toFixed(4));
+        const cogs = Number(cogsRow[0].COST_PER_UNIT || cogsRow[0].cost_per_unit || 0);
+        // selling_price no longer stored in CLIENT_COGS — break-even ACoS requires price
+        // to be passed from the frontend or fetched separately; skip calculation if unavailable
+        if (cogs > 0) breakEvenAcos = null; // placeholder until price source is available
       }
     } catch(e) { /* ok */ }
 
@@ -1625,7 +1629,7 @@ router.get('/harvest-terms', requireAuth, async (req, res, next) => {
         SELECT COUNT(DISTINCT date) AS manual_days
         FROM sp_advertised_product_report p
         JOIN sp_campaign_report c ON p.client_id=c.client_id AND p.campaign_id=c.campaign_id
-        WHERE p.client_id=? AND p.advertised_asin=? AND UPPER(c.targeting_type)='MANUAL'
+        WHERE p.client_id=? AND p.advertised_asin=? AND UPPER(c.campaign_name) NOT LIKE '%AUTO%' AND UPPER(c.campaign_name) NOT LIKE '%_AT_%'
           AND p.date >= DATEADD('day', -60, CURRENT_DATE)
       `, [clientId, asin]);
       const manualDays = Number(manualAge[0]?.MANUAL_DAYS || 0);

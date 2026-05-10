@@ -95,7 +95,7 @@ async function reconcileBudgetCampaigns(clientId, budgetIds) {
     for (const budgetId of budgetIds) {
       const toAdd = await query(`
         WITH unmapped AS (
-          SELECT DISTINCT p.campaign_id, MAX(p.campaign_name) as campaign_name, p.ad_type
+          SELECT DISTINCT p.campaign_id, MAX(p.campaign_name) as campaign_name, p.ad_type, MAX(p.marketplace) as marketplace
           FROM ${SCHEMA}.ADJUSTED_CAMPAIGN_PERFORMANCE p
           WHERE p.client_id = ?
             AND p.ad_type = 'DSP'
