@@ -58,6 +58,10 @@ import Signup from './pages/Signup';
 import Brands from './pages/Brands';
 import ReportBuilder from './pages/ReportBuilder';
 import AgencyReports from './pages/AgencyReports';
+import StockoutImpact from './pages/StockoutImpact';
+import FillRate from './pages/FillRate';
+import PpmOptimizer from './pages/PpmOptimizer';
+import ChannelComparison from './pages/ChannelComparison';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -102,6 +106,10 @@ export default function App() {
             <Route path="/agency-reports"   element={<AgencyReports />} />
             <Route path="/reports"         element={<ReportBuilder />} />
             <Route path="/reports/:reportId" element={<ReportBuilder />} />
+            <Route path="/vendor/stockout-impact"    element={<StockoutImpact />} />
+            <Route path="/vendor/fill-rate"          element={<FillRate />} />
+            <Route path="/vendor/ppm-optimizer"      element={<PpmOptimizer />} />
+            <Route path="/vendor/channel-comparison" element={<ChannelComparison />} />
           </Routes>
         </Layout>
       </BrowserRouter>

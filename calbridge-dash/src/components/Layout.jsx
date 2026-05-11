@@ -20,7 +20,11 @@ const NAV = [
   {
     group: 'Retail',
     items: [
-      { path: '/vendor',      label: 'Vendor Sales',   emoji: '📦', minRole: 'viewer'  },
+      { path: '/vendor',                      label: 'Vendor Sales',        emoji: '📦', minRole: 'viewer'  },
+      { path: '/vendor/stockout-impact',       label: 'Stockout Impact',     emoji: '🚨', minRole: 'analyst' },
+      { path: '/vendor/fill-rate',             label: 'PO Fill Rate',        emoji: '📋', minRole: 'analyst' },
+      { path: '/vendor/ppm-optimizer',         label: 'Net PPM Optimizer',   emoji: '💹', minRole: 'analyst' },
+      { path: '/vendor/channel-comparison',    label: 'Channel Comparison',  emoji: '⚖️', minRole: 'analyst' },
       { path: '/seller',      label: 'Seller Sales',   emoji: '🛒', minRole: 'viewer'  },
       { path: '/inventory',   label: 'Inventory',      emoji: '🏭', minRole: 'viewer'  },
       { path: '/forecasting', label: 'Forecasting',    emoji: '📈', minRole: 'analyst' },

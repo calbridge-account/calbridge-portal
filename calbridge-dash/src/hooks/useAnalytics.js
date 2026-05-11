@@ -34,6 +34,10 @@ import {
   getDspOrders,
   getExpansionCandidates,
   getHarvestTerms,
+  getStockoutImpact,
+  getFillRate,
+  getPpmOptimizer,
+  getChannelComparison,
 } from '../api/client';
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
@@ -352,6 +356,44 @@ export function useHarvestTerms(asin, campaignId, thresholds, range, enabled) {
     queryFn: () => getHarvestTerms(asin, campaignId, thresholds, range),
     enabled: !advertiserLoading && !!enabled && !!asin && !!campaignId,
     staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
+}
+
+// ─── New vendor analytics hooks ───────────────────────────────────────────────────
+
+export function useStockoutImpact(range) {
+  return useQuery({
+    queryKey: ['stockout-impact', rangeKey(range)],
+    queryFn: () => getStockoutImpact(range),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useFillRate(range) {
+  return useQuery({
+    queryKey: ['fill-rate', rangeKey(range)],
+    queryFn: () => getFillRate(range),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function usePpmOptimizer(range) {
+  return useQuery({
+    queryKey: ['ppm-optimizer', rangeKey(range)],
+    queryFn: () => getPpmOptimizer(range),
+    staleTime: STALE_TIME,
+    retry: 2,
+  });
+}
+
+export function useChannelComparison(range) {
+  return useQuery({
+    queryKey: ['channel-comparison', rangeKey(range)],
+    queryFn: () => getChannelComparison(range),
+    staleTime: STALE_TIME,
     retry: 2,
   });
 }

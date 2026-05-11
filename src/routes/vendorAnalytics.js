@@ -1623,4 +1623,354 @@ router.get('/realtime', requireAuth, requirePlan('vendorReports'), async (req, r
   } catch (err) { next(err); }
 });
 
+// ─── GET /vendor-analytics/stockout-impact ───────────────────────────────────
+// Per ASIN: find days where sellable_on_hand_units = 0, compute estimated lost revenue
+router.get('/stockout-impact', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
+  try {
+    const CLIENT_ID = await getClientId(req);
+    const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
+
+    const rows = await query(`
+      WITH best_product AS (
+        SELECT asin, MAX(title) AS title
+        FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+        GROUP BY asin
+      ),
+      inv_days AS (
+        SELECT
+          i.asin,
+          COUNT(CASE WHEN i.sellable_on_hand_units = 0 THEN 1 END) AS stockout_days,
+          COUNT(CASE WHEN i.sellable_on_hand_units > 0 THEN 1 END) AS in_stock_days,
+          MAX(CASE WHEN i.sellable_on_hand_units = 0 THEN i.start_date END) AS last_stockout_date
+        FROM ${SCHEMA}.VENDOR_INVENTORY i
+        WHERE i.client_id = ? AND i.start_date BETWEEN ? AND ?
+        GROUP BY i.asin
+      ),
+      sales_summary AS (
+        SELECT
+          asin,
+          SUM(ordered_units)   AS total_ordered_units,
+          SUM(ordered_revenue) AS total_ordered_revenue
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
+        GROUP BY asin
+      )
+      SELECT
+        id.asin,
+        MAX(bp.title)             AS title,
+        id.stockout_days,
+        id.in_stock_days,
+        id.last_stockout_date,
+        ss.total_ordered_units,
+        ss.total_ordered_revenue
+      FROM inv_days id
+      LEFT JOIN best_product bp  ON bp.asin = id.asin
+      LEFT JOIN sales_summary ss ON ss.asin = id.asin
+      WHERE id.stockout_days > 0
+      ORDER BY id.stockout_days DESC NULLS LAST
+    `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID, cutoff, rangeEnd]);
+
+    let totalStockoutDays = 0;
+    let totalEstimatedLostRevenue = 0;
+
+    const asins = rows.map(r => {
+      const stockoutDays     = n(r.STOCKOUT_DAYS) || 0;
+      const inStockDays      = n(r.IN_STOCK_DAYS) || 0;
+      const totalUnits       = n(r.TOTAL_ORDERED_UNITS) || 0;
+      const totalRevenue     = n(r.TOTAL_ORDERED_REVENUE) || 0;
+      const avgDailyVelocity = inStockDays > 0 ? totalUnits / inStockDays : 0;
+      const avgSellingPrice  = totalUnits > 0 ? totalRevenue / totalUnits : 0;
+      const estimatedLostUnits   = stockoutDays * avgDailyVelocity;
+      const estimatedLostRevenue = estimatedLostUnits * avgSellingPrice;
+
+      totalStockoutDays         += stockoutDays;
+      totalEstimatedLostRevenue += estimatedLostRevenue;
+
+      return {
+        asin:                r.ASIN,
+        title:               r.TITLE || null,
+        stockoutDays,
+        estimatedLostUnits:  Math.round(estimatedLostUnits),
+        estimatedLostRevenue,
+        avgDailyVelocity,
+        lastStockoutDate:    dateStr(r.LAST_STOCKOUT_DATE),
+      };
+    });
+
+    res.json({
+      summary: {
+        totalStockoutDays,
+        totalEstimatedLostRevenue,
+      },
+      asins,
+      range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/fill-rate ─────────────────────────────────────────
+// PO Fill Rate Scorecard: overall + per-ASIN fill rate from VENDOR_PURCHASE_ORDERS
+router.get('/fill-rate', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
+  try {
+    const CLIENT_ID = await getClientId(req);
+    const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
+
+    const [summaryRows, asinRows] = await Promise.all([
+      // Overall summary
+      query(`
+        SELECT
+          SUM(units_ordered)                                                    AS total_ordered,
+          SUM(units_received)                                                   AS total_received,
+          SUM(units_ordered) - SUM(units_received)                             AS open_units,
+          CASE WHEN SUM(units_ordered) > 0
+               THEN SUM(units_received) / SUM(units_ordered) ELSE NULL END     AS overall_fill_rate
+        FROM ${SCHEMA}.VENDOR_PURCHASE_ORDERS
+        WHERE client_id = ? AND order_date BETWEEN ? AND ?
+      `, [CLIENT_ID, cutoff, rangeEnd]),
+
+      // Per-ASIN detail — join to latest VENDOR_INVENTORY snapshot for inv rates + lead time
+      query(`
+        WITH best_product AS (
+          SELECT asin, MAX(title) AS title
+          FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+          GROUP BY asin
+        ),
+        po_agg AS (
+          SELECT
+            asin,
+            SUM(units_ordered)                                                AS units_ordered,
+            SUM(units_received)                                               AS units_received,
+            SUM(units_ordered) - SUM(units_received)                         AS open_units,
+            CASE WHEN SUM(units_ordered) > 0
+                 THEN SUM(units_received) / SUM(units_ordered) ELSE NULL END AS fill_rate,
+            MAX(order_date)                                                   AS last_order_date
+          FROM ${SCHEMA}.VENDOR_PURCHASE_ORDERS
+          WHERE client_id = ? AND order_date BETWEEN ? AND ?
+          GROUP BY asin
+        ),
+        latest_inv AS (
+          SELECT
+            asin,
+            receive_fill_rate,
+            vendor_confirmation_rate,
+            avg_vendor_lead_time_days
+          FROM ${SCHEMA}.VENDOR_INVENTORY
+          WHERE client_id = ?
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY asin ORDER BY start_date DESC) = 1
+        )
+        SELECT
+          pa.asin,
+          MAX(bp.title)              AS title,
+          pa.units_ordered,
+          pa.units_received,
+          pa.open_units,
+          pa.fill_rate,
+          pa.last_order_date,
+          li.receive_fill_rate,
+          li.vendor_confirmation_rate,
+          li.avg_vendor_lead_time_days
+        FROM po_agg pa
+        LEFT JOIN best_product bp  ON bp.asin = pa.asin
+        LEFT JOIN latest_inv li    ON li.asin = pa.asin
+        ORDER BY pa.fill_rate ASC NULLS LAST
+      `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID]),
+    ]);
+
+    const s = summaryRows[0] || {};
+    // avg lead time from inventory snapshot (global avg)
+    const avgLeadTime = asinRows.length > 0
+      ? asinRows.reduce((sum, r) => sum + (n(r.AVG_VENDOR_LEAD_TIME_DAYS) || 0), 0) / asinRows.length
+      : null;
+
+    res.json({
+      summary: {
+        overallFillRate:  n(s.OVERALL_FILL_RATE),
+        totalOrdered:     n(s.TOTAL_ORDERED),
+        totalReceived:    n(s.TOTAL_RECEIVED),
+        openUnits:        n(s.OPEN_UNITS),
+        avgLeadTime,
+      },
+      asins: asinRows.map(r => ({
+        asin:                  r.ASIN,
+        title:                 r.TITLE || null,
+        unitsOrdered:          n(r.UNITS_ORDERED),
+        unitsReceived:         n(r.UNITS_RECEIVED),
+        openUnits:             n(r.OPEN_UNITS),
+        fillRate:              n(r.FILL_RATE),
+        lastOrderDate:         dateStr(r.LAST_ORDER_DATE),
+        receiveFillRate:       n(r.RECEIVE_FILL_RATE),
+        vendorConfirmationRate: n(r.VENDOR_CONFIRMATION_RATE),
+        avgLeadTimeDays:       n(r.AVG_VENDOR_LEAD_TIME_DAYS),
+      })),
+      range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/ppm-optimizer ─────────────────────────────────────
+// Net PPM per ASIN with component breakdown + shipped revenue context
+router.get('/ppm-optimizer', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
+  try {
+    const CLIENT_ID = await getClientId(req);
+    const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
+
+    const rows = await query(`
+      WITH best_product AS (
+        SELECT asin, MAX(title) AS title
+        FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+        GROUP BY asin
+      ),
+      ppm_agg AS (
+        SELECT
+          asin,
+          AVG(net_pure_product_margin) AS net_ppm,
+          AVG(coop_credits)            AS avg_coop_credits,
+          AVG(price_concessions)       AS avg_price_concessions,
+          AVG(freight_costs)           AS avg_freight_costs
+        FROM ${SCHEMA}.VENDOR_NET_PPM
+        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+        GROUP BY asin
+      ),
+      sales_agg AS (
+        SELECT
+          asin,
+          SUM(shipped_revenue) AS shipped_revenue,
+          SUM(shipped_cogs)    AS shipped_cogs
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
+        GROUP BY asin
+      )
+      SELECT
+        pa.asin,
+        MAX(bp.title)          AS title,
+        pa.net_ppm,
+        pa.avg_coop_credits,
+        pa.avg_price_concessions,
+        pa.avg_freight_costs,
+        sa.shipped_revenue,
+        sa.shipped_cogs
+      FROM ppm_agg pa
+      LEFT JOIN best_product bp ON bp.asin = pa.asin
+      LEFT JOIN sales_agg sa    ON sa.asin = pa.asin
+      ORDER BY pa.net_ppm ASC NULLS LAST
+    `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID, cutoff, rangeEnd]);
+
+    res.json({
+      asins: rows.map(r => ({
+        asin:           r.ASIN,
+        title:          r.TITLE || null,
+        netPpm:         n(r.NET_PPM),
+        shippedRevenue: n(r.SHIPPED_REVENUE),
+        shippedCogs:    n(r.SHIPPED_COGS),
+        components: {
+          coopCredits:       n(r.AVG_COOP_CREDITS),
+          priceConcessions:  n(r.AVG_PRICE_CONCESSIONS),
+          freightCosts:      n(r.AVG_FREIGHT_COSTS),
+        },
+      })),
+      range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /vendor-analytics/channel-comparison ────────────────────────────────
+// Compare vendor vs seller performance per ASIN (only if both channels connected)
+router.get('/channel-comparison', requireAuth, requirePlan('vendorReports'), async (req, res, next) => {
+  try {
+    const CLIENT_ID = await getClientId(req);
+    const { start: cutoff, end: rangeEnd, label: rangeLabel } = parseDateRange(req);
+
+    // Try SELLER_ORDER_METRICS first; fall back gracefully
+    let sellerTableExists = false;
+    try {
+      await query(
+        `SELECT 1 FROM ${SCHEMA}.SELLER_ORDER_METRICS WHERE client_id = ? LIMIT 1`,
+        [CLIENT_ID]
+      );
+      sellerTableExists = true;
+    } catch (_) { /* table doesn't exist or no access */ }
+
+    if (!sellerTableExists) {
+      return res.json({
+        asins: [],
+        available: false,
+        reason: 'Seller data not available. Connect your Seller Central account to enable channel comparison.',
+        range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+      });
+    }
+
+    const rows = await query(`
+      WITH best_product AS (
+        SELECT asin, MAX(title) AS title
+        FROM ${SCHEMA}.PRODUCTS WHERE client_id = ?
+        GROUP BY asin
+      ),
+      vendor_agg AS (
+        SELECT
+          asin,
+          SUM(shipped_revenue) AS vendor_revenue,
+          SUM(shipped_units)   AS vendor_units
+        FROM ${SCHEMA}.VENDOR_SALES
+        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+          ${DAY_ONLY}
+        GROUP BY asin
+      ),
+      seller_agg AS (
+        SELECT
+          asin,
+          SUM(ordered_revenue) AS seller_revenue,
+          SUM(ordered_units)   AS seller_units
+        FROM ${SCHEMA}.SELLER_ORDER_METRICS
+        WHERE client_id = ? AND order_date BETWEEN ? AND ?
+        GROUP BY asin
+      ),
+      ppm_agg AS (
+        SELECT
+          asin,
+          AVG(net_pure_product_margin) AS vendor_net_ppm
+        FROM ${SCHEMA}.VENDOR_NET_PPM
+        WHERE client_id = ? AND start_date BETWEEN ? AND ?
+        GROUP BY asin
+      )
+      SELECT
+        va.asin,
+        MAX(bp.title)   AS title,
+        va.vendor_revenue,
+        va.vendor_units,
+        sa.seller_revenue,
+        sa.seller_units,
+        pm.vendor_net_ppm
+      FROM vendor_agg va
+      JOIN seller_agg sa  ON sa.asin = va.asin
+      LEFT JOIN ppm_agg pm ON pm.asin = va.asin
+      LEFT JOIN best_product bp ON bp.asin = va.asin
+      ORDER BY va.vendor_revenue DESC NULLS LAST
+    `, [CLIENT_ID,
+        CLIENT_ID, cutoff, rangeEnd,
+        CLIENT_ID, cutoff, rangeEnd,
+        CLIENT_ID, cutoff, rangeEnd]);
+
+    res.json({
+      asins: rows.map(r => ({
+        asin:  r.ASIN,
+        title: r.TITLE || null,
+        vendor: {
+          revenue: n(r.VENDOR_REVENUE),
+          units:   n(r.VENDOR_UNITS),
+          netPpm:  n(r.VENDOR_NET_PPM),
+        },
+        seller: {
+          revenue: n(r.SELLER_REVENUE),
+          units:   n(r.SELLER_UNITS),
+        },
+      })),
+      available: true,
+      range: { start: cutoff, end: rangeEnd, label: rangeLabel },
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
+

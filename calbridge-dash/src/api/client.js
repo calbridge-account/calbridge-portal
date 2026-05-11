@@ -201,6 +201,12 @@ export const getDspOrders = (range, marketplace) => {
   return advJSON(`/dsp-orders${base}${mp}`);
 };
 
+// Vendor Analytics — new feature endpoints
+export const getStockoutImpact = (range) => fetchJSON(`/stockout-impact${rangeParams(range)}`);
+export const getFillRate       = (range) => fetchJSON(`/fill-rate${rangeParams(range)}`);
+export const getPpmOptimizer   = (range) => fetchJSON(`/ppm-optimizer${rangeParams(range)}`);
+export const getChannelComparison = (range) => fetchJSON(`/channel-comparison${rangeParams(range)}`);
+
 // Connection status — which Amazon accounts are connected
 export const getConnections = () =>
   fetch('/amazon/status', { credentials: 'include' }).then(r => r.ok ? r.json() : {});

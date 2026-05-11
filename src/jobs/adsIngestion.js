@@ -931,11 +931,27 @@ async function writeSpTargetingReport(clientId, profileId, reportDate, rows) {
   });
 }
 
+// In-process cooldown: tracks last write time per clientId+reportDate for search term reports.
+// Prevents redundant full-table MERGEs when download_completed_reports runs every 30min.
+const _searchTermWriteCache = new Map();
+const SEARCH_TERM_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 /**
  * Write rows to sp_search_term_report using MERGE.
+ * Skips if this clientId+reportDate was already written within SEARCH_TERM_COOLDOWN_MS
+ * to avoid redundant full-table scans from the 30min download loop.
  */
 async function writeSpSearchTermReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
+
+  // Cooldown guard — skip if recently written for this client+date
+  const cacheKey = `${clientId}:${reportDate}`;
+  const lastWrite = _searchTermWriteCache.get(cacheKey);
+  if (lastWrite && (Date.now() - lastWrite) < SEARCH_TERM_COOLDOWN_MS) {
+    console.log(`[spSearchTerm] Skipping MERGE for ${clientId} ${reportDate} — written ${Math.round((Date.now()-lastWrite)/60000)}m ago (cooldown: ${SEARCH_TERM_COOLDOWN_MS/3600000}h)`);
+    return 0;
+  }
+  _searchTermWriteCache.set(cacheKey, Date.now());
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
   const mapped = rows.map(r => ({
     client_id: clientId,
@@ -1250,11 +1266,22 @@ async function writeSbKeywordReport(clientId, profileId, reportDate, rows) {
   });
 }
 
+const _sbSearchTermWriteCache = new Map();
+
 /**
  * Write rows to sb_search_term_report using MERGE.
+ * Skips if this clientId+reportDate was already written within SEARCH_TERM_COOLDOWN_MS.
  */
 async function writeSbSearchTermReport(clientId, profileId, reportDate, rows) {
   if (!rows.length) return 0;
+
+  const cacheKey = `${clientId}:${reportDate}`;
+  const lastWrite = _sbSearchTermWriteCache.get(cacheKey);
+  if (lastWrite && (Date.now() - lastWrite) < SEARCH_TERM_COOLDOWN_MS) {
+    console.log(`[sbSearchTerm] Skipping MERGE for ${clientId} ${reportDate} — written ${Math.round((Date.now()-lastWrite)/60000)}m ago (cooldown: ${SEARCH_TERM_COOLDOWN_MS/3600000}h)`);
+    return 0;
+  }
+  _sbSearchTermWriteCache.set(cacheKey, Date.now());
   const getIsoDate = (r) => (r && (r.date || r.DATE)) ? String(r.date || r.DATE).substring(0,10) : (String(reportDate).includes('_') ? toISODate(String(reportDate).substring(0,8)) : toISODate(String(reportDate)));
   const mapped = rows.map(r => ({
     client_id:   clientId,
