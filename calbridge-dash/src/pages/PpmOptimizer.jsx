@@ -86,31 +86,18 @@ function WhatIfSlider({ asin, basePpm, coopCredits }) {
 
 // ─── Expanded row ─────────────────────────────────────────────────────────────
 function ExpandedRow({ row }) {
-  const { components } = row;
   return (
     <tr>
       <td colSpan={5} className="px-6 py-0 pb-4 bg-gray-50 border-b border-gray-100">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3">
-          {/* Component breakdown */}
+          {/* Net PPM summary */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">PPM Components</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Net PPM</p>
             <table className="w-full text-xs">
               <tbody>
-                {[
-                  { label: 'Coop Credits', value: components?.coopCredits, hint: 'Marketing co-op chargebacks' },
-                  { label: 'Price Concessions', value: components?.priceConcessions, hint: 'Negotiated price reductions' },
-                  { label: 'Freight Costs', value: components?.freightCosts, hint: 'Inbound freight allocation' },
-                ].map(c => (
-                  <tr key={c.label} className="border-b border-gray-100">
-                    <td className="py-1.5 text-gray-600">{c.label}</td>
-                    <td className="py-1.5 text-right font-mono text-gray-700">{fmtPct(c.value)}</td>
-                    <td className="py-1.5 text-right text-gray-400 pl-4">{c.hint}</td>
-                  </tr>
-                ))}
                 <tr className="font-semibold">
-                  <td className="py-2 text-gray-800">Net PPM</td>
+                  <td className="py-2 text-gray-800">Net Pure Product Margin</td>
                   <td className={`py-2 text-right font-mono ${ppmColor(row.netPpm)}`}>{fmtPct(row.netPpm)}</td>
-                  <td />
                 </tr>
               </tbody>
             </table>
@@ -118,7 +105,7 @@ function ExpandedRow({ row }) {
           {/* What-if slider */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">What-If Simulator</p>
-            <WhatIfSlider asin={row.asin} basePpm={row.netPpm} coopCredits={components?.coopCredits} />
+            <WhatIfSlider asin={row.asin} basePpm={row.netPpm} coopCredits={null} />
           </div>
         </div>
       </td>

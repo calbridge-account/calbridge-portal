@@ -1668,6 +1668,8 @@ router.get('/stockout-impact', requireAuth, requirePlan('vendorReports'), async 
       LEFT JOIN best_product bp  ON bp.asin = id.asin
       LEFT JOIN sales_summary ss ON ss.asin = id.asin
       WHERE id.stockout_days > 0
+      GROUP BY id.asin, id.stockout_days, id.in_stock_days, id.last_stockout_date,
+               ss.total_ordered_units, ss.total_ordered_revenue
       ORDER BY id.stockout_days DESC NULLS LAST
     `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID, cutoff, rangeEnd]);
 
@@ -1773,6 +1775,9 @@ router.get('/fill-rate', requireAuth, requirePlan('vendorReports'), async (req, 
         FROM po_agg pa
         LEFT JOIN best_product bp  ON bp.asin = pa.asin
         LEFT JOIN latest_inv li    ON li.asin = pa.asin
+        GROUP BY pa.asin, pa.units_ordered, pa.units_received, pa.open_units, pa.fill_rate,
+                 pa.last_order_date, li.receive_fill_rate, li.vendor_confirmation_rate,
+                 li.avg_vendor_lead_time_days
         ORDER BY pa.fill_rate ASC NULLS LAST
       `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID]),
     ]);
@@ -1824,10 +1829,7 @@ router.get('/ppm-optimizer', requireAuth, requirePlan('vendorReports'), async (r
       ppm_agg AS (
         SELECT
           asin,
-          AVG(net_pure_product_margin) AS net_ppm,
-          AVG(coop_credits)            AS avg_coop_credits,
-          AVG(price_concessions)       AS avg_price_concessions,
-          AVG(freight_costs)           AS avg_freight_costs
+          AVG(net_pure_product_margin) AS net_ppm
         FROM ${SCHEMA}.VENDOR_NET_PPM
         WHERE client_id = ? AND start_date BETWEEN ? AND ?
         GROUP BY asin
@@ -1846,14 +1848,12 @@ router.get('/ppm-optimizer', requireAuth, requirePlan('vendorReports'), async (r
         pa.asin,
         MAX(bp.title)          AS title,
         pa.net_ppm,
-        pa.avg_coop_credits,
-        pa.avg_price_concessions,
-        pa.avg_freight_costs,
         sa.shipped_revenue,
         sa.shipped_cogs
       FROM ppm_agg pa
       LEFT JOIN best_product bp ON bp.asin = pa.asin
       LEFT JOIN sales_agg sa    ON sa.asin = pa.asin
+      GROUP BY pa.asin, pa.net_ppm, sa.shipped_revenue, sa.shipped_cogs
       ORDER BY pa.net_ppm ASC NULLS LAST
     `, [CLIENT_ID, CLIENT_ID, cutoff, rangeEnd, CLIENT_ID, cutoff, rangeEnd]);
 
@@ -1864,11 +1864,6 @@ router.get('/ppm-optimizer', requireAuth, requirePlan('vendorReports'), async (r
         netPpm:         n(r.NET_PPM),
         shippedRevenue: n(r.SHIPPED_REVENUE),
         shippedCogs:    n(r.SHIPPED_COGS),
-        components: {
-          coopCredits:       n(r.AVG_COOP_CREDITS),
-          priceConcessions:  n(r.AVG_PRICE_CONCESSIONS),
-          freightCosts:      n(r.AVG_FREIGHT_COSTS),
-        },
       })),
       range: { start: cutoff, end: rangeEnd, label: rangeLabel },
     });
@@ -1946,6 +1941,7 @@ router.get('/channel-comparison', requireAuth, requirePlan('vendorReports'), asy
       JOIN seller_agg sa  ON sa.asin = va.asin
       LEFT JOIN ppm_agg pm ON pm.asin = va.asin
       LEFT JOIN best_product bp ON bp.asin = va.asin
+      GROUP BY va.asin, va.vendor_revenue, va.vendor_units, sa.seller_revenue, sa.seller_units, pm.vendor_net_ppm
       ORDER BY va.vendor_revenue DESC NULLS LAST
     `, [CLIENT_ID,
         CLIENT_ID, cutoff, rangeEnd,
