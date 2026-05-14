@@ -13,6 +13,8 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1021.0",
+    "@azure/identity": "^4.13.1",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@sparticuz/chromium": "^147.0.2",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
