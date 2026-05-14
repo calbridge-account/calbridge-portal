@@ -410,6 +410,305 @@
     }
     .pricing-card.featured .pricing-cta:hover { background: var(--brand-light); }
 
+    /* ── SCREENSHOTS ── */
+    .screenshots-section {
+      background: #fff;
+      padding: 80px 24px;
+      text-align: center;
+    }
+    .screenshots-inner {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .screenshot-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+    .screenshot-tab {
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 100px;
+      border: 2px solid var(--gray-200);
+      background: #fff;
+      color: var(--gray-600);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .screenshot-tab:hover {
+      border-color: var(--brand);
+      color: var(--brand);
+    }
+    /* Pure CSS tab switching via radio inputs */
+    .screenshot-panels {
+      position: relative;
+    }
+    /* Hide all panels by default */
+    .screenshot-panel {
+      display: none;
+    }
+    /* Show the panel when its corresponding radio is checked.
+       Radios are siblings of .screenshot-tab-labels and .screenshot-panels.
+       We select .screenshot-panels via ~, then target the child by data-panel attribute. */
+    #tab-overview:checked ~ .screenshot-panels .screenshot-panel[data-panel="overview"],
+    #tab-main:checked ~ .screenshot-panels .screenshot-panel[data-panel="main"],
+    #tab-campaigns:checked ~ .screenshot-panels .screenshot-panel[data-panel="campaigns"] {
+      display: block;
+    }
+    /* Highlight the active tab label */
+    #tab-overview:checked ~ .screenshot-tab-labels label[for="tab-overview"],
+    #tab-main:checked ~ .screenshot-tab-labels label[for="tab-main"],
+    #tab-campaigns:checked ~ .screenshot-tab-labels label[for="tab-campaigns"] {
+      border-color: var(--brand);
+      background: var(--brand-light);
+      color: var(--brand);
+    }
+    .browser-chrome {
+      background: #f1f3f5;
+      border-radius: 12px 12px 0 0;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 6px;
+      border: 1px solid var(--gray-200);
+      border-bottom: none;
+    }
+    .chrome-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .chrome-dot.red   { background: #ff5f57; }
+    .chrome-dot.yellow { background: #febc2e; }
+    .chrome-dot.green { background: #28c840; }
+    .chrome-url-bar {
+      flex: 1;
+      height: 20px;
+      background: #fff;
+      border-radius: 4px;
+      border: 1px solid var(--gray-200);
+      margin-left: 8px;
+    }
+    .browser-window {
+      border: 1px solid var(--gray-200);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.12);
+    }
+    .browser-window img {
+      width: 100%;
+      display: block;
+    }
+    .browser-mockup {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .screenshot-caption {
+      margin-top: 16px;
+      font-size: 14px;
+      color: var(--gray-500);
+      font-weight: 500;
+    }
+
+    /* ── CASE STUDY ── */
+    .case-study {
+      background: #fff;
+      border-top: 1px solid var(--gray-200);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 80px 24px;
+      text-align: center;
+    }
+    .case-study-inner { max-width: 960px; margin: 0 auto; }
+    .case-study-logo {
+      height: 48px;
+      object-fit: contain;
+      margin-bottom: 28px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .case-study-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--brand);
+      margin-bottom: 14px;
+    }
+    .case-study-title {
+      font-size: clamp(22px, 3vw, 32px);
+      font-weight: 800;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+      margin-bottom: 48px;
+      line-height: 1.2;
+    }
+    .case-study-stats {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .stat-item {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 24px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: clamp(20px, 2.5vw, 28px);
+      font-weight: 800;
+      color: var(--brand);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      line-height: 1.1;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--gray-500);
+      font-weight: 500;
+      line-height: 1.4;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .case-study-quote {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-left: 3px solid var(--brand);
+      border-radius: 12px;
+      padding: 28px 32px;
+      text-align: left;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .case-study-quote blockquote {
+      font-size: 17px;
+      color: var(--gray-700);
+      font-style: italic;
+      line-height: 1.7;
+      margin-bottom: 12px;
+    }
+    .case-study-quote cite {
+      font-size: 13px;
+      color: var(--gray-400);
+      font-style: normal;
+      font-weight: 600;
+    }
+    @media (max-width: 720px) {
+      .case-study-stats { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .case-study-stats { grid-template-columns: repeat(2, 1fr); }
+      .case-study-quote { padding: 20px; }
+    }
+
+    /* ── COMPARISON TABLE ── */
+    .comparison-section {
+      background: #fff;
+      padding: 80px 24px;
+    }
+    .comparison-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .comparison-wrap {
+      overflow-x: auto;
+      border-radius: 14px;
+      border: 1px solid var(--gray-200);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+    }
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+      font-size: 14px;
+    }
+    .comparison-table thead tr {
+      position: sticky;
+      top: 64px; /* account for nav height */
+      z-index: 10;
+      background: #fff;
+    }
+    .comparison-table th {
+      padding: 16px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gray-700);
+      border-bottom: 2px solid var(--gray-200);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .comparison-table th:first-child {
+      text-align: left;
+      min-width: 200px;
+    }
+    .comparison-table th.col-growth {
+      background: var(--brand-light);
+      color: var(--brand);
+      border-bottom-color: var(--brand);
+    }
+    .comparison-table th.col-growth .tier-price {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--brand-mid);
+      margin-top: 2px;
+    }
+    .comparison-table th .tier-price {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--gray-400);
+      margin-top: 2px;
+    }
+    .comparison-table tbody tr:nth-child(even) {
+      background: var(--gray-50);
+    }
+    .comparison-table tbody tr:nth-child(even) td.col-growth {
+      background: #e6f1e5;
+    }
+    .comparison-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--gray-100);
+      text-align: center;
+      color: var(--gray-700);
+    }
+    .comparison-table td:first-child {
+      text-align: left;
+      color: var(--gray-800);
+      font-weight: 500;
+    }
+    .comparison-table td.col-growth {
+      background: #edf5ec;
+      font-weight: 600;
+    }
+    .check {
+      color: #16a34a;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .dash {
+      color: var(--gray-300, #d1d5db);
+      font-size: 16px;
+    }
+    .comparison-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    @media (max-width: 700px) {
+      .comparison-table thead tr { position: static; }
+    }
+
     /* ── FOOTER ── */
     footer {
       background: var(--brand-dark);
@@ -498,6 +797,67 @@
     </div>
   </section>
 
+  <!-- ── DASHBOARD SCREENSHOTS ── -->
+  <section class="screenshots-section" id="screenshot-section">
+    <div class="screenshots-inner">
+      <p class="section-label" style="text-align:center;">See It In Action</p>
+      <h2 class="section-title" style="text-align:center;">Your entire Amazon operation, in one place.</h2>
+      <p class="section-sub" style="text-align:center;margin-left:auto;margin-right:auto;">From advertising performance to vendor analytics to campaign-level detail — all on one screen.</p>
+
+      <!-- Pure CSS tabs via hidden radio inputs -->
+      <input type="radio" name="screenshot-tab" id="tab-overview" hidden checked />
+      <input type="radio" name="screenshot-tab" id="tab-main" hidden />
+      <input type="radio" name="screenshot-tab" id="tab-campaigns" hidden />
+
+      <div class="screenshot-tab-labels screenshot-tabs">
+        <label for="tab-overview" class="screenshot-tab">📊 Advertising Overview</label>
+        <label for="tab-main" class="screenshot-tab">🏬 Vendor &amp; Seller Analytics</label>
+        <label for="tab-campaigns" class="screenshot-tab">🎯 Campaign Performance</label>
+      </div>
+
+      <div class="screenshot-panels">
+        <div class="screenshot-panel browser-mockup" data-panel="overview">
+          <div class="browser-chrome">
+            <span class="chrome-dot red"></span>
+            <span class="chrome-dot yellow"></span>
+            <span class="chrome-dot green"></span>
+            <div class="chrome-url-bar"></div>
+          </div>
+          <div class="browser-window">
+            <img src="/images/screenshots/dashboard-overview.png" alt="Calbridge unified advertising overview dashboard" loading="lazy" />
+          </div>
+          <p class="screenshot-caption">Unified advertising overview — SP, SB, SD, and DSP side by side</p>
+        </div>
+
+        <div class="screenshot-panel browser-mockup" data-panel="main">
+          <div class="browser-chrome">
+            <span class="chrome-dot red"></span>
+            <span class="chrome-dot yellow"></span>
+            <span class="chrome-dot green"></span>
+            <div class="chrome-url-bar"></div>
+          </div>
+          <div class="browser-window">
+            <img src="/images/screenshots/dashboard-main.png" alt="Calbridge vendor and seller analytics dashboard" loading="lazy" />
+          </div>
+          <p class="screenshot-caption">Vendor &amp; seller analytics — revenue, inventory, and contribution margin</p>
+        </div>
+
+        <div class="screenshot-panel browser-mockup" data-panel="campaigns">
+          <div class="browser-chrome">
+            <span class="chrome-dot red"></span>
+            <span class="chrome-dot yellow"></span>
+            <span class="chrome-dot green"></span>
+            <div class="chrome-url-bar"></div>
+          </div>
+          <div class="browser-window">
+            <img src="/images/screenshots/dashboard-campaigns.png" alt="Calbridge campaign-level performance dashboard" loading="lazy" />
+          </div>
+          <p class="screenshot-caption">Campaign-level performance — ACoS, ROAS, spend, and AI recommendations</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ── SOCIAL PROOF BAR ── -->
   <div class="proof-bar">
     <p>Built by the team at <span>Calbridge</span> — Seattle-based Amazon consultants managing <span>$500k+/month</span> in ad spend since 2010</p>
@@ -541,6 +901,43 @@
           <h3>Agency/Multi-Brand Portal</h3>
           <p>White-label multi-brand management. Your clients see your branding. You see everything across the portfolio.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CASE STUDY ── -->
+  <section class="case-study" id="case-study">
+    <div class="case-study-inner">
+      <img src="/uploads/logos/7d88ea17-002b-4a02-97fc-bcab1292d57e.png" alt="CyberPower" class="case-study-logo" />
+      <p class="case-study-label">Customer Story</p>
+      <h2 class="case-study-title">$500K+/month managed.<br>One dashboard instead of six reports.</h2>
+
+      <div class="case-study-stats">
+        <div class="stat-item">
+          <div class="stat-value">$500K+</div>
+          <div class="stat-label">Monthly ad spend managed</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">~12%</div>
+          <div class="stat-label">Overall ACoS</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">8x+</div>
+          <div class="stat-label">ROAS</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" style="font-size:16px;line-height:1.5;">SP &middot; SB<br>SD &middot; DSP</div>
+          <div class="stat-label">Ad types</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">2</div>
+          <div class="stat-label">Marketplaces</div>
+        </div>
+      </div>
+
+      <div class="case-study-quote">
+        <blockquote>"Managing $500K+ in monthly ad spend across multiple ad types and two marketplaces — Calbridge gave us one dashboard instead of six reports."</blockquote>
+        <cite>— CyberPower Marketing Team</cite>
       </div>
     </div>
   </section>
@@ -705,14 +1102,192 @@
     </div>
   </section>
 
+  <!-- ── FEATURE COMPARISON TABLE ── -->
+  <section class="comparison-section" id="comparison-table">
+    <div class="comparison-inner">
+      <p class="section-label">Compare Plans</p>
+      <h2 class="section-title">Everything, side by side.</h2>
+      <p class="section-sub">See exactly what's included at every tier before you commit.</p>
+
+      <div class="comparison-wrap">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Free<span class="tier-price">$0/mo</span></th>
+              <th>Starter<span class="tier-price">$99/mo</span></th>
+              <th class="col-growth">Growth<span class="tier-price">$249/mo</span></th>
+              <th>Pro<span class="tier-price">$499/mo</span></th>
+              <th>Agency<span class="tier-price">$549+/mo</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Amazon connections</td>
+              <td>1</td>
+              <td>2</td>
+              <td class="col-growth">Unlimited</td>
+              <td>Unlimited</td>
+              <td>Unlimited</td>
+            </tr>
+            <tr>
+              <td>Data history</td>
+              <td>30 days</td>
+              <td>90 days</td>
+              <td class="col-growth">1 year</td>
+              <td>3 years</td>
+              <td>3 years</td>
+            </tr>
+            <tr>
+              <td>SP/SB/SD/DSP dashboard</td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Vendor analytics</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Contribution margin</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Manual recommendations</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>AI decisions + execution</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Budget automation</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Smart alerts</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Dayparting</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>AI chat</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Smart campaign creation</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Anomaly detection</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Report downloads</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>White-label portal</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Multi-brand switcher</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Client login access</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>Team seats</td>
+              <td>1</td>
+              <td>3</td>
+              <td class="col-growth">5</td>
+              <td>Unlimited</td>
+              <td>Unlimited</td>
+            </tr>
+            <tr>
+              <td>Onboarding call with Abe</td>
+              <td><span class="dash">—</span></td>
+              <td><span class="dash">—</span></td>
+              <td class="col-growth"><span class="dash">—</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- ── AUDIT CTA ── -->
   <section style="background:var(--brand-dark);padding:72px 24px;text-align:center;">
     <div style="max-width:640px;margin:0 auto;">
       <p style="font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.65);margin-bottom:12px;">Free, No Obligation</p>
-      <h2 style="font-size:32px;font-weight:800;color:#fff;letter-spacing:-0.02em;margin-bottom:14px;">Book a free account audit</h2>
+      <h2 style="font-size:32px;font-weight:800;color:#fff;letter-spacing:-0.02em;margin-bottom:14px;">Get a free account audit</h2>
       <p style="font-size:16px;color:rgba(255,255,255,0.75);margin-bottom:32px;line-height:1.6;">Our team will review your Amazon advertising setup and show you exactly where you're leaving money on the table. 30 minutes, no pitch.</p>
       <div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;">
-        <a href="CALENDLY_URL" target="_blank" rel="noopener" style="display:inline-block;padding:13px 28px;background:#fff;color:var(--brand-dark);font-size:15px;font-weight:700;border-radius:10px;">Book a Free Audit →</a>
+        <a href="mailto:ash@teamcalbridge.com?subject=Free Account Audit Request" style="display:inline-block;padding:13px 28px;background:#fff;color:var(--brand-dark);font-size:15px;font-weight:700;border-radius:10px;">Request a Free Audit →</a>
         <a href="https://app.calbridge.ai/signup.html" style="display:inline-block;padding:13px 28px;background:transparent;color:#fff;font-size:15px;font-weight:600;border-radius:10px;border:2px solid rgba(255,255,255,0.4);">Try the Platform</a>
       </div>
     </div>

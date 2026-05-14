@@ -85,7 +85,7 @@ _Last updated: 2026-05-11_
 >
 > If the timing isn't right or it's not a fit, no worries at all. If you ever hit the point where client reporting is taking more time than it should, feel free to reach back out.
 >
-> We're also doing a free trial for agencies — full white-label, all features, 30 days. No credit card. If that's ever interesting: app.calbridge.ai
+> We're also doing a free trial for agencies — full white-label, all features, 30 days. No credit card. If that's ever interesting: calbridge.ai
 >
 > Good luck out there.
 >
@@ -132,7 +132,7 @@ _Last updated: 2026-05-11_
 >
 > Love what you do with EcomCrew — the data-driven approach is exactly what the Amazon community needs more of.
 >
-> I'm Abe Curry, founder of Calbridge. We manage ~$500k/month in Amazon advertising across brands, and we recently built a white-label analytics portal (app.calbridge.ai) that gives agencies and brands real contribution margin visibility — not just ACoS.
+> I'm Abe Curry, founder of Calbridge. We manage ~$500k/month in Amazon advertising across brands, and we recently built a white-label analytics portal (calbridge.ai) that gives agencies and brands real contribution margin visibility — not just ACoS.
 >
 > Some episode angles I think your audience would love:
 > - "The ACoS lie: why optimizing for ACoS is destroying your margins"

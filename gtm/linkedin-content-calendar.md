@@ -96,7 +96,7 @@ _Voice: direct, operator, data-backed. No fluff. No "I'm excited to announce."_
 >
 > Then other operators started asking to use it.
 >
-> Now it's a product: app.calbridge.ai
+> Now it's a product: calbridge.ai
 >
 > Still early. But it's live, it's real, and it's running on actual client accounts every day.
 >

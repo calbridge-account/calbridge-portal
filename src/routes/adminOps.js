@@ -671,4 +671,271 @@ router.post('/trigger-vendor-sync', async (req, res, next) => {
   });
 });
 
+// ─────────────────────────────────────────────
+// GET /admin/traffic
+// Parse nginx access logs and return traffic analytics
+// ─────────────────────────────────────────────
+router.get('/traffic', requireAdmin, async (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  try {
+    const readline = require('readline');
+    const { createReadStream } = require('fs');
+
+    // Nginx log regex: IP - - [date] "METHOD URL PROTO" STATUS bytes "referrer" "ua" "host"
+    // Supports both old format (no host) and new calbridge format (with host at end)
+    const LOG_RE = /^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) \d+ "([^"]*)" "([^"]*)"(?:\s+"([^"]*)")?/;
+
+    // IPs to skip
+    const SKIP_IPS = new Set(['172.179.10.131']);
+
+    // URL fragments to skip (case-insensitive)
+    const SKIP_URL_PATTERNS = ['health', 'favicon', 'robots', 'wp-admin', '.env', '.git', 'xmlrpc', 'phpmyadmin', 'SDK', 'wp-login'];
+
+    // User-agent fragments to skip (case-insensitive)
+    const SKIP_UA_PATTERNS = ['bot', 'crawler', 'spider', 'curl', 'wget', 'python', 'java', 'go-http', 'check_http', 'axios'];
+
+    // Self-referral domains to skip
+    const SELF_DOMAINS = ['teamcalbridge.com', 'calbridge.ai'];
+
+    // Month name map for nginx date format
+    const MONTH_MAP = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+
+    function parseNginxDate(dateStr) {
+      // 14/May/2026:20:31:40 +0000
+      const m = dateStr.match(/^(\d{2})\/(\w{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2})/);
+      if (!m) return null;
+      const [, day, mon, year, hh, mm, ss] = m;
+      return new Date(Date.UTC(+year, MONTH_MAP[mon], +day, +hh, +mm, +ss));
+    }
+
+    function extractDomain(referer) {
+      if (!referer || referer === '-') return null;
+      try {
+        const url = new URL(referer);
+        return url.hostname.replace(/^www\./, '');
+      } catch { return null; }
+    }
+
+    function shouldSkip(ip, url, ua, status) {
+      if (SKIP_IPS.has(ip)) return true;
+      const statusNum = parseInt(status, 10);
+      if (statusNum >= 400) return true;
+
+      const urlLower = url.toLowerCase();
+      // Skip .php except /analytics
+      if (urlLower.includes('.php') && !urlLower.includes('/analytics')) return true;
+      for (const pat of SKIP_URL_PATTERNS) {
+        if (urlLower.includes(pat.toLowerCase())) return true;
+      }
+
+      const uaLower = ua.toLowerCase();
+      for (const pat of SKIP_UA_PATTERNS) {
+        if (uaLower.includes(pat.toLowerCase())) return true;
+      }
+
+      return false;
+    }
+
+    function isLandingPage(url) {
+      const u = url.split('?')[0];
+      return u === '/' || u === '/landing.html' || u === '';
+    }
+
+    function isSignup(method, url, status) {
+      const u = url.split('?')[0];
+      const s = parseInt(status, 10);
+      if (u === '/signup.html' && method === 'GET' && s === 200) return true;
+      if (u === '/auth/register' && method === 'POST' && s === 200) return true;
+      return false;
+    }
+
+    // Read up to last N lines from a file
+    async function readLastLines(filePath, maxLines) {
+      const lines = [];
+      try {
+        await fs.access(filePath);
+      } catch {
+        return lines; // file doesn't exist
+      }
+      return new Promise((resolve, reject) => {
+        const stream = createReadStream(filePath, { encoding: 'utf8' });
+        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+        rl.on('line', (line) => {
+          lines.push(line);
+          if (lines.length > maxLines) lines.shift();
+        });
+        rl.on('close', () => resolve(lines));
+        rl.on('error', reject);
+        stream.on('error', reject);
+      });
+    }
+
+    // Process log lines into structured entries
+    function processLines(lines) {
+      const entries = [];
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const m = LOG_RE.exec(line);
+        if (!m) continue;
+        const [, ip, dateStr, method, url, status, referer, ua] = m;
+        if (shouldSkip(ip, url, ua, status)) continue;
+        const ts = parseNginxDate(dateStr);
+        if (!ts) continue;
+        const host = (m[8] || '').toLowerCase().replace(/^www\./, '') || 'unknown';
+        const domain = host.includes('app.') ? 'app.calbridge.ai'
+          : host.includes('calbridge.ai') ? 'calbridge.ai'
+          : host.includes('teamcalbridge.com') ? 'teamcalbridge.com'
+          : host || 'unknown';
+        entries.push({ ip, ts, method, url: url.split('?')[0], status: parseInt(status, 10), referer, ua, domain });
+      }
+      return entries;
+    }
+
+    // ── Read logs ──
+    const LOG_PATH  = '/var/log/nginx/access.log';
+    const LOG_PATH1 = '/var/log/nginx/access.log.1';
+    const MAX_LINES = 50000;
+
+    const [mainLines, rotatedLines] = await Promise.all([
+      readLastLines(LOG_PATH, MAX_LINES),
+      readLastLines(LOG_PATH1, MAX_LINES)
+    ]);
+
+    const mainEntries    = processLines(mainLines);
+    const rotatedEntries = processLines(rotatedLines);
+    const allEntries     = [...rotatedEntries, ...mainEntries]; // older first
+
+    // ── Date boundaries ──
+    const now        = new Date();
+    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const d7Start    = new Date(todayStart.getTime() - 6 * 86400000);
+    const d30Start   = new Date(todayStart.getTime() - 29 * 86400000);
+
+    // ── Today analytics ──
+    const todayEntries = mainEntries.filter(e => e.ts >= todayStart);
+    const todayIPs     = new Set(todayEntries.map(e => e.ip));
+
+    const pageCounts  = {};
+    const refCounts   = {};
+    const hourCounts  = {};
+    let signups       = 0;
+    let landingViews  = 0;
+
+    // Skip asset-only URLs for page counting (css, js, images, fonts)
+    const ASSET_RE = /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webp)$/i;
+
+    for (const e of todayEntries) {
+      // Skip asset files from page counts
+      if (!ASSET_RE.test(e.url)) {
+        pageCounts[e.url] = (pageCounts[e.url] || 0) + 1;
+      }
+
+      // Referrer
+      const domain = extractDomain(e.referer);
+      if (domain && !SELF_DOMAINS.some(s => domain.endsWith(s)) && !domain.match(/^172\.\d+\.\d+\.\d+$/)) {
+        refCounts[domain] = (refCounts[domain] || 0) + 1;
+      }
+
+      // Hourly
+      const hour = `${String(e.ts.getUTCHours()).padStart(2, '0')}:00`;
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+
+      // Landing page
+      if (isLandingPage(e.url)) landingViews++;
+
+      // Signups
+      if (isSignup(e.method, e.url, e.status)) signups++;
+    }
+
+    // Build hourly chart (all 24 hours)
+    const hourlyChart = [];
+    for (let h = 0; h < 24; h++) {
+      const label = `${String(h).padStart(2, '0')}:00`;
+      hourlyChart.push({ hour: label, views: hourCounts[label] || 0 });
+    }
+
+    const topPages = Object.entries(pageCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([page, views]) => ({ page, views }));
+
+    const topReferrers = Object.entries(refCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([referrer, visits]) => ({ referrer, visits }));
+
+    // ── 7-day analytics ──
+    const d7Entries = allEntries.filter(e => e.ts >= d7Start);
+    const d7IPs     = new Set(d7Entries.map(e => e.ip));
+
+    const dailyMap7 = {};
+    for (const e of d7Entries) {
+      const dateKey = e.ts.toISOString().slice(0, 10);
+      if (!dailyMap7[dateKey]) dailyMap7[dateKey] = { views: 0, visitors: new Set() };
+      dailyMap7[dateKey].views++;
+      dailyMap7[dateKey].visitors.add(e.ip);
+    }
+
+    // Build 7-day chart with all days filled
+    const dailyChart = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(todayStart.getTime() - i * 86400000);
+      const key = d.toISOString().slice(0, 10);
+      const entry = dailyMap7[key] || { views: 0, visitors: new Set() };
+      dailyChart.push({ date: key, views: entry.views, visitors: entry.visitors instanceof Set ? entry.visitors.size : entry.visitors });
+    }
+
+    // ── 30-day analytics ──
+    const d30Entries    = allEntries.filter(e => e.ts >= d30Start);
+    const d30IPs        = new Set(d30Entries.map(e => e.ip));
+
+    // ── Per-domain breakdown (today) ──
+    const DOMAINS = ['calbridge.ai', 'app.calbridge.ai', 'teamcalbridge.com'];
+    const byDomain = {};
+    for (const d of DOMAINS) {
+      const de = todayEntries.filter(e => e.domain === d);
+      byDomain[d] = {
+        uniqueVisitors: new Set(de.map(e => e.ip)).size,
+        pageviews: de.length,
+        landingPageViews: de.filter(e => isLandingPage(e.url)).length,
+        signups: de.filter(e => isSignup(e.method, e.url, e.status)).length,
+      };
+    }
+
+    // ── Real account signups from DB ──
+    let newAccounts = 0;
+    try {
+      const { query: sfQuery } = require('../services/snowflakeService');
+      const signupRows = await sfQuery(`
+        SELECT COUNT(*) as cnt FROM CALBRIDGE_PROD.APP.clients
+        WHERE created_at >= CURRENT_DATE() AND linked_client_id IS NULL
+      `);
+      newAccounts = Number(signupRows[0]?.CNT || 0);
+    } catch(e) { /* non-fatal */ }
+
+    res.json({
+      today: {
+        uniqueVisitors:   todayIPs.size,
+        pageviews:        todayEntries.length,
+        landingPageViews: landingViews,
+        signups,
+        newAccounts,
+        topPages,
+        topReferrers,
+        hourlyChart,
+        byDomain
+      },
+      last7days: {
+        uniqueVisitors: d7IPs.size,
+        pageviews:      d7Entries.length,
+        dailyChart
+      },
+      last30days: {
+        uniqueVisitors: d30IPs.size,
+        pageviews:      d30Entries.length
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

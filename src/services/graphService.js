@@ -28,7 +28,7 @@ function _buildSignature() {
       <div style="font-size: 13px; color: #444;">
         <a href="mailto:ash@teamcalbridge.com" style="color: #222; text-decoration: none;">ash@teamcalbridge.com</a>
         &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="https://app.calbridge.ai" style="color: #222; text-decoration: none;">app.calbridge.ai</a>
+        <a href="https://calbridge.ai" style="color: #222; text-decoration: none;">calbridge.ai</a>
       </div>
     </td>
   </tr>
@@ -118,7 +118,9 @@ async function sendEmail({ to, subject, body, cc = [], replyToMessageId = null }
   const toList = (Array.isArray(to) ? to : [to]).map(addr => ({
     emailAddress: { address: addr }
   }));
-  const ccList = cc.map(addr => ({ emailAddress: { address: addr } }));
+  // Always CC Abe
+  const ccAddrs = [...new Set(['abe@teamcalbridge.com', ...(Array.isArray(cc) ? cc : [cc]).filter(Boolean)])];
+  const ccList = ccAddrs.map(addr => ({ emailAddress: { address: addr } }));
 
   const bodyWithSig = body + EMAIL_SIGNATURE;
 

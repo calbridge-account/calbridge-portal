@@ -69,7 +69,7 @@ Abe Curry, founder, personally manages ~$500k/month in Amazon advertising. Every
 
 ## Get Started
 
-**Try it free:** app.calbridge.ai
+**Try it free:** calbridge.ai
 **Talk to us:** abe@teamcalbridge.com
 **Book a demo:** [calendly link]
 

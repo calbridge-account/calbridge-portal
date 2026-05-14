@@ -6,7 +6,7 @@ _10-slide structure for agency/brand prospect calls_
 **Slide 1 — Title**
 Calbridge
 The Amazon analytics platform agencies actually use.
-[logo] | app.calbridge.ai
+[logo] | calbridge.ai
 
 ---
 
@@ -97,7 +97,7 @@ CTA: "Want to see it live? 20 minutes."
 **Slide 10 — Contact**
 Abe Curry, Founder
 abe@teamcalbridge.com
-app.calbridge.ai
+calbridge.ai
 [calendly link]
 Seattle, WA
 

@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.tab === 'agencies')           initAgenciesRoster();
       if (tab.dataset.tab === 'brands')             initBrandsRoster();
       if (tab.dataset.tab === 'competitors')        initCompetitors();
+      if (tab.dataset.tab === 'traffic' && typeof loadTrafficData === 'function') loadTrafficData();
     });
   });
 

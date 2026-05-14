@@ -63,18 +63,28 @@ const DATA_SOURCES = [
     key:   'vendor_inventory',
     label: 'Vendor Inventory',
     table: 'CALBRIDGE_PROD.APP.vendor_inventory',
+    timestampCol: 'synced_at',
     where: null,
   },
   {
     key:   'vendor_traffic',
-    label: 'Vendor Traffic',
+    label: 'Vendor Traffic (Glance Views)',
     table: 'CALBRIDGE_PROD.APP.vendor_traffic',
+    timestampCol: 'synced_at',
+    where: null,
+  },
+  {
+    key:   'vendor_net_ppm',
+    label: 'Vendor Net PPM',
+    table: 'CALBRIDGE_PROD.APP.vendor_net_ppm',
+    timestampCol: 'synced_at',
     where: null,
   },
   {
     key:   'vendor_forecasts',
     label: 'Vendor Forecasts',
     table: 'CALBRIDGE_PROD.APP.VENDOR_FORECASTS',
+    timestampCol: 'synced_at',
     where: null,
   },
   {
@@ -152,10 +162,11 @@ async function fetchFreshnessMap(source, existingTables) {
   }
 
   const whereClause = source.where ? `AND ${source.where}` : '';
+  const tsCol = source.timestampCol || 'ingested_at';
   const sql = `
-    SELECT client_id, MAX(ingested_at) AS last_ingested
+    SELECT client_id, MAX(${tsCol}) AS last_ingested
       FROM ${table}
-     WHERE ingested_at IS NOT NULL
+     WHERE ${tsCol} IS NOT NULL
        ${whereClause}
      GROUP BY client_id
   `;

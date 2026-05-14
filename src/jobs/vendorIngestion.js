@@ -111,12 +111,17 @@ async function requestAndDownload(client, reportType, reportOptions, marketplace
         console.log(`[vendorIngestion] ${reportType} 429 — waiting ${retryAfter}s (attempt ${attempt}/3)`);
         await sleep(retryAfter * 1000);
       } else {
+        const errDetail = err.response?.data ? JSON.stringify(err.response.data).substring(0, 300) : err.message;
+        console.error(`[vendorIngestion] ${reportType} create failed (${err.response?.status || 'no-status'}): ${errDetail}`);
         throw err;
       }
     }
   }
   const reportId = createRes?.data?.reportId;
-  if (!reportId) throw new Error(`No reportId for ${reportType}`);
+  if (!reportId) {
+    console.error(`[vendorIngestion] ${reportType} no reportId — response: ${JSON.stringify(createRes?.data).substring(0, 300)}`);
+    throw new Error(`No reportId for ${reportType}`);
+  }
 
   // Poll
   const start = Date.now();
@@ -141,6 +146,8 @@ async function requestAndDownload(client, reportType, reportOptions, marketplace
       try { return JSON.parse(text); } catch { return text; }
     }
     if (['CANCELLED', 'FATAL'].includes(processingStatus)) {
+      const detail = JSON.stringify(poll.data).substring(0, 500);
+      console.error(`[vendorIngestion] ${reportType} FATAL raw response: ${detail}`);
       throw new Error(`${reportType} ended with: ${processingStatus}`);
     }
   }
@@ -538,12 +545,14 @@ async function _ingestVendorWeeklyReports(clientId, marketplaceId) {
 
   await sleep(2000);
 
-  // ── Traffic (DAY grain, D-32→D-3) ────────────────────────────────────────
+  // ── Traffic (WEEK grain — Brand Analytics requires WEEK, not DAY) ──────────
   try {
     const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
-      reportPeriod: 'DAY', dataStartTime: daysAgo(32), dataEndTime: daysAgo(3),
+      reportPeriod: 'WEEK', dataStartTime: daysAgo(60), dataEndTime: daysAgo(3),
     }, marketplaceId);
+    console.log(`[vendorIngestion] VENDOR_TRAFFIC raw keys: ${JSON.stringify(Object.keys(data || {})).substring(0,200)}`);
     const rows = Array.isArray(data) ? data : (data?.reportData || data?.trafficByAsin || []);
+    console.log(`[vendorIngestion] VENDOR_TRAFFIC parsed rows: ${rows.length}`);
     results.vendorTraffic = await writeVendorTraffic(clientId, rows);
     totalWritten += results.vendorTraffic;
     console.log(`[vendorIngestion] VENDOR_TRAFFIC (weekly): ${results.vendorTraffic} rows`);
@@ -551,10 +560,10 @@ async function _ingestVendorWeeklyReports(clientId, marketplaceId) {
 
   await sleep(2000);
 
-  // ── Net PPM (DAY grain, D-32→D-3) ────────────────────────────────────────
+  // ── Net PPM (WEEK grain — Brand Analytics requires WEEK, not DAY) ──────────
   try {
     const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
-      reportPeriod: 'DAY', dataStartTime: daysAgo(32), dataEndTime: daysAgo(3),
+      reportPeriod: 'WEEK', dataStartTime: daysAgo(60), dataEndTime: daysAgo(3),
     }, marketplaceId);
     const rows = Array.isArray(data) ? data : (data?.netPureProductMarginByAsin || data?.reportData || data?.netPpmByAsin || []);
     results.vendorNetPpm = await writeVendorNetPpm(clientId, rows);
@@ -707,10 +716,10 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     const client = await spClient(clientId);
     console.log(`[vendorBackfill] TRAFFIC/PPM chunk ${results.weekChunks}/${trafficChunks.length}: ${chunk.start} → ${chunk.end}`);
 
-    // Traffic (DAY) — no distributorView/sellingProgram
+    // Traffic (WEEK grain — Brand Analytics requires WEEK not DAY)
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_TRAFFIC_REPORT', {
-        reportPeriod: 'DAY',
+        reportPeriod: 'WEEK',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'trafficByAsin', 'reportData');
@@ -722,10 +731,10 @@ async function backfillVendorReports(clientId, startDate, endDate, marketplaceId
     }
     await sleep(2000);
 
-    // Net PPM (DAY) — no distributorView/sellingProgram
+    // Net PPM (WEEK grain — Brand Analytics requires WEEK not DAY)
     try {
       const data = await requestAndDownload(client, 'GET_VENDOR_NET_PURE_PRODUCT_MARGIN_REPORT', {
-        reportPeriod: 'DAY',
+        reportPeriod: 'WEEK',
         dataStartTime: chunk.start, dataEndTime: chunk.end,
       }, marketplaceId, 600000);
       const rows = toRows(data, 'netPureProductMarginByAsin', 'netPpmByAsin', 'reportData');
