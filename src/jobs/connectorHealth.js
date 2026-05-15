@@ -157,29 +157,66 @@ async function probeToken(connectionType, accessToken) {
 
 /**
  * Upsert a row into connector_health.
- * Creates table if it doesn't exist (handled by migration; fallback here for safety).
+ *
+ * Debounce strategy (reduces ~198 Snowflake MERGEs/week → ~24):
+ *   - Always write the current state to Redis (connhealth:{clientId}:{connectionType}, EX 3600)
+ *   - Flush to Snowflake immediately when status CHANGES (healthy ↔ unhealthy/error)
+ *   - Otherwise flush to Snowflake at most once per hour per connector
+ *     (tracked via connhealth:sf_flush:{clientId}:{connectionType}, EX 3600)
+ *   - Falls back to always writing Snowflake if Redis is unavailable
  */
-// Track upsert call count to rate-limit Snowflake writes
-const _healthWriteCount = {};
-
 async function upsertConnectorHealth(clientId, connectionType, accountId, status, details = {}) {
-  const key = `${clientId}:${connectionType}:${accountId}`;
+  const stateKey = `connhealth:${clientId}:${connectionType}`;
+  const flushKey = `connhealth:sf_flush:${clientId}:${connectionType}`;
+  const now      = new Date().toISOString();
+  const payload  = JSON.stringify({
+    clientId, connectionType, accountId, status,
+    lastProbeAt: now,
+    ...details,
+  });
 
-  // Always write to Redis for fast reads
+  let shouldFlushToSnowflake = true; // default: flush (Redis unavailable path)
+
   try {
     const { getRedisClient } = require('../services/redisSessionStore');
     const redis = getRedisClient();
     if (redis && redis.status === 'ready') {
-      await redis.hset('connector_health', key, JSON.stringify({
-        clientId, connectionType, accountId, status,
-        lastProbeAt: new Date().toISOString(),
-        ...details,
-      }));
-      // Only write to Snowflake every 10th call (~every 5 hours at 30min intervals)
-      _healthWriteCount[key] = (_healthWriteCount[key] || 0) + 1;
-      if (_healthWriteCount[key] % 10 !== 1) return; // skip Snowflake write
+      // Read previous state to detect status changes
+      const prevRaw    = await redis.get(stateKey);
+      const prevStatus = prevRaw ? (JSON.parse(prevRaw).status || null) : null;
+      const statusChanged = prevStatus !== null && prevStatus !== status;
+
+      // Write latest state to Redis (TTL 1h — refreshed on every check)
+      await redis.set(stateKey, payload, 'EX', 3600);
+
+      // Also keep the legacy hash updated for getActiveConnections() reads
+      const legacyKey = `${clientId}:${connectionType}:${accountId}`;
+      await redis.hset('connector_health', legacyKey, payload);
+
+      if (statusChanged) {
+        // Status changed → always flush immediately so alerts fire without delay
+        console.log(`[connectorHealth] Status change detected for ${clientId}/${connectionType}: ${prevStatus} → ${status} — flushing to Snowflake`);
+        // Refresh the hourly flush TTL so we don't double-write right after a change
+        await redis.set(flushKey, '1', 'EX', 3600);
+        shouldFlushToSnowflake = true;
+      } else {
+        // No status change — only flush if hourly window has expired
+        const alreadyFlushed = await redis.exists(flushKey);
+        if (alreadyFlushed) {
+          shouldFlushToSnowflake = false; // within hourly window, skip Snowflake write
+        } else {
+          // Hourly window expired → flush and reset timer
+          await redis.set(flushKey, '1', 'EX', 3600);
+          shouldFlushToSnowflake = true;
+        }
+      }
     }
-  } catch { /* fall through to Snowflake */ }
+  } catch (redisErr) {
+    console.warn('[connectorHealth] Redis debounce error (will write to Snowflake):', redisErr.message?.slice(0, 80));
+    shouldFlushToSnowflake = true;
+  }
+
+  if (!shouldFlushToSnowflake) return; // debounced — skip Snowflake MERGE
 
   try {
     await query(`
