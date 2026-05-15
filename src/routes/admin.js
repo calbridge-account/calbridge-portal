@@ -310,7 +310,8 @@ router.get('/logs', requireAdmin, async (req, res, next) => {
  */
 router.get('/spend-adjustments', requireAdmin, async (req, res, next) => {
   try {
-    const clientFilter = req.query.clientId ? `WHERE sa.client_id = '${req.query.clientId}'` : '';
+    const clientIdFilter = req.query.clientId || null;
+    const clientFilter = clientIdFilter ? 'WHERE sa.client_id = ?' : '';
     const rows = await query(`
       SELECT
         sa.id,
@@ -328,7 +329,7 @@ router.get('/spend-adjustments', requireAdmin, async (req, res, next) => {
       LEFT JOIN clients c ON sa.client_id = c.client_id
       ${clientFilter}
       ORDER BY sa.year_month DESC, c.company_name ASC, sa.ad_type ASC
-    `);
+    `, clientIdFilter ? [clientIdFilter] : []);
     res.json(rows.map(r => ({
       id:          Number(r.ID),
       clientId:    r.CLIENT_ID,
