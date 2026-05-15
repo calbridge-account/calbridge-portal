@@ -37,6 +37,7 @@ require('dotenv').config();
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../services/snowflakeService');
 const { startJob, completeJob, failJob } = require('../services/jobRunner');
+const { writeFreshnessToCache, flushFreshnessToSnowflake } = require('../services/freshnessCacheService');
 
 const TRANSFORM_VERSION = '1.0';
 
@@ -239,6 +240,28 @@ async function stageRawData({ triggeredBy = 'cron', force = false } = {}) {
       totalRows += rowsWritten;
       await completeJob(runId, { rowsWritten });
       if (rowsWritten > 0) console.log(`[stageRawData] ${accountId}: ${rowsWritten} rows staged`);
+
+      // Write freshness state to Redis for each table we just processed.
+      // The daily 08:00 UTC flush job will batch-MERGE these into Snowflake.
+      // This replaces the per-run compute_freshness() MERGE that scanned the
+      // full analytics tables on every cron tick.
+      const freshnessNow = new Date().toISOString();
+      const freshnessTables = [
+        'CALBRIDGE_PROD.ANALYTICS.ADS_PERFORMANCE',
+        'CALBRIDGE_PROD.ANALYTICS.RETAIL_PERFORMANCE',
+        'CALBRIDGE_PROD.ANALYTICS.INVENTORY_SNAPSHOT',
+      ];
+      for (const tbl of freshnessTables) {
+        writeFreshnessToCache({
+          clientId,
+          accountId,
+          tableName: tbl,
+          lastLoadAt: freshnessNow,
+          rowCount: rowsWritten,
+        }).catch(err =>
+          console.warn(`[stageRawData] Redis freshness write failed for ${tbl}/${accountId} (non-fatal):`, err.message?.slice(0, 80))
+        );
+      }
     } catch (err) {
       await failJob(runId, err.message);
       console.error(`[stageRawData] ${accountId} failed:`, err.message);
@@ -376,8 +399,15 @@ async function runQualityChecks({ triggeredBy = 'cron' } = {}) {
 // ─── Job 3: compute_freshness ─────────────────────────────────────────────────
 
 /**
- * Update PIPELINE.FRESHNESS for all active (table, account) pairs.
- * Sets is_stale based on staleness_threshold_hours.
+ * Update freshness state for all active (table, account) pairs.
+ *
+ * CHANGED 2026-05-15: No longer MERGEs into PIPELINE.FRESHNESS on every run.
+ * Instead, queries the analytics tables for their latest updated_at timestamps
+ * and writes the result to Redis (TTL 24h). The daily 08:00 UTC
+ * flush_freshness_cache job batch-flushes Redis → Snowflake once per day.
+ *
+ * This eliminates ~48 expensive table-scan MERGEs per day (3 tables × N accounts
+ * × 2 runs/hour) in favour of cheap Redis writes + 1 batch Snowflake MERGE/day.
  */
 async function computeFreshness({ triggeredBy = 'cron' } = {}) {
   const accounts = await getActiveAccounts();
@@ -396,12 +426,13 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
   for (const { accountId, clientId } of accounts) {
     for (const { table, tsColumn } of tables) {
       try {
-        // Get last successful load time and latest date for this table+account
+        // Query the analytics table for latest timestamps (read-only, no MERGE).
+        // Still queries Snowflake here, but only reads one row via MAX() —
+        // far cheaper than the old full-table MERGE scan.
         const rows = await query(`
           SELECT
-            MAX(${tsColumn})   AS last_load_at,
-            NULL AS last_report_date,  -- skipped: date col varies per table
-            COUNT(*)           AS row_count
+            MAX(${tsColumn}) AS last_load_at,
+            COUNT(*)         AS row_count
           FROM ${table}
           WHERE client_id = ? AND account_id = ?
         `, [clientId, accountId]).catch(() => null);
@@ -409,36 +440,16 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
         if (!rows) continue;
 
         const lastLoadAt = rows[0]?.LAST_LOAD_AT || rows[0]?.last_load_at;
+        const rowCount   = Number(rows[0]?.ROW_COUNT || rows[0]?.row_count || 0);
 
-        await query(`
-          MERGE INTO CALBRIDGE_PROD.PIPELINE.FRESHNESS tgt
-          USING (SELECT ? AS table_name, ? AS account_id, ? AS client_id) src
-          ON tgt.table_name = src.table_name AND tgt.account_id = src.account_id AND tgt.client_id = src.client_id
-          WHEN MATCHED THEN UPDATE SET
-            last_successful_load_at    = ?,
-            last_successful_report_date = ?,
-            row_count_last_run         = ?,
-            is_stale                   = CASE WHEN ? IS NULL OR DATEDIFF('hour', ?, CURRENT_TIMESTAMP()) > staleness_threshold_hours THEN TRUE ELSE FALSE END,
-            updated_at                 = CURRENT_TIMESTAMP()
-          WHEN NOT MATCHED THEN INSERT
-            (table_name, account_id, client_id, last_successful_load_at, last_successful_report_date,
-             row_count_last_run, is_stale, staleness_threshold_hours, updated_at)
-          VALUES
-            (?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN TRUE ELSE FALSE END, 25, CURRENT_TIMESTAMP())
-        `, [
-          table, accountId, clientId,
-          // WHEN MATCHED
+        // Write to Redis — Snowflake flush happens once daily via flush_freshness_cache
+        await writeFreshnessToCache({
+          clientId,
+          accountId,
+          tableName: table,
           lastLoadAt,
-          rows[0]?.LAST_REPORT_DATE || rows[0]?.last_report_date,
-          Number(rows[0]?.ROW_COUNT || rows[0]?.row_count || 0),
-          lastLoadAt, lastLoadAt,
-          // WHEN NOT MATCHED
-          table, accountId, clientId,
-          lastLoadAt,
-          rows[0]?.LAST_REPORT_DATE || rows[0]?.last_report_date,
-          Number(rows[0]?.ROW_COUNT || rows[0]?.row_count || 0),
-          lastLoadAt,
-        ]);
+          rowCount,
+        });
 
         updated++;
       } catch (err) {
@@ -449,7 +460,7 @@ async function computeFreshness({ triggeredBy = 'cron' } = {}) {
   }
 
   await completeJob(runId, { rowsWritten: updated });
-  console.log(`[computeFreshness] ✅ Updated ${updated} freshness entries`);
+  console.log(`[computeFreshness] ✅ Cached ${updated} freshness entries in Redis (daily Snowflake flush at 08:00 UTC)`);
   return { updated };
 }
 
@@ -859,4 +870,5 @@ module.exports = {
   reconcileMissingPartitions,
   rebuildMart,
   expireStaleActions,
+  flushFreshnessToSnowflake,
 };

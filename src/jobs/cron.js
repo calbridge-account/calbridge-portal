@@ -157,6 +157,11 @@ const JOB_HANDLERS = {
     .catch(e => console.warn('[cleanup] expire_unverified_accounts failed:', e.message));
   },
 
+  // ── Daily 08:00 UTC — flush Redis freshness cache → PIPELINE.FRESHNESS ──────
+  // Replaces per-run compute_freshness() MERGEs. Batch-writes all accumulated
+  // Redis freshness state to Snowflake once per day instead of ~48×/day.
+  flush_freshness_cache: () => stageRawData().flushFreshnessToSnowflake({ triggeredBy: 'cron' }),
+
   // ── Daily cleanup — ads_report_queue TTL (keep 7 days, delete older completed) ─
   cleanup_report_queue:         () => {
     const { query: _q } = require('../services/snowflakeService');
@@ -631,6 +636,10 @@ const CRON_SCHEDULE = [
   {
     jobId: 'data_freshness_report',
     expr:  '0 8 * * *',     // daily 08:00 UTC — data freshness email to abe@teamcalbridge.com
+  },
+  {
+    jobId: 'flush_freshness_cache',
+    expr:  '15 8 * * *',    // daily 08:15 UTC — flush Redis freshness → PIPELINE.FRESHNESS (after freshness email)
   },
   // ingest_vendor_reports kept disabled (legacy/manual trigger only)
 

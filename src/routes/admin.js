@@ -902,6 +902,29 @@ router.post('/cache/flush', requireAdmin, (req, res) => {
 });
 
 /**
+ * GET /admin/freshness/:clientId
+ *
+ * Returns freshness metadata for all tables belonging to a client.
+ * Reads from Redis first (fast path), falls back to PIPELINE.FRESHNESS in Snowflake.
+ *
+ * Response shape:
+ *   { source: 'redis' | 'snowflake', records: [...] }
+ */
+router.get('/freshness/:clientId', requireAdmin, async (req, res, next) => {
+  try {
+    const { getFreshnessForClient } = require('../services/freshnessCacheService');
+    const { clientId } = req.params;
+    const records = await getFreshnessForClient(clientId);
+    const source = records.length > 0 && records[0]._source === 'snowflake' ? 'snowflake' : 'redis';
+    // Strip internal _source tag before returning
+    const clean = records.map(({ _source, ...r }) => r);
+    res.json({ source, records: clean });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /admin/cache/stats
  * Return current cache size and keys (for debugging).
  */
