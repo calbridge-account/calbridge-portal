@@ -223,9 +223,19 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts, please try again later.' }
 });
 
+// Stricter limiter for signup — 5 accounts per IP per hour
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many signup attempts from this IP. Please try again later.' },
+  skipSuccessfulRequests: false,
+});
+
 app.use('/api', apiLimiter);
 app.use('/auth/login', authLimiter);
-app.use('/auth/signup', authLimiter);
+app.use('/auth/signup', signupLimiter);
 app.use('/auth/forgot-password', authLimiter);
 
 // Routes

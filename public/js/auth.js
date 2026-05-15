@@ -8,11 +8,36 @@ const btn      = document.getElementById(isSignup ? 'signup-btn' : 'login-btn');
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   errorEl.classList.add('hidden');
+
+  // Client-side validation for signup
+  if (isSignup) {
+    const emailVal = document.getElementById('email').value.toLowerCase().trim();
+    const passwordVal = document.getElementById('password').value;
+    const nameVal = document.getElementById('name').value.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+    if (!nameVal) {
+      errorEl.textContent = 'Please enter your name.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    if (!emailRegex.test(emailVal)) {
+      errorEl.textContent = 'Please enter a valid email address.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    if (passwordVal.length < 8) {
+      errorEl.textContent = 'Password must be at least 8 characters.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+  }
+
   btn.disabled = true;
   btn.textContent = isSignup ? 'Creating account...' : 'Signing in...';
 
   const body = isSignup
-    ? { name: document.getElementById('name').value, email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value, account_type: (document.querySelector('input[name="account_type"]:checked') || {}).value || 'brand' }
+    ? { name: document.getElementById('name').value.trim(), email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value, account_type: (document.querySelector('input[name="account_type"]:checked') || {}).value || 'brand' }
     : { email: document.getElementById('email').value.toLowerCase().trim(), password: document.getElementById('password').value };
 
   try {

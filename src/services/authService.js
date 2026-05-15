@@ -6,8 +6,53 @@ const { query } = require('./snowflakeService');
  * Auth service — Snowflake-backed client accounts
  */
 
+// Disposable/throwaway email domains to block
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  'mailinator.com','guerrillamail.com','guerrillamail.net','guerrillamail.org',
+  'guerrillamail.biz','guerrillamail.de','guerrillamail.info','sharklasers.com',
+  'guerrillamailblock.com','grr.la','guerrillamail.com','spam4.me','trashmail.com',
+  'trashmail.me','trashmail.net','trashmail.org','trashmail.at','trashmail.io',
+  'trashmail.xyz','yopmail.com','yopmail.fr','cool.fr.nf','jetable.fr.nf',
+  'nospam.ze.tc','nomail.xl.cx','mega.zik.dj','speed.1s.fr','courriel.fr.nf',
+  'moncourrier.fr.nf','monemail.fr.nf','monmail.fr.nf','tempmail.com',
+  'temp-mail.org','throwam.com','throwam.com','fakeinbox.com','maildrop.cc',
+  'dispostable.com','mailnull.com','spamgourmet.com','spamgourmet.net',
+  'spamgourmet.org','spamgourmet.com','mailnesia.com','mailnull.com',
+  'discard.email','discardmail.com','discardmail.de','sharklasers.com',
+  '10minutemail.com','10minutemail.net','10minutemail.org','10minutemail.de',
+  'tempr.email','discard.email','filzmail.com','throwam.com','trbvm.com',
+  'mohmal.com','getnada.com','ownmail.net','inoutmail.de','inoutmail.eu',
+  'inoutmail.info','inoutmail.net','spamfree24.org','spamfree24.de',
+  'spamfree24.net','spamfree24.info','spamfree24.biz','spamfree24.eu'
+]);
+
+// Strict RFC-ish email validation
+const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
+
 async function signup({ email, password, name, companyName, account_type = 'brand' }) {
   email = email.toLowerCase().trim();
+
+  // Validate email format
+  if (!EMAIL_REGEX.test(email)) {
+    const err = new Error('INVALID_EMAIL'); err.status = 400; throw err;
+  }
+
+  // Block disposable/throwaway email domains
+  const domain = email.split('@')[1];
+  if (BLOCKED_EMAIL_DOMAINS.has(domain)) {
+    const err = new Error('DISPOSABLE_EMAIL'); err.status = 400; throw err;
+  }
+
+  // Enforce password minimum length
+  if (!password || password.length < 8) {
+    const err = new Error('PASSWORD_TOO_SHORT'); err.status = 400; throw err;
+  }
+
+  // Sanitize name — strip any characters that look like injection attempts
+  if (!name || name.trim().length < 1) {
+    const err = new Error('NAME_REQUIRED'); err.status = 400; throw err;
+  }
+
   // Check existing
   const existing = await query(
     `SELECT client_id FROM clients WHERE email = ?`, [email]

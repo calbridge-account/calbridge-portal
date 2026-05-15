@@ -11,10 +11,20 @@ router.post('/signup', async (req, res, next) => {
   try {
     const { email, password, name, companyName, account_type } = req.body;
     if (!email || !password || !name) {
-      return res.status(400).json({ error: 'name, email and password are required' });
+      return res.status(400).json({ error: 'Name, email and password are required.' });
     }
     // Pass companyName and account_type through to authService
-    const client = await authService.signup({ email, password, name, companyName, account_type: account_type || 'brand' });
+    let client;
+    try {
+      client = await authService.signup({ email, password, name, companyName, account_type: account_type || 'brand' });
+    } catch (signupErr) {
+      if (signupErr.message === 'INVALID_EMAIL')    return res.status(400).json({ error: 'Please enter a valid email address.' });
+      if (signupErr.message === 'DISPOSABLE_EMAIL') return res.status(400).json({ error: 'Please use a real work or personal email address. Temporary/disposable addresses are not accepted.' });
+      if (signupErr.message === 'PASSWORD_TOO_SHORT') return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+      if (signupErr.message === 'NAME_REQUIRED')    return res.status(400).json({ error: 'Please enter your name.' });
+      if (signupErr.message === 'EMAIL_TAKEN')      return res.status(409).json({ error: 'An account with that email already exists.' });
+      throw signupErr;
+    }
     // Don't set session — account is pending_verification until email confirmed
     res.status(201).json({ message: 'Account created', status: 'pending_verification', client: { id: client.id, email: client.email, name: client.name, accountType: account_type || 'brand' } });
 
