@@ -402,16 +402,19 @@ window.deleteAdj = async function (id) {
 
 // ── Nav Visibility ─────────────────────────────────────────────────────────────────
 
+// requires: connection type that must be active for this tab to be usable.
+// anyConnection: true means the tab is enabled as long as ANY connection exists.
+// If neither is set, the tab is always enabled regardless of connections.
 const NAV_TABS = [
-  { path: '/',            label: 'Overview'           },
-  { path: '/vendor',      label: 'Vendor Performance' },
-  { path: '/seller',      label: 'Seller Sales'       },
-  { path: '/forecasting', label: 'Forecasting'        },
-  { path: '/cogs',        label: 'COGS & Margins'     },
-  { path: '/advertising', label: 'Advertising'        },
-  { path: '/pacing',      label: 'Budget Pacing'      },
-  { path: '/reports',     label: 'Report Builder'     },
-  { path: '/account',     label: 'Account'            },
+  { path: '/',            label: 'Overview',           anyConnection: true },
+  { path: '/vendor',      label: 'Vendor Performance', requires: 'vendor'  },
+  { path: '/seller',      label: 'Seller Sales',       requires: 'seller'  },
+  { path: '/forecasting', label: 'Forecasting'                             },
+  { path: '/cogs',        label: 'COGS & Margins'                          },
+  { path: '/advertising', label: 'Advertising',        requires: 'ads'     },
+  { path: '/pacing',      label: 'Budget Pacing'                           },
+  { path: '/reports',     label: 'Report Builder'                          },
+  { path: '/account',     label: 'Account'                                 },
 ];
 
 let nvInitialized = false;
@@ -448,48 +451,103 @@ async function loadNavConfig(clientId) {
     return;
   }
 
-  tbody.innerHTML = '<tr><td colspan="3" class="loading-cell">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" class="loading-cell">Loading…</td></tr>';
   wrap.style.display = 'block';
 
   try {
-    const res  = await adminFetch(`/admin/nav-config/${clientId}`);
-    if (!res.ok) throw new Error('Failed to load');
-    const data = await res.json();
-    const cfg  = data.config || {};
+    // Fetch nav config and active connections in parallel
+    const [navRes, connRes] = await Promise.all([
+      adminFetch(`/admin/nav-config/${clientId}`),
+      adminFetch(`/admin/connections/${clientId}`),
+    ]);
+    if (!navRes.ok) throw new Error('Failed to load nav config');
+
+    const data        = await navRes.json();
+    const connData    = connRes.ok ? await connRes.json() : {};
+    const cfg         = data.config || {};
+    const connections = connData.connections || {}; // e.g. { ads: true, vendor: false, ... }
+
+    const hasAnyConnection = Object.values(connections).some(Boolean);
 
     const client = allClients.find(c => c.clientId === clientId);
     title.textContent = `Nav Config — ${client?.companyName || client?.name || clientId}`;
 
+    // Update thead to include Connection Status column
+    const thead = wrap.querySelector('thead tr');
+    if (thead && thead.children.length < 4) {
+      const th = document.createElement('th');
+      th.textContent = 'Connection Status';
+      th.style.width = '180px';
+      thead.appendChild(th);
+    }
+
     tbody.innerHTML = NAV_TABS.map(tab => {
-      const vis = cfg[tab.path] || 'visible';
-      const rowStyle = vis !== 'visible' ? 'background:var(--warning-bg)' : '';
+      // Determine if this tab is connection-locked
+      let locked = false;
+      let lockReason = '';
+      if (tab.requires) {
+        locked = !connections[tab.requires];
+        lockReason = `Requires active ${tab.requires} connection`;
+      } else if (tab.anyConnection) {
+        locked = !hasAnyConnection;
+        lockReason = 'Requires at least one active connection';
+      }
+
+      // Default visibility: if locked, default to 'hidden'; otherwise use saved config or 'visible'
+      const savedVis = cfg[tab.path];
+      const vis = locked
+        ? (savedVis || 'hidden')   // locked → default hidden, but respect explicit override
+        : (savedVis || 'visible'); // unlocked → default visible
+
+      const rowStyle = locked
+        ? 'background:var(--gray-50,#f9f9f9);opacity:0.8'
+        : (vis !== 'visible' ? 'background:var(--warning-bg)' : '');
+
+      const connBadge = tab.requires
+        ? (connections[tab.requires]
+            ? `<span style="color:var(--success,#16a34a);font-size:12px">✅ ${tab.requires} active</span>`
+            : `<span style="color:var(--gray-400);font-size:12px">⛔ no ${tab.requires} connection</span>`)
+        : (tab.anyConnection
+            ? (hasAnyConnection
+                ? `<span style="color:var(--success,#16a34a);font-size:12px">✅ connected</span>`
+                : `<span style="color:var(--gray-400);font-size:12px">⛔ no connections</span>`)
+            : `<span style="color:var(--gray-400);font-size:12px">— always available</span>`);
+
+      const selectHtml = locked
+        ? `<span title="${lockReason}" style="font-size:12px;color:var(--gray-400);cursor:help">🔒 Locked — ${lockReason}</span>
+           <select class="nv-vis-select" data-path="${tab.path}" data-locked="true"
+             style="display:none">
+             <option value="${vis}" selected>${vis}</option>
+           </select>`
+        : `<select class="nv-vis-select" data-path="${tab.path}"
+             style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;min-width:160px">
+             <option value="visible"  ${vis === 'visible'  ? 'selected' : ''}>✅ Visible</option>
+             <option value="grayed"   ${vis === 'grayed'   ? 'selected' : ''}>🔴 Grayed Out (coming soon)</option>
+             <option value="hidden"   ${vis === 'hidden'   ? 'selected' : ''}>🚫 Hidden</option>
+           </select>`;
+
       return `
         <tr style="${rowStyle}">
           <td><strong>${tab.label}</strong></td>
           <td style="font-family:monospace;font-size:12px;color:var(--gray-400)">${tab.path}</td>
-          <td>
-            <select class="nv-vis-select" data-path="${tab.path}"
-              style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;min-width:160px">
-              <option value="visible"  ${vis === 'visible'  ? 'selected' : ''}>✅ Visible</option>
-              <option value="grayed"   ${vis === 'grayed'   ? 'selected' : ''}>🔴 Grayed Out (coming soon)</option>
-              <option value="hidden"   ${vis === 'hidden'   ? 'selected' : ''}>🚫 Hidden</option>
-            </select>
-          </td>
+          <td>${connBadge}</td>
+          <td>${selectHtml}</td>
         </tr>
       `;
     }).join('');
 
-    // Highlight rows when select changes
-    tbody.querySelectorAll('.nv-vis-select').forEach(sel => {
+    // Highlight rows when select changes (only for unlocked rows)
+    tbody.querySelectorAll('.nv-vis-select:not([data-locked])').forEach(sel => {
       sel.addEventListener('change', () => {
         const row = sel.closest('tr');
         row.style.background = sel.value !== 'visible' ? 'var(--warning-bg)' : '';
+        row.style.opacity = '';
       });
     });
 
     saveBtn.disabled = false;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="3" class="loading-cell">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="loading-cell">Error: ${err.message}</td></tr>`;
     saveBtn.disabled = true;
   }
 }

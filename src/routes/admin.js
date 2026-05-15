@@ -433,6 +433,25 @@ async function ensureNavConfigTable() {
 ensureNavConfigTable();
 
 /**
+ * GET /admin/connections/:clientId
+ * Returns active connection types for a client (ads, vendor, seller, dsp, etc.)
+ */
+router.get('/connections/:clientId', requireAdmin, async (req, res, next) => {
+  try {
+    const { clientId } = req.params;
+    const rows = await query(
+      `SELECT connection_type, is_active FROM CALBRIDGE_PROD.APP.amazon_connections WHERE client_id = ?`,
+      [clientId]
+    );
+    const connections = {};
+    rows.forEach(r => {
+      connections[r.CONNECTION_TYPE] = r.IS_ACTIVE === true || r.IS_ACTIVE === 'true' || r.IS_ACTIVE === 1;
+    });
+    res.json({ clientId, connections });
+  } catch (err) { next(err); }
+});
+
+/**
  * GET /admin/nav-config/:clientId
  * Returns full nav config for a client (all 7 paths, defaulting to 'visible')
  */
