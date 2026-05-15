@@ -2797,6 +2797,17 @@ async function processReportQueue(clientId, connectionType) {
   }
 
   console.log(`[ReportQueue] Completed: ${processed} reports written`);
+
+  // Invalidate dashboard query cache for this client when new reports land
+  if (processed > 0) {
+    try {
+      const { invalidateClient } = require('../services/queryCache');
+      await invalidateClient(clientId);
+    } catch (err) {
+      console.warn(`[ReportQueue] Cache invalidation error (non-fatal): ${err.message}`);
+    }
+  }
+
   return { processed };
 }
 

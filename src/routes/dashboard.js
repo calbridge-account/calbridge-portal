@@ -13,7 +13,7 @@ const { planDataWindow } = require('../middleware/planDataWindow');
 const { compute: computeMetric } = require('../config/metrics');
 const { responseCache } = require('../middleware/responseCache');
 
-// Cache all GET responses for 60 seconds — same client, same URL = one Snowflake call.
+// Cache all GET responses for 60 seconds - same client, same URL = one Snowflake call.
 router.use((req, res, next) => {
   if (req.method === 'GET') return responseCache(60_000)(req, res, next);
   next();
@@ -70,7 +70,7 @@ function withCache(ttlMs, handler) {
 }
 
 // ---------------------------------------------------------------------------
-// Brand resolver — resolves brandId for a request.
+// Brand resolver - resolves brandId for a request.
 //
 // Priority:
 //   1. ?brandId= query param (if supplied and owned by client)
@@ -98,7 +98,7 @@ async function resolveBrand(clientId, requestedBrandId) {
 
     return { brandId: null, brand: null, noBrands: true };
   } catch {
-    // brands table may not exist in older envs — graceful fallback
+    // brands table may not exist in older envs - graceful fallback
     return { brandId: null, brand: null, noBrands: false };
   }
 }
@@ -136,7 +136,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 // GET /dashboard/summary?days=30&brandId=<optional>
 // Overview KPIs: total retail sales, ad attributed sales, ad spend, total ROAS
-// brandId: optional — if omitted, uses client's first active brand
+// brandId: optional - if omitted, uses client's first active brand
 router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
   try {
     const days = Number(req.query.days) || 30;
@@ -145,49 +145,51 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
     const clientId = await resolveClientId(req);
     const marketplace = resolveMarketplace(req);
 
-    // Resolve brand context — attach to response so frontend can show brand name/switcher
-    // NOTE: noBrands does NOT block data — sales/ads queries are client-scoped only.
+    // Resolve brand context - attach to response so frontend can show brand name/switcher
+    // NOTE: noBrands does NOT block data - sales/ads queries are client-scoped only.
     // We still return data even when no brand is configured, and pass noBrands as metadata
     // so the frontend can prompt the user to set one up.
     const brandCtx = await resolveBrand(clientId, req.query.brandId);
 
-    const [salesRow, vendorSalesRow, adsRow] = await Promise.all([
-      // PO-ordered revenue from vendor_purchase_orders (demand signal)
-      query(`
-        SELECT
-          COALESCE(SUM(ordered_revenue), 0)  AS po_ordered_revenue,
-          COALESCE(SUM(units_ordered), 0)    AS total_units
-        FROM vendor_purchase_orders
-        WHERE client_id = ?
-          ${dateFilter("order_date", days, startDate, endDate)}
-          ${marketplaceFilter(marketplace)}
-      `, [clientId]),
+    const ck = cacheKey(clientId, 'summary', days, startDate, endDate, marketplace);
+    const [salesRow, vendorSalesRow, adsRow] = await cachedQuery(ck, 10 * 60 * 1000, () =>
+      Promise.all([
+        // PO-ordered revenue from vendor_purchase_orders (demand signal)
+        query(`
+          SELECT
+            COALESCE(SUM(ordered_revenue), 0)  AS po_ordered_revenue,
+            COALESCE(SUM(units_ordered), 0)    AS total_units
+          FROM vendor_purchase_orders
+          WHERE client_id = ?
+            ${dateFilter("order_date", days, startDate, endDate)}
+            ${marketplaceFilter(marketplace)}
+        `, [clientId]),
 
-      // Shipped revenue from mart_vendor_daily (actual invoiced revenue — hits P&L)
-      query(`
-        SELECT
-          COALESCE(SUM(shipped_revenue), 0) AS vs_shipped_revenue,
-          COALESCE(SUM(shipped_cogs), 0)    AS vs_shipped_cogs
-        FROM CALBRIDGE_PROD.MARTS_MARTS.mart_vendor_daily
-        WHERE client_id = ?
-          ${dateFilter('start_date', days, startDate, endDate)}
-      `, [clientId]),
+        // Shipped revenue from mart_vendor_daily (actual invoiced revenue — hits P&L)
+        query(`
+          SELECT
+            COALESCE(SUM(shipped_revenue), 0) AS vs_shipped_revenue,
+            COALESCE(SUM(shipped_cogs), 0)    AS vs_shipped_cogs
+          FROM CALBRIDGE_PROD.MARTS_MARTS.mart_vendor_daily
+          WHERE client_id = ?
+            ${dateFilter('start_date', days, startDate, endDate)}
+        `, [clientId]),
 
-
-      // Ad attributed sales + spend — from mart_advertising_daily
-      query(`
-        SELECT
-          COALESCE(SUM(spend), 0)   AS total_ad_spend,
-          COALESCE(SUM(sales), 0)   AS total_ad_sales,
-          COALESCE(SUM(orders), 0)  AS total_ad_orders,
-          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
-          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
-        FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
-        WHERE client_id = ?
-          AND COALESCE(marketplace, 'US') = '${(marketplace || 'US').replace(/'/g, "''")}'
-          ${dateFilter('date', days, startDate, endDate)}
-      `, [clientId])
-    ]);
+        // Ad attributed sales + spend — from mart_advertising_daily
+        query(`
+          SELECT
+            COALESCE(SUM(spend), 0)   AS total_ad_spend,
+            COALESCE(SUM(sales), 0)   AS total_ad_sales,
+            COALESCE(SUM(orders), 0)  AS total_ad_orders,
+            CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS ad_roas,
+            CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos
+          FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
+          WHERE client_id = ?
+            AND COALESCE(marketplace, 'US') = '${(marketplace || 'US').replace(/'/g, "''")}'
+            ${dateFilter('date', days, startDate, endDate)}
+        `, [clientId])
+      ])
+    );
 
     const [s, vs, a] = [salesRow[0] || {}, vendorSalesRow[0] || {}, adsRow[0] || {}];
 
@@ -196,12 +198,12 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
     const shippedCogs      = Number(vs.VS_SHIPPED_COGS     || 0);
     // Total retail sales: prefer shipped revenue (actual invoiced P&L signal);
     // fall back to ordered revenue (PO demand) only when shipped is zero.
-    // Do NOT add them — they represent the same product at different pipeline stages
+    // Do NOT add them - they represent the same product at different pipeline stages
     // and summing would double-count Vendor Central revenue.
     const totalRetailSales = shippedRevenue > 0 ? shippedRevenue : orderedRevenue;
     const totalAdSpend     = Number(a.TOTAL_AD_SPEND    || 0);
 
-    // Total ROAS = Total retail sales / Ad spend (true blended ROAS) — via metrics.js true_roas
+    // Total ROAS = Total retail sales / Ad spend (true blended ROAS) - via metrics.js true_roas
     const totalRoas = computeMetric('true_roas', { totalRetailSales, totalAdSpend });
 
     // CM Breakdown from contribution_margin table
@@ -272,7 +274,7 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
       orderedRevenue,
       shippedRevenue,
       shippedCogs,
-      // Legacy fields — kept for backward compat
+      // Legacy fields - kept for backward compat
       sellerRevenue:    orderedRevenue,
       vendorRevenue:    shippedRevenue,
       totalUnits:       Number(s.TOTAL_UNITS     || 0),
@@ -284,7 +286,7 @@ router.get('/summary', requireAuth, planDataWindow, async (req, res, next) => {
       totalRoas,
       cmBreakdown,
       days,
-      // Brand context — frontend uses this to show brand name in header / switcher
+      // Brand context - frontend uses this to show brand name in header / switcher
       brand: brandCtx.brand ? {
         brandId:     brandCtx.brand.BRAND_ID,
         name:        brandCtx.brand.NAME,
@@ -324,7 +326,7 @@ router.get('/performance', requireAuth, async (req, res, next) => {
         cm1Label: 'Net Amazon Proceeds',
         cm2Label: 'Gross Profit',
         cm3Label: 'True Profitability',
-        // Profitability flag — if CM3 < 0, brand is paying to lose money
+        // Profitability flag - if CM3 < 0, brand is paying to lose money
         profitable: cm3 != null ? cm3 >= 0 : null,
         cogsSet:    cm2 != null,  // false means COGS not uploaded yet
         vendorCm1IsEstimate: Boolean(r.VENDOR_CM1_IS_ESTIMATE),
@@ -520,7 +522,7 @@ router.get('/sales-performance', requireAuth, planDataWindow, async (req, res, n
         units:          Number(r.UNITS || 0),
         orderedRevenue: Number(r.ORDERED_REVENUE || 0),
         shippedRevenue: Number(r.SHIPPED_REVENUE || 0),
-        // legacy — use ordered as primary signal
+        // legacy - use ordered as primary signal
         revenue:        Number(r.ORDERED_REVENUE || 0),
         activeDays:     Number(r.ACTIVE_DAYS || 0)
       })),
@@ -544,7 +546,7 @@ router.get('/inventory-summary', requireAuth, async (req, res, next) => {
   try {
     const clientId = await resolveClientId(req);
 
-    // Latest snapshot rows — from mart_inventory_snapshot
+    // Latest snapshot rows - from mart_inventory_snapshot
     const invRows = await query(`
       SELECT
         SUM(sellable_units)       AS total_sellable,
@@ -612,7 +614,7 @@ router.post('/sync', requireAuth, async (req, res, next) => {
     // Invalidate all cached responses for this client so the next page load
     // fetches fresh data after the sync completes.
     invalidateClient(clientId);
-    // Fire sync in background — don't await
+    // Fire sync in background - don't await
     syncClient(clientId, connections).catch(err =>
       console.error(`[Manual sync] Client ${clientId}:`, err.message)
     );
@@ -640,7 +642,7 @@ router.get('/tacos', requireAuth, planDataWindow, async (req, res, next) => {
     // Revenue source of truth for TACOS:
     // - Vendor accounts: prefer VENDOR_SALES.shipped_revenue (actual invoiced P&L signal)
     // - Fall back to vendor_purchase_orders.ordered_revenue only when shipped is zero
-    // - Do NOT add them — they are different pipeline stages for the same product
+    // - Do NOT add them - they are different pipeline stages for the same product
     const [vsRow, poRow, adsRow] = await Promise.all([
       // Shipped revenue from VENDOR_SALES (authoritative for vendor accounts)
       query(`
@@ -726,7 +728,7 @@ router.get('/forecast', requireAuth, planDataWindow, async (req, res, next) => {
     // Revenue source of truth for forecast:
     // - Primary: vendor_sales.shipped_revenue (authoritative P&L signal) grouped by start_date
     // - Fallback: vendor_purchase_orders.ordered_revenue (PO demand) grouped by order_date
-    // - Do NOT add shipped + ordered — they represent the same product at different pipeline stages
+    // - Do NOT add shipped + ordered - they represent the same product at different pipeline stages
     let dailyRows = await query(`
       SELECT
         start_date AS period_date,
@@ -951,7 +953,8 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
     const endDate   = req.query.endDate   || null;
     const clientId = await resolveClientId(req);
 
-    const rows = await query(`
+    const ntbCk = cacheKey(clientId, 'ntb', days, startDate, endDate);
+    const rows = await cachedQuery(ntbCk, 10 * 60 * 1000, () => query(`
       WITH cp AS (SELECT * FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND new_to_brand_purchases IS NOT NULL)
       SELECT
         COALESCE(SUM(orders), 0)               AS total_orders,
@@ -969,14 +972,15 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
         CASE WHEN SUM(adjusted_spend) > 0
           THEN SUM(new_to_brand_sales) / SUM(adjusted_spend) ELSE NULL END AS ntb_roas
       FROM cp
-    `, [clientId]);
+    `, [clientId]));
 
     const r = rows[0] || {};
 
     // Also get NTB by campaign
     let byCampaign = [];
     try {
-      const campRows = await query(`
+      const ntbCampCk = cacheKey(clientId, 'ntb-by-campaign', days, startDate, endDate);
+      const campRows = await cachedQuery(ntbCampCk, 10 * 60 * 1000, () => query(`
         WITH cp AS (SELECT * FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE WHERE client_id = ? ${dateFilter('date', days, startDate, endDate)} AND new_to_brand_purchases > 0)
         SELECT
           campaign_id,
@@ -995,7 +999,7 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
         GROUP BY campaign_id, campaign_name, ad_type
         ORDER BY ntb_orders DESC
         LIMIT 20
-      `, [clientId]);
+      `, [clientId]));
 
       byCampaign = campRows.map(row => ({
         campaignId:    String(row.CAMPAIGN_ID),
@@ -1035,7 +1039,7 @@ router.get('/ntb', requireAuth, planDataWindow, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // GET /dashboard/asin-ad-spend?days=30
 // Per-ASIN ad spend using direct attribution (advertised_asin column).
-// Replaces the old proportional split — shows actual spend per ASIN.
+// Replaces the old proportional split - shows actual spend per ASIN.
 // Includes 'UNATTRIBUTED' bucket for brand awareness spend.
 // ---------------------------------------------------------------------------
 router.get('/asin-ad-spend', requireAuth, planDataWindow, async (req, res, next) => {
@@ -1145,7 +1149,7 @@ router.get('/ads-trend', requireAuth, planDataWindow, async (req, res, next) => 
 
 // ---------------------------------------------------------------------------
 // GET /dashboard/profitability-trend?days=90&limit=20
-// ASIN-level profitability trend — is each product getting more or less profitable?
+// ASIN-level profitability trend - is each product getting more or less profitable?
 // Returns slope, direction, week-over-week change, and signal for each ASIN.
 // ---------------------------------------------------------------------------
 router.get('/profitability-trend', requireAuth, planDataWindow, async (req, res, next) => {
@@ -1167,7 +1171,7 @@ router.get('/profitability-trend', requireAuth, planDataWindow, async (req, res,
     `, [clientId, limit]);
 
     if (!asinRows.length) {
-      return res.json({ available: false, reason: 'No CM3 data yet — upload COGS to unlock profitability trends', days, asins: [] });
+      return res.json({ available: false, reason: 'No CM3 data yet - upload COGS to unlock profitability trends', days, asins: [] });
     }
 
     // For each ASIN compute trend metrics
@@ -1213,8 +1217,8 @@ router.get('/profitability-trend', requireAuth, planDataWindow, async (req, res,
       const profitDays  = yArr.filter(y => y >= 0).length;
       const profitRate  = n > 0 ? profitDays / n : 0;
 
-      // Break-even ACOS (from latest CM2/revenue) — via metrics.js canonical formula
-      // Note: metrics.js returns a ratio (0–1); multiply by 100 for display as percent.
+      // Break-even ACOS (from latest CM2/revenue) - via metrics.js canonical formula
+      // Note: metrics.js returns a ratio (0-1); multiply by 100 for display as percent.
       const latestRow     = series[series.length - 1];
       const beRatio       = computeMetric('break_even_acos', { cm2: latestRow.cm2, revenue: latestRow.revenue });
       const breakEvenAcos = beRatio != null ? beRatio * 100 : null;
@@ -1292,11 +1296,11 @@ router.get('/profitability-trend', requireAuth, planDataWindow, async (req, res,
         inconsistent:        asins.filter(a => a.signal === 'inconsistent').length
       },
       signals: {
-        scaling_opportunity:     '📈 Profitable and improving — scale ad spend',
-        profitable_declining:    '⚠️ Profitable but trending down — investigate',
-        losing_money_recovering: '🔄 Losing money but improving — monitor',
-        losing_money_worsening:  '🔴 Losing money and getting worse — act now',
-        inconsistent:            '🟡 Inconsistent profitability — review pricing/COGS',
+        scaling_opportunity:     '📈 Profitable and improving - scale ad spend',
+        profitable_declining:    '⚠️ Profitable but trending down - investigate',
+        losing_money_recovering: '🔄 Losing money but improving - monitor',
+        losing_money_worsening:  '🔴 Losing money and getting worse - act now',
+        inconsistent:            '🟡 Inconsistent profitability - review pricing/COGS',
         stable:                  '✅ Stable profitability'
       }
     });

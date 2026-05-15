@@ -3,11 +3,11 @@
  * Runs all ingestion jobs on a schedule for all connected clients
  *
  * Schedule:
- * - Campaigns:            Every 6 hours
- * - Performance (Ads):    Every 6 hours (yesterday's data)
+ * - Campaigns:            Every 12 hours
+ * - Performance (Ads):    Every 12 hours (yesterday's data)
  * - Products:             Every 24 hours
- * - Sales:                Every 6 hours
- * - Contribution Margin:  Every 6 hours (after sales + ads sync)
+ * - Sales:                Every 12 hours
+ * - Contribution Margin:  Every 12 hours (after sales + ads sync)
  */
 require('dotenv').config();
 const { Resend } = require('resend');
@@ -52,6 +52,15 @@ async function syncClient(clientId, connections) {
 
   // Run all connection jobs in parallel
   await Promise.allSettled(jobs);
+
+  // Invalidate dashboard query cache for this client — data is now fresh
+  try {
+    const { invalidateClient } = require('../services/queryCache');
+    await invalidateClient(clientId);
+    console.log(`[Scheduler] Cache invalidated for client ${clientId}`);
+  } catch (err) {
+    console.warn(`[Scheduler] Cache invalidation error (non-fatal): ${err.message}`);
+  }
 
   // Calculate contribution margin after all data is in
   const hasAdData = connections.ads?.connected || connections.dsp?.connected;
@@ -109,23 +118,23 @@ async function runFullSync() {
  * Uses setInterval — swap for a proper cron library (node-cron) in production
  */
 function startScheduler() {
-  const SIX_HOURS   = 6 * 60 * 60 * 1000;
+  const TWELVE_HOURS = 12 * 60 * 60 * 1000;
   const FIVE_MINUTES = 5 * 60 * 1000;
 
-  console.log('[Scheduler] Started — full sync every 6h, queue poll every 5min, stream poll every 5min');
+  console.log('[Scheduler] Started — full sync every 12h, queue poll every 5min, stream poll every 5min');
 
   // Run full sync immediately on startup
   runFullSync();
 
-  // Full sync every 6 hours
-  setInterval(runFullSync, SIX_HOURS);
+  // Full sync every 12 hours (reduced from 6h — data updates once/day; halves Snowflake mart rebuild cost)
+  setInterval(runFullSync, TWELVE_HOURS);
 
-  // Anomaly detection every 6 hours, offset 30 seconds after full sync starts
+  // Anomaly detection every 12 hours, offset 30 seconds after full sync starts
   // to avoid Snowflake pool contention during the ingest burst
   setTimeout(async function runAnomalyDetection() {
     try { await detectAnomalies('scheduler'); }
     catch (err) { console.error('[Scheduler] Anomaly detection error:', err.message); }
-    setTimeout(runAnomalyDetection, SIX_HOURS);
+    setTimeout(runAnomalyDetection, TWELVE_HOURS);
   }, 30 * 1000); // first run 30s after startup
 
   // Marketing Stream SQS poller — every 5 minutes
