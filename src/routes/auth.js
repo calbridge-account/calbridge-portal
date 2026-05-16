@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const authService = require('../services/authService');
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
-const { cachedQuery } = require('../services/queryCache');
+const { cachedQuery, cacheKey } = require('../services/queryCache');
 const { getClient: getRedis } = require('../services/redisClient');
 
 /**
@@ -125,7 +125,7 @@ router.post('/login', async (req, res, next) => {
     // Uses shared Redis cache (60 min TTL) — same key as requireAuth middleware
     try {
       const map = await cachedQuery(
-        `sfcache:client_migration_map:${client.id}`,
+        cacheKey('sfcache:migmap', client.id),
         60 * 60 * 1000,
         () => query(
           'SELECT agency_id, manager_id, advertiser_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',

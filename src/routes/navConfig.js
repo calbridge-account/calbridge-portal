@@ -6,7 +6,13 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
+const { cachedQuery } = require('../services/queryCache');
 const { getConnectionStatus } = require('../services/amazonAuthService');
+
+// Cache TTLs for nav lookups
+const TTL_PLAN_MS         =  5 * 60 * 1000;  //  5 min — subscription plan
+const TTL_NAV_CONFIG_MS   =  5 * 60 * 1000;  //  5 min — nav overrides rarely change
+const TTL_CLIENT_ACCTS_MS = 30 * 60 * 1000;  // 30 min — channel/marketplace connections
 
 const NAV_PATHS = ['/', '/vendor', '/seller', '/forecasting', '/cogs', '/inventory', '/advertising', '/pacing', '/reports', '/account'];
 
@@ -31,20 +37,25 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
     const activeMarketplace = req.session.activeMarketplace || 'US';
 
     // Consolidated query: fetch subscription_plan + marketplace-specific account channels in one shot
-    // Previously 2 separate queries; now 1 LEFT JOIN
+    // Previously 2 separate queries; now 1 LEFT JOIN. Redis-cached 10 min (plan) / 30 min (accounts).
+    // Using 10 min as a safe middle ground for the join result.
     let plan = 'free';
     let hasVendorForMarketplace = hasVendor; // default: fall back to global connection status
     let hasSellerForMarketplace = hasSeller;
     try {
-      const clientRows = await query(
-        `SELECT c.subscription_plan, ca.channel, ca.marketplace
-         FROM CALBRIDGE_PROD.APP.clients c
-         LEFT JOIN CALBRIDGE_PROD.APP.client_accounts ca
-           ON ca.client_id = c.client_id
-          AND ca.channel IN ('seller','vendor')
-          AND ca.is_active = TRUE
-         WHERE c.client_id = ?`,
-        [clientId]
+      const clientRows = await cachedQuery(
+        `sfcache:nav_client_data:${clientId}`,
+        TTL_CLIENT_ACCTS_MS,
+        () => query(
+          `SELECT c.subscription_plan, ca.channel, ca.marketplace
+           FROM CALBRIDGE_PROD.APP.clients c
+           LEFT JOIN CALBRIDGE_PROD.APP.client_accounts ca
+             ON ca.client_id = c.client_id
+            AND ca.channel IN ('seller','vendor')
+            AND ca.is_active = TRUE
+           WHERE c.client_id = ?`,
+          [clientId]
+        )
       );
       if (clientRows.length > 0) {
         const sp = clientRows[0].SUBSCRIPTION_PLAN || clientRows[0].subscription_plan;
@@ -85,10 +96,14 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
       '/account':     'visible',
     };
 
-    // Allow DB overrides (e.g. admin can manually lock/unlock specific paths)
-    const rows = await query(
-      `SELECT nav_path, visibility FROM CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG WHERE client_id = ?`,
-      [clientId]
+    // Allow DB overrides (e.g. admin can manually lock/unlock specific paths) — Redis-cached 5 min
+    const rows = await cachedQuery(
+      `sfcache:CLIENT_NAV_CONFIG:${clientId}`,
+      TTL_NAV_CONFIG_MS,
+      () => query(
+        `SELECT nav_path, visibility FROM CALBRIDGE_PROD.APP.CLIENT_NAV_CONFIG WHERE client_id = ?`,
+        [clientId]
+      )
     );
     rows.forEach(r => {
       const path = r.NAV_PATH || r.nav_path;

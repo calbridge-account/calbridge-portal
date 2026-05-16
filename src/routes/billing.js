@@ -3,6 +3,11 @@ const router = express.Router();
 const crypto = require('crypto');
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
+const { cachedQuery, invalidate, cacheKey } = require('../services/queryCache');
+
+// ─── Cache TTLs ───────────────────────────────────────────────────────────────
+const TTL_MAP_MS     = 60 * 60 * 1000;  // 60 min  — migration map is nearly immutable
+const TTL_BILLING_MS =  5 * 60 * 1000;  //  5 min  — subscription plan / billing_exempt
 
 // ─── Stripe client (lazy — only initialised when STRIPE_SECRET_KEY is set) ────
 let _stripe = null;
@@ -228,16 +233,20 @@ const PLANS = {
 
 /**
  * Look up manager_id for a given clientId via client_migration_map.
- * Returns null if no mapping exists (legacy client — use clients table directly).
+ * Redis-cached for 60 min — this mapping is essentially immutable.
  *
  * @param {string} clientId
  * @returns {Promise<string|null>} managerId or null
  */
 async function getManagerId(clientId) {
   try {
-    const rows = await query(
-      'SELECT manager_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
-      [clientId]
+    // Use same cache key as requireAuth.js so login + per-request lookups share cache
+    const key = cacheKey('sfcache:migmap', clientId);
+    const rows = await cachedQuery(key, TTL_MAP_MS, () =>
+      query(
+        'SELECT manager_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
+        [clientId]
+      )
     );
     return rows[0]?.MANAGER_ID || rows[0]?.manager_id || null;
   } catch (err) {
@@ -248,6 +257,7 @@ async function getManagerId(clientId) {
 
 /**
  * Read billing status from manager_accounts.
+ * Redis-cached for 5 min — invalidated by Stripe webhook on subscription change.
  * Returns null if not found or if the manager row has no billing data.
  *
  * @param {string} managerId
@@ -255,12 +265,15 @@ async function getManagerId(clientId) {
  */
 async function getManagerBillingStatus(managerId) {
   try {
-    const rows = await query(
-      `SELECT subscription_plan, subscription_status, trial_ends_at, subscription_ends_at,
-              stripe_customer_id, stripe_subscription_id, billing_exempt
-       FROM CALBRIDGE_PROD.APP.manager_accounts
-       WHERE manager_id = ?`,
-      [managerId]
+    const key = `sfcache:manager_accounts:billing:${managerId}`;
+    const rows = await cachedQuery(key, TTL_BILLING_MS, () =>
+      query(
+        `SELECT subscription_plan, subscription_status, trial_ends_at, subscription_ends_at,
+                stripe_customer_id, stripe_subscription_id, billing_exempt
+         FROM CALBRIDGE_PROD.APP.manager_accounts
+         WHERE manager_id = ?`,
+        [managerId]
+      )
     );
     if (!rows.length) return null;
     const r = rows[0];
@@ -277,23 +290,30 @@ async function getManagerBillingStatus(managerId) {
 
 /**
  * Check if a client's agency is billing_exempt.
+ * Manager and agency rows are Redis-cached for 5 min each.
  * Returns true if the client or their agency has billing_exempt=TRUE.
  */
 async function isBillingExempt(clientId, managerId) {
   try {
     // Check manager-level exemption
     if (managerId) {
-      const mgrRows = await query(
-        'SELECT billing_exempt, agency_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
-        [managerId]
+      const mgrKey = `sfcache:manager_accounts:exempt:${managerId}`;
+      const mgrRows = await cachedQuery(mgrKey, TTL_BILLING_MS, () =>
+        query(
+          'SELECT billing_exempt, agency_id FROM CALBRIDGE_PROD.APP.manager_accounts WHERE manager_id = ?',
+          [managerId]
+        )
       );
       if (mgrRows.length && mgrRows[0].BILLING_EXEMPT === true) return true;
       // Check agency-level exemption
       const agencyId = mgrRows[0]?.AGENCY_ID;
       if (agencyId) {
-        const agencyRows = await query(
-          'SELECT billing_exempt FROM CALBRIDGE_PROD.APP.agency_accounts WHERE agency_id = ?',
-          [agencyId]
+        const agencyKey = `sfcache:agency_accounts:exempt:${agencyId}`;
+        const agencyRows = await cachedQuery(agencyKey, TTL_BILLING_MS, () =>
+          query(
+            'SELECT billing_exempt FROM CALBRIDGE_PROD.APP.agency_accounts WHERE agency_id = ?',
+            [agencyId]
+          )
         );
         if (agencyRows.length && agencyRows[0].BILLING_EXEMPT === true) return true;
       }
@@ -303,6 +323,30 @@ async function isBillingExempt(clientId, managerId) {
     console.warn('[Billing] isBillingExempt check failed:', err.message);
     return false;
   }
+}
+
+/**
+ * Invalidate all billing-related cache keys for a manager.
+ * Called from Stripe webhook handlers whenever subscription state changes.
+ * @param {string} managerId
+ * @param {string|null} [clientId]
+ */
+async function invalidateBillingCache(managerId, clientId = null) {
+  // Keys must match exactly what cachedQuery stores:
+  //   billing/exempt keys use template literals (colon-separated)
+  //   plan key uses cacheKey() helper (pipe-separated) to match requireAuth.js
+  const keysToInvalidate = [
+    `sfcache:manager_accounts:billing:${managerId}`,
+    `sfcache:manager_accounts:exempt:${managerId}`,
+  ];
+  if (clientId) {
+    // Match requireAuth.js: cacheKey('sfcache:plan', clientId) → 'sfcache:plan|{clientId}'
+    keysToInvalidate.push(cacheKey('sfcache:plan', clientId));
+    // Also clear nav_client_data used by navConfig.js
+    keysToInvalidate.push(`sfcache:nav_client_data:${clientId}`);
+  }
+  await Promise.all(keysToInvalidate.map(k => invalidate(k).catch(() => {})));
+  console.log(`[Billing] Cache invalidated for managerId=${managerId} clientId=${clientId}`);
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -612,6 +656,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           `, [sub.id, planId, sub.status, subEndsAt, clientRows[0].CLIENT_ID]);
         }
 
+        // ── Invalidate billing cache so next request reflects new plan ────────
+        if (mgrRows.length) {
+          const _cId = clientRows[0]?.CLIENT_ID || null;
+          await invalidateBillingCache(mgrRows[0].MANAGER_ID, _cId);
+        } else if (clientRows.length) {
+          await invalidate(cacheKey('sfcache:plan', clientRows[0].CLIENT_ID)).catch(() => {});
+        }
+
         break;
       }
 
@@ -647,6 +699,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 subscription_ends_at = ?
             WHERE client_id = ?
           `, [endsAt, clientRows[0].CLIENT_ID]);
+        }
+
+        // ── Invalidate billing cache on cancellation ──────────────────────
+        if (mgrRows.length) {
+          const _cId = clientRows[0]?.CLIENT_ID || null;
+          await invalidateBillingCache(mgrRows[0].MANAGER_ID, _cId);
+        } else if (clientRows.length) {
+          await invalidate(cacheKey('sfcache:plan', clientRows[0].CLIENT_ID)).catch(() => {});
         }
 
         break;
