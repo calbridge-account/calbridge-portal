@@ -5,6 +5,40 @@ const bcrypt = require('bcryptjs');
 const authService = require('../services/authService');
 const { requireAuth } = require('../middleware/requireAuth');
 const { query } = require('../services/snowflakeService');
+const { cachedQuery } = require('../services/queryCache');
+const { getClient: getRedis } = require('../services/redisClient');
+
+/**
+ * Purge all sfcache Redis keys for a client on logout.
+ * Best-effort — never throws or blocks the logout response.
+ */
+async function clearClientSfCache(clientId) {
+  if (!clientId) return;
+  try {
+    const redis = getRedis();
+    // SCAN for all sfcache:*:{clientId} patterns
+    const patterns = [
+      `qcache:sfcache:plan|${clientId}`,
+      `qcache:sfcache:migmap|${clientId}`,
+    ];
+    // Also clear any sfcache keys stored by billing.js conventions
+    const scanPatterns = [
+      `qcache:sfcache:*|${clientId}*`,
+      `qcache:sfcache:*${clientId}*`,
+    ];
+    const toDelete = [...patterns];
+    for (const pattern of scanPatterns) {
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 50);
+        toDelete.push(...keys);
+        cursor = nextCursor;
+      } while (cursor !== '0');
+    }
+    const unique = [...new Set(toDelete)];
+    if (unique.length) await redis.del(...unique);
+  } catch { /* best-effort */ }
+}
 
 // POST /auth/signup
 router.post('/signup', async (req, res, next) => {
@@ -88,10 +122,15 @@ router.post('/login', async (req, res, next) => {
     req.session.activeMarketplace  = null;
 
     // Phase 3F: Enrich session with new account model (non-fatal if map not found)
+    // Uses shared Redis cache (60 min TTL) — same key as requireAuth middleware
     try {
-      const map = await query(
-        'SELECT agency_id, manager_id, advertiser_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
-        [client.id]
+      const map = await cachedQuery(
+        `sfcache:client_migration_map:${client.id}`,
+        60 * 60 * 1000,
+        () => query(
+          'SELECT agency_id, manager_id, advertiser_id FROM CALBRIDGE_PROD.APP.client_migration_map WHERE client_id = ?',
+          [client.id]
+        )
       );
       if (map.length) {
         req.session.agencyId     = map[0].AGENCY_ID     || null;
@@ -192,12 +231,21 @@ router.post('/login', async (req, res, next) => {
 
 // POST /auth/logout
 router.post('/logout', requireAuth, (req, res) => {
-  req.session.destroy(() => res.json({ message: 'Logged out' }));
+  const clientId = req.session?.clientId;
+  req.session.destroy(() => {
+    // Clear Redis sfcache keys after session is destroyed (best-effort, non-blocking)
+    clearClientSfCache(clientId).catch(() => {});
+    res.json({ message: 'Logged out' });
+  });
 });
 
 // GET /auth/logout — for sidebar link / direct navigation
 router.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/'));
+  const clientId = req.session?.clientId;
+  req.session.destroy(() => {
+    clearClientSfCache(clientId).catch(() => {});
+    res.redirect('/');
+  });
 });
 
 // GET /auth/me

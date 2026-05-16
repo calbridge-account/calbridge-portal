@@ -16,6 +16,7 @@
  */
 
 const { query } = require('../services/snowflakeService');
+const { cachedQuery, cacheKey } = require('../services/queryCache');
 
 // ─── Plan definitions ─────────────────────────────────────────────────────────
 
@@ -153,30 +154,40 @@ const FEATURE_MESSAGES = {
   multiBrand:             'Multi-brand portal requires Agency plan.',
 };
 
-// Cache TTL: 5 minutes
+// Cache TTL: 5 minutes — shared with requireAuth via same Redis key
 const PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
 
-// ─── Plan lookup (with session cache) ────────────────────────────────────────
+// ─── Plan lookup (Redis-backed cache, shared with requireAuth) ───────────────
 
 /**
- * Look up the subscription_plan for a client, with a 5-minute session cache.
+ * Look up the subscription_plan for a client.
+ * Cache hierarchy:
+ *   L0: req.session.planCache (in-request session, sub-ms)
+ *   L1: queryCache in-memory (same process)
+ *   L2: Redis (sfcache:plan:{clientId}, 5 min, shared across restarts)
+ *   L3: Snowflake (source of truth)
+ *
  * Returns the plan string (defaulting to 'free' if null/unknown).
  */
 async function lookupPlan(req) {
   const clientId = req.session?.clientId;
   if (!clientId) return 'free';
 
-  // Check session cache
+  // L0: session cache (prevents repeat Redis hops within the same request lifecycle)
   const cache = req.session.planCache;
   if (cache && cache.plan && (Date.now() - cache.fetchedAt) < PLAN_CACHE_TTL_MS) {
     return cache.plan;
   }
 
-  // Fetch from DB
   try {
-    const rows = await query(
-      'SELECT subscription_plan, subscription_status, linked_client_id FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
-      [clientId]
+    const planKey = cacheKey('sfcache:plan', clientId);
+
+    // L1+L2+L3: cachedQuery handles in-memory → Redis → Snowflake
+    const rows = await cachedQuery(planKey, PLAN_CACHE_TTL_MS, () =>
+      query(
+        'SELECT subscription_plan, subscription_status, linked_client_id FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+        [clientId]
+      )
     );
 
     // Immediate lock on payment failure — past_due/paused/cancelled = no paid features
@@ -193,9 +204,12 @@ async function lookupPlan(req) {
     if (!PLAN_LIMITS[raw]) {
       const parentId = rows[0]?.LINKED_CLIENT_ID || rows[0]?.linked_client_id;
       if (parentId) {
-        const parentRows = await query(
-          'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
-          [parentId]
+        const parentKey = cacheKey('sfcache:plan', parentId);
+        const parentRows = await cachedQuery(parentKey, PLAN_CACHE_TTL_MS, () =>
+          query(
+            'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
+            [parentId]
+          )
         );
         raw = parentRows[0]?.SUBSCRIPTION_PLAN || parentRows[0]?.subscription_plan || null;
       }
@@ -203,9 +217,8 @@ async function lookupPlan(req) {
 
     const plan = PLAN_LIMITS[raw] ? raw : 'free';
 
-    // Store in session cache
+    // Populate session cache so subsequent calls in this session skip Redis
     req.session.planCache = { plan, fetchedAt: Date.now() };
-    // Attach to request too (non-blocking save)
     req.userPlan = plan;
 
     return plan;
