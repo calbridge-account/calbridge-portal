@@ -9,7 +9,7 @@ snowflake.configure({ logLevel: 'ERROR' });
 // Simple pool: up to MAX_POOL_SIZE connections, with health checking.
 // Prevents the single-connection hang that occurs under concurrent load.
 
-const MAX_POOL_SIZE  = 16; // reduced from 32 — pipeline is now 6h cadence, not continuous; 16 is plenty for burst
+const MAX_POOL_SIZE  = 4;  // reduced from 16 — 3 clients, burst load is low; 4 connections is sufficient
 const QUERY_TIMEOUT  = 60000; // 60s per query
 const CONNECT_TIMEOUT = 15000; // 15s to establish connection
 

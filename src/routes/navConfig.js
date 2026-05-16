@@ -27,38 +27,43 @@ router.get('/nav-config', requireAuth, async (req, res, next) => {
     const hasSeller = connections?.seller?.connected === true;
 
     // Base config — derive from connection status
-    // Check plan for Pro-gated features
-    const planRows = await query(
-      'SELECT subscription_plan FROM CALBRIDGE_PROD.APP.clients WHERE client_id = ?',
-      [clientId]
-    ).catch(() => []);
-    const plan = planRows[0]?.SUBSCRIPTION_PLAN || planRows[0]?.subscription_plan || 'free';
-    const isProPlus = plan === 'pro' || plan === 'agency';
-
     // Marketplace-aware: check if retail (seller/vendor) is connected for the active marketplace
     const activeMarketplace = req.session.activeMarketplace || 'US';
 
-    // Check client_accounts for marketplace-specific retail connections
+    // Consolidated query: fetch subscription_plan + marketplace-specific account channels in one shot
+    // Previously 2 separate queries; now 1 LEFT JOIN
+    let plan = 'free';
     let hasVendorForMarketplace = hasVendor; // default: fall back to global connection status
     let hasSellerForMarketplace = hasSeller;
     try {
-      const mpRows = await query(
-        `SELECT channel, marketplace FROM CALBRIDGE_PROD.APP.client_accounts
-         WHERE client_id = ? AND channel IN ('seller','vendor') AND is_active = TRUE`,
+      const clientRows = await query(
+        `SELECT c.subscription_plan, ca.channel, ca.marketplace
+         FROM CALBRIDGE_PROD.APP.clients c
+         LEFT JOIN CALBRIDGE_PROD.APP.client_accounts ca
+           ON ca.client_id = c.client_id
+          AND ca.channel IN ('seller','vendor')
+          AND ca.is_active = TRUE
+         WHERE c.client_id = ?`,
         [clientId]
       );
-      // If we have marketplace-level data, use it; otherwise fall back to global
-      if (mpRows.length > 0) {
-        hasVendorForMarketplace = mpRows.some(r =>
-          (r.CHANNEL || r.channel) === 'vendor' &&
-          (r.MARKETPLACE || r.marketplace) === activeMarketplace
-        );
-        hasSellerForMarketplace = mpRows.some(r =>
-          (r.CHANNEL || r.channel) === 'seller' &&
-          (r.MARKETPLACE || r.marketplace) === activeMarketplace
-        );
+      if (clientRows.length > 0) {
+        const sp = clientRows[0].SUBSCRIPTION_PLAN || clientRows[0].subscription_plan;
+        if (sp) plan = sp;
+        // If any account rows came back (channel is non-null), use marketplace-level data
+        const accountRows = clientRows.filter(r => r.CHANNEL || r.channel);
+        if (accountRows.length > 0) {
+          hasVendorForMarketplace = accountRows.some(r =>
+            (r.CHANNEL || r.channel) === 'vendor' &&
+            (r.MARKETPLACE || r.marketplace) === activeMarketplace
+          );
+          hasSellerForMarketplace = accountRows.some(r =>
+            (r.CHANNEL || r.channel) === 'seller' &&
+            (r.MARKETPLACE || r.marketplace) === activeMarketplace
+          );
+        }
       }
-    } catch (_) { /* non-fatal, fall back to global */ }
+    } catch (_) { /* non-fatal, fall back to defaults */ }
+    const isProPlus = plan === 'pro' || plan === 'agency';
 
     // Simple consistent rule: connected for this marketplace = visible, otherwise grayed
     // Same logic applies to US and every other marketplace

@@ -103,39 +103,64 @@ router.post('/login', async (req, res, next) => {
       console.warn('[Auth] Phase 3 session enrichment failed (non-fatal):', e.message);
     }
 
-    // Determine role: check if this user is a team member on a parent account
-    // authService.login returns effectiveId (parent's clientId for linked accounts)
-    // We need to check the original user record for linked_client_id + find their role
+    // Consolidated clients query: fetch user record (for linked_client_id + role) and
+    // onboarding/account_type in a single query instead of 2-3 sequential ones.
+    // Previously: query(clients WHERE email) + query(clients WHERE client_id for team_members)
+    //           + query(clients WHERE client_id for onboarding_completed/account_type)
+    // Now: single query joining both rows via email + client_id in one shot.
     let userRole = 'owner';
+    let onboardingCompleted = false;
+    let accountType = 'brand';
     try {
-      const userRows = await query(
-        `SELECT client_id, linked_client_id FROM clients WHERE email = ?`, [email.toLowerCase().trim()]
+      const normalizedEmail = email.toLowerCase().trim();
+      // Fetch the user row by email (gets linked_client_id) AND the effective session row by client_id
+      // (gets onboarding_completed, account_type). Using UNION to get both in one round-trip.
+      const clientsRows = await query(
+        `SELECT client_id, linked_client_id, onboarding_completed, account_type, team_members, NULL AS _row_type
+         FROM clients
+         WHERE client_id = ?
+         UNION ALL
+         SELECT client_id, linked_client_id, onboarding_completed, account_type, team_members, 'by_email' AS _row_type
+         FROM clients
+         WHERE email = ? AND client_id != ?`,
+        [client.id, normalizedEmail, client.id]
       );
-      const userRecord = userRows[0];
-      if (userRecord?.LINKED_CLIENT_ID) {
+
+      // Row by client.id = session owner (onboarding data)
+      const sessionRow = clientsRows.find(r =>
+        (r.CLIENT_ID || r.client_id) === client.id
+      );
+      if (sessionRow) {
+        onboardingCompleted = sessionRow.ONBOARDING_COMPLETED ?? sessionRow.onboarding_completed ?? false;
+        accountType = sessionRow.ACCOUNT_TYPE || sessionRow.account_type || 'brand';
+      }
+
+      // Row by email (if different from session owner) = team member record
+      const emailRow = clientsRows.find(r =>
+        (r._ROW_TYPE || r['_row_type']) === 'by_email'
+      );
+      const linkedClientId = emailRow
+        ? (emailRow.LINKED_CLIENT_ID || emailRow.linked_client_id)
+        : (sessionRow?.LINKED_CLIENT_ID || sessionRow?.linked_client_id);
+
+      if (linkedClientId) {
         // This is a team member — look up their role from the parent's team_members
         const parentRows = await query(
-          `SELECT team_members FROM clients WHERE client_id = ?`, [userRecord.LINKED_CLIENT_ID]
+          `SELECT team_members FROM clients WHERE client_id = ?`, [linkedClientId]
         );
         const members = parentRows[0]?.TEAM_MEMBERS
           ? (typeof parentRows[0].TEAM_MEMBERS === 'string'
-              ? (typeof parentRows[0].TEAM_MEMBERS === "string" ? JSON.parse(parentRows[0].TEAM_MEMBERS) : parentRows[0].TEAM_MEMBERS)
+              ? JSON.parse(parentRows[0].TEAM_MEMBERS)
               : parentRows[0].TEAM_MEMBERS)
           : [];
-        const member = members.find(m => m.email === email.toLowerCase().trim());
+        const member = members.find(m => m.email === normalizedEmail);
         userRole = member?.role || 'viewer';
       }
     } catch (roleErr) {
-      console.warn('[Auth] Role lookup failed, defaulting to owner:', roleErr.message);
+      console.warn('[Auth] Role/onboarding lookup failed, using defaults:', roleErr.message);
+      // Non-fatal: fall back to defaults set above
     }
     req.session.userRole = userRole;
-
-    // Fetch onboarding status + account type for redirect logic on the client side
-    const rows = await query(
-      `SELECT onboarding_completed, account_type FROM clients WHERE client_id = ?`, [client.id]
-    ).catch(() => []);
-    const onboardingCompleted = rows[0]?.ONBOARDING_COMPLETED ?? false;
-    const accountType = rows[0]?.ACCOUNT_TYPE || 'brand';
 
     res.json({
       message: 'Logged in',
