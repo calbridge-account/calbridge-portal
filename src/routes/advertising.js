@@ -473,11 +473,11 @@ router.get('/by-campaign-type', requireAuth, planDataWindow, async (req, res, ne
         ad_type AS connection_type,
         SUM(impressions)    AS impressions,
         SUM(clicks)         AS clicks,
-        SUM(adjusted_spend) AS spend,
+        SUM(spend) AS spend,
         SUM(sales)          AS sales,
         SUM(orders)         AS orders,
-        CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
-        CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas
+        CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
+        CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas
       FROM CALBRIDGE_PROD.MARTS.AD_PERFORMANCE_DAILY
       WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
       ${marketplaceFilterSafe(marketplace)}
@@ -503,16 +503,16 @@ router.get('/roas-by-type', requireAuth, planDataWindow, async (req, res, next) 
           ad_type AS connection_type,
           SUM(impressions)    AS impressions,
           SUM(clicks)         AS clicks,
-          SUM(adjusted_spend) AS spend,
+          SUM(spend) AS spend,
           SUM(sales)          AS sales,
           SUM(orders)         AS orders,
-          CASE WHEN SUM(adjusted_spend) > 0 THEN SUM(sales) / SUM(adjusted_spend) ELSE NULL END AS roas,
-          CASE WHEN SUM(sales) > 0 THEN SUM(adjusted_spend) / SUM(sales) ELSE NULL END AS acos,
+          CASE WHEN SUM(spend) > 0 THEN SUM(sales) / SUM(spend) ELSE NULL END AS roas,
+          CASE WHEN SUM(sales) > 0 THEN SUM(spend) / SUM(sales) ELSE NULL END AS acos,
           CASE WHEN SUM(impressions) > 0 THEN SUM(clicks) / SUM(impressions) ELSE NULL END AS ctr
         FROM CALBRIDGE_PROD.MARTS.CAMPAIGN_PERFORMANCE
         WHERE client_id = ? ${dateFilter("date", days, startDate, endDate)}
         GROUP BY ad_type
-        ORDER BY SUM(adjusted_spend) DESC
+        ORDER BY SUM(spend) DESC
       `, [clientId]),
       query(`
         SELECT COALESCE(SUM(ordered_revenue + COALESCE(shipped_revenue, 0)), 0) AS total_revenue

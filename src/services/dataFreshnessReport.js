@@ -29,10 +29,10 @@
 'use strict';
 
 require('dotenv').config();
-const { Resend } = require('resend');
-const { query }  = require('./snowflakeService');
 
-const resend    = new Resend(process.env.RESEND_API_KEY);
+const { query }  = require('./snowflakeService');
+const { sendEmail } = require('./graphEmailService');
+
 const FROM_EMAIL = 'ash@teamcalbridge.com';
 const TO_EMAIL   = 'abe@teamcalbridge.com';
 
@@ -379,16 +379,11 @@ async function sendFreshnessReport() {
   const subject = `📊 Calbridge Data Freshness Report — ${dateStr}`;
 
   try {
-    const result = await resend.emails.send({
-      from:    FROM_EMAIL,
-      to:      TO_EMAIL,
-      subject,
-      html,
-    });
-    console.log(`[freshnessReport] Sent to ${TO_EMAIL} (id: ${result?.data?.id ?? result?.id ?? 'unknown'}) — ${clientCount} client(s)`);
+    const result = await sendEmail({ from: FROM_EMAIL, to: TO_EMAIL, subject, html });
+    console.log(`[freshnessReport] Sent to ${TO_EMAIL} — ${clientCount} client(s)`);
     return { sent: true, clientCount };
   } catch (err) {
-    console.error('[freshnessReport] Resend delivery failed:', err.message);
+    console.error('[freshnessReport] Graph delivery failed:', err.message);
     return { sent: false, clientCount };
   }
 }
