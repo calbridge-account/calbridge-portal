@@ -31,3 +31,9 @@ AGENTS.md
 TOOLS.md
 IDENTITY.md
 HEARTBEAT.md
+
+# GTM prospect data — contains PII (emails, phone numbers), never commit
+gtm/*.csv
+gtm/*.json
+gtm/*.txt
+gtm/send-log*
