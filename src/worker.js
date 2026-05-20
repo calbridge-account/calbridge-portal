@@ -29,6 +29,9 @@ async function main() {
   // Register weekly email cron
   registerWeeklyEmailCron();
 
+  // Register daily anomaly alert cron
+  registerAnomalyAlertCron();
+
   console.log('[worker] Calbridge Worker running — cron + BullMQ active');
 
   // Start stale queue watchdog
@@ -58,6 +61,33 @@ function registerWeeklyEmailCron() {
     console.log('[WeeklyEmail] Cron registered — every Monday at 8am Pacific');
   } catch (err) {
     console.error('[WeeklyEmail] Failed to register cron:', err.message);
+  }
+}
+
+/**
+ * Register daily anomaly alert cron — every day at 10:00 AM UTC
+ */
+function registerAnomalyAlertCron() {
+  try {
+    const cron = require('node-cron');
+    const { runAnomalyAlerts } = require('./jobs/anomalyAlerts');
+
+    // '0 10 * * *' = 10:00 AM every day, UTC
+    cron.schedule('0 10 * * *', async () => {
+      console.log('[AnomalyAlerts] Cron triggered — running daily anomaly detection...');
+      try {
+        const result = await runAnomalyAlerts();
+        console.log(`[AnomalyAlerts] Cron complete — ${result.anomalies} anomaly/anomalies, ${result.budgetAlerts} budget alert(s)`);
+      } catch (err) {
+        console.error('[AnomalyAlerts] Cron job failed:', err.message);
+      }
+    }, {
+      timezone: 'UTC'
+    });
+
+    console.log('[AnomalyAlerts] Cron registered — every day at 10:00 AM UTC');
+  } catch (err) {
+    console.error('[AnomalyAlerts] Failed to register cron:', err.message);
   }
 }
 
@@ -109,13 +139,12 @@ function startQueueWatchdog() {
       if (now - lastAlertSent > ALERT_COOLDOWN_MS) {
         lastAlertSent = now;
         try {
-          const { Resend } = require('resend');
-          const resend = new Resend(process.env.RESEND_API_KEY);
-          await resend.emails.send({
-            from: process.env.EMAIL_FROM || 'ash@teamcalbridge.com',
-            to:   process.env.EMAIL_ALERT || 'abe@teamcalbridge.com',
+          const { sendEmail } = require('./services/graphEmailService');
+          
+          await sendEmail({
+            to:      process.env.EMAIL_ALERT || 'abe@teamcalbridge.com',
             subject: `⚠️ Calbridge worker stalled — ${staleCount} reports stuck`,
-            html: `<p><strong>${staleCount} report(s)</strong> have been stuck in 'ready' status for over ${STALE_THRESHOLD_MIN} minutes.</p><p>Oldest: ${oldest}</p><p>The worker download loop may have stalled. Check <code>pm2 logs calbridge-worker</code> and restart if needed.</p>`,
+            html:    `<p><strong>${staleCount} report(s)</strong> have been stuck in 'ready' status for over ${STALE_THRESHOLD_MIN} minutes.</p><p>Oldest: ${oldest}</p><p>The worker download loop may have stalled. Check <code>pm2 logs calbridge-worker</code> and restart if needed.</p>`,
           });
           console.log('[worker] Stale queue alert email sent to abe@teamcalbridge.com');
         } catch (emailErr) {
