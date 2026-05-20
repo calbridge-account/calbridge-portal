@@ -708,6 +708,71 @@ router.post('/users/invite', async (req, res) => {
       console.warn('[POST /manager/users/invite] Legacy dual-write failed:', legacyErr.message);
     }
 
+    // ── Create CLIENTS record for sub-user if it doesn't exist ──────────────
+    // This allows the sub-user to authenticate via the standard login flow.
+    // We then send a password-setup email so they can set their own password.
+    try {
+      const existingClient = await query(
+        'SELECT client_id FROM CALBRIDGE_PROD.APP.clients WHERE email = ?',
+        [normalEmail]
+      );
+
+      if (!existingClient.length) {
+        // No CLIENTS record — create a minimal one so auth works
+        const displayName = (name || '').trim() || normalEmail;
+        await query(
+          `INSERT INTO CALBRIDGE_PROD.APP.clients
+             (client_id, client_name, client_type, email, name, status, account_type, created_at, updated_at)
+           VALUES (?, ?, 'client', ?, ?, 'active', 'brand', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+          [userId, displayName, normalEmail, displayName]
+        );
+        console.log(`[POST /manager/users/invite] Created CLIENTS record for sub-user ${normalEmail}`);
+
+        // Send password-setup email (reuse forgot-password token mechanism)
+        if (true) {
+          try {
+            const rawToken    = crypto.randomBytes(32).toString('hex');
+            const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const expires     = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+            await query(
+              `UPDATE CALBRIDGE_PROD.APP.clients
+               SET password_reset_token = ?, password_reset_expires = ?
+               WHERE client_id = ?`,
+              [hashedToken, expires.toISOString(), userId]
+            );
+
+            const { resendShim: resend } = require('../services/graphEmailService'); // switched from Resend
+            const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
+            const setupUrl = `${baseUrl}/reset-password.html?token=${rawToken}`;
+            const firstName = ((name || '').trim() || normalEmail).split(' ')[0];
+
+            await resend.emails.send({
+              from:    `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+              to:      [normalEmail],
+              subject: 'Set up your Calbridge password',
+              html: `
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#fff;border-radius:8px;">
+                  <img src="${baseUrl}/images/calbridge-logo-220.png" alt="Calbridge" style="height:60px;margin-bottom:24px;" />
+                  <h2 style="color:#1e3a1a;margin:0 0 8px;">You've been invited to Calbridge</h2>
+                  <p style="color:#4b5563;margin:0 0 24px;">Hi ${firstName}, you've been given access to a Calbridge account. Click the button below to set your password and get started. This link expires in <strong>7 days</strong>.</p>
+                  <a href="${setupUrl}" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Set Your Password</a>
+                  <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">If you didn't expect this invitation, you can safely ignore this email.</p>
+                  <p style="color:#9ca3af;font-size:11px;margin:8px 0 0;">Or copy this link: ${setupUrl}</p>
+                </div>
+              `
+            });
+            console.log(`[POST /manager/users/invite] Password-setup email sent to ${normalEmail}`);
+          } catch (emailErr) {
+            console.warn('[POST /manager/users/invite] Password-setup email failed (non-fatal):', emailErr.message);
+          }
+        }
+      }
+    } catch (clientsErr) {
+      // Non-fatal — user is still created in APP.users / user_advertiser_access
+      console.warn('[POST /manager/users/invite] CLIENTS record creation failed (non-fatal):', clientsErr.message);
+    }
+
     return res.status(201).json({ userId, email: normalEmail, advertiser_id, role });
   } catch (err) {
     console.error('[POST /manager/users/invite]', err);
@@ -1019,6 +1084,67 @@ agencyRouter.post('/users/invite', async (req, res) => {
       );
     }
 
+    // ── Create CLIENTS record for agency sub-user if it doesn't exist ────────
+    // Allows authentication via the standard login flow + password-setup email.
+    try {
+      const existingClient = await query(
+        'SELECT client_id FROM CALBRIDGE_PROD.APP.clients WHERE email = ?',
+        [normalEmail]
+      );
+
+      if (!existingClient.length) {
+        const agencyDisplayName = (name || '').trim() || normalEmail;
+        await query(
+          `INSERT INTO CALBRIDGE_PROD.APP.clients
+             (client_id, client_name, client_type, email, name, status, account_type, created_at, updated_at)
+           VALUES (?, ?, 'client', ?, ?, 'active', 'brand', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())`,
+          [userId, agencyDisplayName, normalEmail, agencyDisplayName]
+        );
+        console.log(`[POST /agency/users/invite] Created CLIENTS record for sub-user ${normalEmail}`);
+
+        if (true) {
+          try {
+            const rawToken    = crypto.randomBytes(32).toString('hex');
+            const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const expires     = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+            await query(
+              `UPDATE CALBRIDGE_PROD.APP.clients
+               SET password_reset_token = ?, password_reset_expires = ?
+               WHERE client_id = ?`,
+              [hashedToken, expires.toISOString(), userId]
+            );
+
+            const { resendShim: resend } = require('../services/graphEmailService'); // switched from Resend
+            const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
+            const setupUrl = `${baseUrl}/reset-password.html?token=${rawToken}`;
+            const firstName = ((name || '').trim() || normalEmail).split(' ')[0];
+
+            await resend.emails.send({
+              from:    `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
+              to:      [normalEmail],
+              subject: 'Set up your Calbridge password',
+              html: `
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#fff;border-radius:8px;">
+                  <img src="${baseUrl}/images/calbridge-logo-220.png" alt="Calbridge" style="height:60px;margin-bottom:24px;" />
+                  <h2 style="color:#1e3a1a;margin:0 0 8px;">You've been invited to Calbridge</h2>
+                  <p style="color:#4b5563;margin:0 0 24px;">Hi ${firstName}, you've been given access to a Calbridge account. Click the button below to set your password and get started. This link expires in <strong>7 days</strong>.</p>
+                  <a href="${setupUrl}" style="display:inline-block;background:#2d5a27;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Set Your Password</a>
+                  <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">If you didn't expect this invitation, you can safely ignore this email.</p>
+                  <p style="color:#9ca3af;font-size:11px;margin:8px 0 0;">Or copy this link: ${setupUrl}</p>
+                </div>
+              `
+            });
+            console.log(`[POST /agency/users/invite] Password-setup email sent to ${normalEmail}`);
+          } catch (emailErr) {
+            console.warn('[POST /agency/users/invite] Password-setup email failed (non-fatal):', emailErr.message);
+          }
+        }
+      }
+    } catch (clientsErr) {
+      console.warn('[POST /agency/users/invite] CLIENTS record creation failed (non-fatal):', clientsErr.message);
+    }
+
     return res.status(201).json({ userId, email: normalEmail, agencyId, role });
   } catch (err) {
     console.error('[POST /agency/users/invite]', err);
@@ -1190,10 +1316,10 @@ agencyRouter.post('/brands', async (req, res) => {
     );
 
     // 6. Send invite email if contactEmail provided
-    if (contactEmail && process.env.RESEND_API_KEY) {
+    if (contactEmail) {
       try {
-        const { Resend } = require('resend');
-        const resend = new Resend(process.env.RESEND_API_KEY);
+        const { resendShim: resend } = require('../services/graphEmailService'); // switched from Resend
+        
         const baseUrl = process.env.BASE_URL || 'https://app.calbridge.ai';
         await resend.emails.send({
           from: `Ash at Calbridge <${process.env.EMAIL_FROM || 'ash@teamcalbridge.com'}>`,
